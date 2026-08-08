@@ -9,6 +9,7 @@ Licensed under the MIT License. See LICENSE for details.
 """
 
 import argparse
+import json
 import sys
 import os
 import time
@@ -115,7 +116,7 @@ class ContainerEscapeMonitor:
         self._refresh_thread.start()
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.2.0")
+        print("  eBPF Container Guard v0.2.1")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -288,6 +289,7 @@ class ContainerEscapeMonitor:
                         self._print_alert_v2(alert, matrix_result)
 
                         # === Tier 3: AI Judge (gray zone or unknown) ===
+                        ai_result = None
                         if matrix_result.escalate_to_ai:
                             context = self.matrix.get_context_events(raw_cid)
                             ai_result = self.ai.analyze(
@@ -304,10 +306,15 @@ class ContainerEscapeMonitor:
                         # === Response ===
                         alert['severity'] = alert.get('severity', 'LOW')
                         self.responder.handle_alert(alert)
+
+                        # === Event Log ===
+                        self._write_event_log(alert, matrix_result,
+                                              ai_result, action)
                     else:
                         # No attack vector → basic alert only
                         print_alert(alert)
                         self.responder.handle_alert(alert)
+                        self._write_event_log(alert)
             else:
                 # Normal event — green output (verbose mode)
                 if self.verbose:
@@ -318,6 +325,64 @@ class ContainerEscapeMonitor:
             if self.verbose:
                 import traceback
                 traceback.print_exc()
+
+    # ================================================================
+    # v0.2.1: structured JSON event logging
+    # ================================================================
+
+    def _write_event_log(self, alert, matrix_result=None, ai_result=None,
+                         action="log_only", event_dict=None):
+        """Write a structured JSON event log entry.
+
+        Records every pipeline decision — alert or false positive — for audit
+        and dashboard consumption. One JSON object per line, appended to
+        events.log.
+        """
+        evt = alert.get('event', event_dict or {})
+        log_entry = {
+            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'container_id': evt.get('container_id', 'unknown'),
+            'event_type': evt.get('event_type', 'unknown'),
+            'rule': alert.get('rule_name', 'none'),
+            'severity': alert.get('severity', 'INFO'),
+            # Tier 1: rule engine
+            'tier1_match': alert.get('rule_name', 'none') != 'none',
+            # Tier 2: attack matrix
+            'tier2_vector': alert.get('attack_vector'),
+            'tier2_confidence': alert.get('matrix_confidence'),
+            'tier2_combo': matrix_result.boosted if matrix_result else False,
+            'tier2_narrative': matrix_result.combination_narrative if matrix_result else '',
+            # Tier 3: AI judge
+            'tier3_ai_verdict': None,
+            'tier3_ai_confidence': None,
+            'tier3_ai_technique': None,
+            'tier3_ai_report': None,
+            # Action
+            'action': action,
+            # Raw event
+            'event': {
+                'pid': evt.get('pid'),
+                'comm': evt.get('comm'),
+                'uid': evt.get('uid'),
+                'fstype': evt.get('fstype'),
+                'target_path': evt.get('target_path'),
+                'target_pid': evt.get('target_pid'),
+                'request': evt.get('request'),
+                'daddr': evt.get('daddr'),
+                'dport': evt.get('dport'),
+            },
+        }
+
+        if ai_result:
+            log_entry['tier3_ai_verdict'] = (
+                'true_positive' if ai_result.is_attack else 'false_positive')
+            log_entry['tier3_ai_confidence'] = ai_result.confidence
+            log_entry['tier3_ai_technique'] = ai_result.technique
+            log_entry['tier3_ai_report'] = ai_result.report
+            log_entry['action'] = ai_result.suggested_action
+
+        with open('events.log', 'a') as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
 
     # ================================================================
     # v0.2.0: enriched alert printing

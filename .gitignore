@@ -55,3 +55,4 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+events.log
