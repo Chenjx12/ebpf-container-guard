@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point
+eBPF Container Guard - Main Entry Point (v0.2.0)
 
 Real-time container escape detection and response system based on eBPF.
+3-tier detection: rule engine → attack matrix → AI judge
 Copyright (c) 2026 chenjx12
 Licensed under the MIT License. See LICENSE for details.
 """
@@ -22,6 +23,8 @@ import docker
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 from detector.engine import EscapeDetector, print_alert
+from detector.attack_matrix import AttackMatrix
+from detector.ai_analyzer import AIAnalyzer
 from responder.docker_responder import ResponseEngine
 
 
@@ -77,11 +80,22 @@ class ContainerEscapeMonitor:
         self.detector = EscapeDetector(rules_file)
 
         # 3. Load response strategies
-        print("[3/5] Loading response strategies...")
+        print("[3/7] Loading response strategies...")
         self.responder = ResponseEngine(responses_file)
 
-        # 4. Connect to Docker daemon
-        print("[4/5] Connecting to Docker daemon...")
+        # 4. Initialize attack matrix (Tier 2: behavior → CVE)
+        print("[4/7] Initializing attack matrix...")
+        self.matrix = AttackMatrix()
+        from detector.attack_matrix import BEHAVIOR_MATRIX, COMBINATION_BOOSTS
+        print(f"  [Matrix] {len(BEHAVIOR_MATRIX)} vectors, "
+              f"{len(COMBINATION_BOOSTS)} combination rules")
+
+        # 5. Initialize AI analyzer (Tier 3: DeepSeek judge)
+        print("[5/7] Initializing AI analyzer...")
+        self.ai = AIAnalyzer()
+
+        # 6. Connect to Docker daemon
+        print("[6/7] Connecting to Docker daemon...")
         try:
             self.docker_client = docker.from_env()
         except docker.errors.DockerException as e:
@@ -90,19 +104,19 @@ class ContainerEscapeMonitor:
                   file=sys.stderr)
             sys.exit(1)
 
-        # 5. Initialize container identity maps
-        print("[5/5] Initializing container identity maps...")
+        # 7. Initialize container identity maps
+        print("[7/7] Initializing container identity maps...")
         self._refresh_all_maps()
 
-        # Start background map refresh thread (every 15s)
+        # Start background map refresh thread
         self._stop_refresh = threading.Event()
         self._refresh_thread = threading.Thread(
             target=self._refresh_loop, daemon=True)
         self._refresh_thread.start()
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.1.1")
-        print("  Real-time container escape detection")
+        print("  eBPF Container Guard v0.2.0")
+        print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
 
@@ -193,7 +207,8 @@ class ContainerEscapeMonitor:
             event = self.bpf['events'].event(data)
 
             # Map numeric event type to string
-            event_type_map = {1: 'mount', 2: 'ptrace', 3: 'openat'}
+            event_type_map = {1: 'mount', 2: 'ptrace', 3: 'openat',
+                              4: 'execve', 5: 'connect'}
 
             # Resolve container identity (3-tier fallback)
             raw_cid = event.container_id.decode(
@@ -240,39 +255,148 @@ class ContainerEscapeMonitor:
             elif event.event_type == 3:  # OPENAT
                 event_dict['target_path'] = event.target_path.decode(
                     'utf-8', errors='replace').rstrip('\x00')
+            elif event.event_type == 4:  # EXECVE
+                event_dict['target_path'] = event.target_path.decode(
+                    'utf-8', errors='replace').rstrip('\x00')
+            elif event.event_type == 5:  # CONNECT
+                event_dict['daddr'] = event.daddr
+                event_dict['dport'] = event.dport
 
-            # === Detection + Response Pipeline ===
+            # === Tier 1: Rule Engine ===
             matched_rules = self.detector.check_event(event_dict)
             if matched_rules:
                 for rule in matched_rules:
+                    # Skip container-specific rules for host processes
+                    attack_vector = rule.get('attack_vector', '')
+                    if raw_cid == 'host' and attack_vector not in (
+                            'ptrace_host_init',):
+                        continue
+
                     alert = self.detector.generate_alert(rule, event_dict)
-                    print_alert(alert)
-                    # Auto-execute response action
-                    self.responder.handle_alert(alert)
+
+                    # === Tier 2: Attack Matrix ===
+                    attack_vector = rule.get('attack_vector', 'unknown')
+                    if attack_vector != 'unknown':
+                        matrix_result = self.matrix.analyze(
+                            attack_vector, raw_cid)
+                        alert['attack_vector'] = attack_vector
+                        alert['cve_refs'] = rule.get('cve_refs', [])
+                        alert['matrix_confidence'] = matrix_result.final_confidence
+                        alert['suggested_action'] = matrix_result.suggested_action
+
+                        # Print enriched alert
+                        self._print_alert_v2(alert, matrix_result)
+
+                        # === Tier 3: AI Judge (gray zone or unknown) ===
+                        if matrix_result.escalate_to_ai:
+                            context = self.matrix.get_context_events(raw_cid)
+                            ai_result = self.ai.analyze(
+                                alert, context, matrix_result.final_confidence)
+                            if ai_result:
+                                self._print_ai_report(ai_result)
+                                alert['ai_confidence'] = ai_result.confidence
+                                action = ai_result.suggested_action
+                            else:
+                                action = matrix_result.suggested_action
+                        else:
+                            action = matrix_result.suggested_action
+
+                        # === Response ===
+                        alert['severity'] = alert.get('severity', 'LOW')
+                        self.responder.handle_alert(alert)
+                    else:
+                        # No attack vector → basic alert only
+                        print_alert(alert)
+                        self.responder.handle_alert(alert)
             else:
-                # Normal event — green output
+                # Normal event — green output (verbose mode)
                 if self.verbose:
-                    if event_dict['event_type'] == 'ptrace':
-                        print(f"\033[92m[INFO] ptrace - "
-                              f"PID:{event_dict['pid']} "
-                              f"Comm:{event_dict['comm']} "
-                              f"CID:{event_dict['container_id']} "
-                              f"Req:{event_dict['request']} "
-                              f"Target:{event_dict['target_pid']}\033[0m")
-                    elif event_dict['event_type'] == 'mount':
-                        print(f"\033[92m[INFO] mount - "
-                              f"PID:{event_dict['pid']} "
-                              f"Comm:{event_dict['comm']} "
-                              f"CID:{event_dict['container_id']} "
-                              f"FS:{event_dict['fstype']} "
-                              f"Path:{event_dict['target_path']}\033[0m")
-                    # openat is high-frequency; only print on alert
+                    self._print_verbose(event_dict)
 
         except Exception as e:
             print(f"[ERROR] Event processing failed: {e}", file=sys.stderr)
             if self.verbose:
                 import traceback
                 traceback.print_exc()
+
+    # ================================================================
+    # v0.2.0: enriched alert printing
+    # ================================================================
+
+    def _print_alert_v2(self, alert, matrix_result):
+        """Print alert with attack matrix enrichment."""
+        RED = '\033[91m'; RESET = '\033[0m'; BG_RED = '\033[101m'
+        YELLOW = '\033[93m'; CYAN = '\033[96m'; WHITE = '\033[97m'
+
+        sev = alert.get('severity', 'HIGH')
+        color = BG_RED if sev == 'CRITICAL' else RED
+
+        print(f"\n{color}🚨 安全告警 - {sev} {RESET}")
+        print(f"{RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}")
+        print(f"{RED}规则: {alert['rule_name']}{RESET}")
+        print(f"{RED}攻击向量: {alert.get('attack_vector', 'unknown')}{RESET}")
+        evt = alert.get('event', {})
+        print(f"{RED}容器: {evt.get('container_id', 'unknown')}{RESET}")
+        print(f"{RED}进程: {evt.get('pid')} ({evt.get('comm')}){RESET}")
+
+        if 'fstype' in evt:
+            print(f"{RED}文件系统: {evt['fstype']} → {evt.get('target_path', '')}{RESET}")
+        if 'target_pid' in evt:
+            print(f"{RED}Ptrace: {evt.get('request', '?')} → 目标PID:{evt['target_pid']}{RESET}")
+        if evt.get('event_type') in ('execve', 'openat') and 'target_path' in evt:
+            print(f"{RED}路径: {evt['target_path']}{RESET}")
+        if 'daddr' in evt:
+            from socket import htons
+            ip = evt['daddr']
+            port = htons(evt['dport'])
+            print(f"{RED}连接: {(ip>>24)&0xFF}.{(ip>>16)&0xFF}.{(ip>>8)&0xFF}.{ip&0xFF}:{port}{RESET}")
+
+        # Matrix enrichment
+        print(f"{YELLOW}━━━ 行为矩阵分析 ━━━{RESET}")
+        if matrix_result.boosted:
+            print(f"{YELLOW}🔗 组合命中: {matrix_result.combination_narrative}{RESET}")
+        print(f"{YELLOW}关联CVE: {', '.join(alert.get('cve_refs', [])) or 'none'}{RESET}")
+        print(f"{YELLOW}攻击手法: {', '.join(matrix_result.techniques)}{RESET}")
+        conf = matrix_result.final_confidence
+        conf_color = BG_RED if conf > 85 else (RED if conf > 60 else CYAN)
+        print(f"{YELLOW}置信度: {conf_color}{conf}%{RESET} "
+              f"{'🔴 自动响应' if conf > 85 else '🟡 AI研判' if conf >= 60 else '🔵 仅记录'}")
+        print(f"{color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}\n")
+
+    def _print_ai_report(self, ai_result):
+        """Print the AI analysis report."""
+        CYAN = '\033[96m'; RESET = '\033[0m'; GREEN = '\033[92m'
+        print(f"{CYAN}🤖 AI 研判报告:{RESET}")
+        print(f"{CYAN}   判定: {'✅ 攻击' if ai_result.is_attack else '⚠️ 误报'}{RESET}")
+        print(f"{CYAN}   手法: {ai_result.technique}{RESET}")
+        print(f"{CYAN}   置信度: {ai_result.confidence}%{RESET}")
+        print(f"{CYAN}   分析: {ai_result.report}{RESET}")
+        print(f"{CYAN}   建议: {ai_result.suggested_action}{RESET}")
+        if ai_result.suggested_rule:
+            print(f"{GREEN}   🔧 AI 建议新增规则: {ai_result.suggested_rule.get('name', '')}{RESET}")
+        print()
+
+    def _print_verbose(self, event_dict):
+        """Print normal event in verbose mode."""
+        etype = event_dict['event_type']
+        pid = event_dict['pid']
+        comm = event_dict['comm']
+        cid = event_dict['container_id']
+        if etype == 'execve':
+            print(f"\033[92m[INFO] execve - PID:{pid} Comm:{comm} "
+                  f"CID:{cid} Path:{event_dict.get('target_path', '')}\033[0m")
+        elif etype == 'connect':
+            print(f"\033[92m[INFO] connect - PID:{pid} Comm:{comm} "
+                  f"CID:{cid}\033[0m")
+        elif etype == 'ptrace':
+            print(f"\033[92m[INFO] ptrace - PID:{pid} Comm:{comm} "
+                  f"CID:{cid} Req:{event_dict.get('request', '')} "
+                  f"Target:{event_dict.get('target_pid', '')}\033[0m")
+        elif etype == 'mount':
+            print(f"\033[92m[INFO] mount - PID:{pid} Comm:{comm} "
+                  f"CID:{cid} FS:{event_dict.get('fstype', '')} "
+                  f"Path:{event_dict.get('target_path', '')}\033[0m")
+        # openat is filtered in kernel space; if it reaches here, print it
 
     # ================================================================
     # Main loop

@@ -1,0 +1,11 @@
+# DeepSeek API Configuration
+# Copy this file to ai_config.yaml and fill in your API key
+# ai_config.yaml is gitignored — never commit it to the repo
+
+api_key: "sk-your-deepseek-api-key-here"
+model: "deepseek-chat"
+
+# Confidence thresholds for graded response
+auto_response_threshold: 85    # Confidence > 85% → auto execute response
+pending_review_threshold: 60   # Confidence 60-85% → queue for human review
+                               # Confidence < 60% → log only
