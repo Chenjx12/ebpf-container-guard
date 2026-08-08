@@ -5,74 +5,75 @@
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
-> 🛡️ 基于 eBPF 的 AI 增强容器逃逸实时检测与防护系统
-> AI-enhanced container escape detection and defense system based on eBPF
+> 🛡️ AI-enhanced container escape detection system based on eBPF  
+> Real-time Detection · Intelligent Analysis · Auto Response · Cloud-Native Ready
 
-**Real-time Detection · Auto Response · Cloud-Native Ready**
-**实时检测 · 自动响应 · 云原生就绪**
-
----
-
-## 🎯 核心特性 / Key Features
-
-- **内核级监控 / Kernel-level Monitoring** — 通过 eBPF tracepoint 零开销捕获 mount/ptrace 系统调用
-- **智能降噪 / Smart Noise Reduction** — YAML 规则引擎，支持白名单排除 + 通配符匹配，降低误报
-- **自动响应 / Auto Response** — 检测到逃逸行为后 100ms 内自动执行容器隔离（冻结/断网/杀进程）
-- **容器身份识别 / Container Identity** — 3 级回退策略（PID Map → Cgroup Inode → /proc/cgroup）
-- **可配置 / Configurable** — 检测规则和响应策略通过 YAML 文件定义，支持热加载
-- **云原生就绪 / Cloud-Native Ready** — Docker 单机版已就绪，K8s DaemonSet 支持规划在后续版本
+[**中文版 / Chinese Version**](README_CN.md)
 
 ---
 
-## 🚀 快速开始 / Quick Start
+## 🎯 Key Features
 
-### 环境要求 / Prerequisites
+- **Kernel-level Monitoring**: Zero-overhead syscall capture via eBPF tracepoints (mount, ptrace)
+- **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) for accurate container attribution
+- **Smart Noise Reduction**: YAML-based rule engine with whitelist exclusion + fnmatch wildcard support
+- **Auto Response**: Automatic container isolation (pause/disconnect/kill) with 10-minute cooldown
+- **Configurable**: Hot-reload detection rules and response strategies via YAML files
+- **Cloud-Native Ready**: Docker single-host verified; K8s DaemonSet planned in v0.4.0
 
-| 依赖 | 要求 |
-|------|------|
-| OS | Ubuntu 22.04 LTS（kernel ≥ 5.15） |
-| Python | 3.8+ |
-| BCC | `sudo apt install bpfcc-tools python3-bcc` |
-| Docker | 已安装并运行 |
+---
 
-### 一键启动 / Local Run
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **OS**: Ubuntu 22.04 LTS (kernel ≥ 5.15)
+- **Python**: 3.8+
+- **Docker**: Installed and running
+- **Permissions**: Root or sudo access required for eBPF
+
+### Option 1: Local Run (30 seconds)
 
 ```bash
-git clone https://github.com/Chenjx12/ebpf-container-guard.git
+git clone https://github.com/chenjx12/ebpf-container-guard.git
 cd ebpf-container-guard
 pip install -r requirements.txt
 sudo python3 main.py
 ```
 
-### 自定义配置 / Custom Config
+### Option 2: Custom Configuration
 
 ```bash
-# 静默模式（仅输出告警）
-sudo python3 main.py
+sudo python3 main.py \
+  --rules config/rules.yaml \
+  --responses config/responses.yaml \
+  --verbose
+```
 
-# 详细模式（输出所有事件，调试用）
-sudo python3 main.py --verbose
+### Option 3: Test with pre-built strace image (ptrace escape)
 
-# 自定义规则和策略
-sudo python3 main.py --rules my_rules.yaml --responses my_responses.yaml
+```bash
+docker build -f deploy/Dockerfile.test -t ebpf-test:latest .
+docker run -d --privileged --pid=host --cap-add=SYS_PTRACE --name test ebpf-test:latest
+docker exec test strace -p 1  # triggers HIGH alert
 ```
 
 ---
 
-## 📊 演示 / Demo
+## 📊 Demo
 
-### 场景 1：procfs 挂载逃逸（CRITICAL 告警 + 容器冻结）
+### Scenario 1: Procfs Mount Escape (CRITICAL Alert + Auto Pause)
 
 ```bash
-# 终端 A：启动 MVP
+# Terminal A: start the monitor
 sudo python3 main.py
 
-# 终端 B：模拟攻击
+# Terminal B: simulate attack
 docker run -d --privileged --name test_esc ubuntu:22.04 sleep 300
 docker exec test_esc bash -c "mkdir -p /tmp/host_proc && mount -t proc proc /tmp/host_proc"
 ```
 
-**实际验证输出 / Verified Output (kernel 6.8, 2026-08-08)：**
+**Verified output (kernel 6.8, 2026-08-08):**
 
 ```
 🚨 安全告警 - CRITICAL 级别
@@ -88,19 +89,18 @@ docker exec test_esc bash -c "mkdir -p /tmp/host_proc && mount -t proc proc /tmp
 ✅ Container 2287bfc722b9 PAUSED - 已冻结,等待人工取证
 ```
 
-### 场景 2：ptrace 注入逃逸（HIGH 告警 + 断网隔离）
+### Scenario 2: Ptrace Injection (HIGH Alert + Network Isolation)
 
 ```bash
-# 终端 A：启动 MVP
+# Terminal A: start the monitor
 sudo python3 main.py
 
-# 终端 B：使用预制 strace 镜像模拟攻击
-docker build -f deploy/Dockerfile.test -t ebpf-test:latest .
+# Terminal B: simulate attack (requires strace pre-installed image)
 docker run -d --privileged --pid=host --cap-add=SYS_PTRACE --name test ebpf-test:latest
 docker exec test strace -p 1
 ```
 
-**实际验证输出 / Verified Output (kernel 6.8, 2026-08-08)：**
+**Verified output (kernel 6.8, 2026-08-08):**
 
 ```
 🚨 安全告警 - HIGH 级别
@@ -113,126 +113,116 @@ Ptrace请求: PTRACE_SECCOMP_GET_METADATA -> 目标PID: 1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🛡️  [RESPONSE] 触发自动防御: HIGH → isolate_network
-✅ Container 504a01109cca DISCONNECTED
 ```
 
-> 💡 strace 使用了 6+ 种不同的 ptrace 操作码（`PTRACE_SECCOMP_GET_METADATA`, `PTRACE_SYSCALL`, `PTRACE_GET_SYSCALL_INFO` 等），而非简单的 `PTRACE_ATTACH`。本系统通过匹配 **行为方向（target_pid=1）** 而非具体参数来检测逃逸，不会被参数变体绕过。
+> 💡 Modern `strace` uses 6+ different ptrace request codes (not just `PTRACE_ATTACH`). Our detection matches **behavior direction (target_pid=1)** rather than specific parameters, making it resilient to parameter-level evasion.
 
 ---
 
-## 🏗️ 系统架构 / Architecture
+## 🏗️ Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│  用户态 Python                                 │
-│  ┌────────────────────────────────────────┐   │
-│  │  main.py — 管主线                        │   │
-│  │  ├─ BPF(src_file=...)  加载 eBPF 探针     │   │
-│  │  ├─ open_ring_buffer() 事件流消费          │   │
-│  │  ├─ 3-tier ID 回退     容器身份识别         │   │
-│  │  └─ 后台线程 (5s)      动态刷新映射表       │   │
-│  └────────────────────────────────────────┘   │
-│  ┌────────────────────────────────────────┐   │
-│  │  engine.py — YAML 规则引擎               │   │
-│  │  ├─ 按 event_type 建索引                 │   │
-│  │  ├─ 精确匹配 + 列表 OR + fnmatch 排除     │   │
-│  │  └─ 告警分级: CRITICAL / HIGH / MEDIUM   │   │
-│  └────────────────────────────────────────┘   │
-│  ┌────────────────────────────────────────┐   │
-│  │  docker_responder.py — 响应引擎          │   │
-│  │  ├─ pause_container   冻结保留现场        │   │
-│  │  ├─ isolate_network   断网隔断C2          │   │
-│  │  ├─ kill_process      终止可疑进程         │   │
-│  │  ├─ kill_container    摧毁容器             │   │
-│  │  └─ log_only          审计日志             │   │
-│  │  └─ 10min 冷却期 + 结构化审计日志          │   │
-│  └────────────────────────────────────────┘   │
-├──────────────────────────────────────────────┤
-│  内核态 eBPF                                   │
-│  ┌────────────────────────────────────────┐   │
-│  │  tracepoint/syscalls/sys_enter_mount    │   │
-│  │  tracepoint/syscalls/sys_enter_ptrace   │   │
-│  │  (openat 已注释：高频调用，256 条目不够)    │   │
-│  └────────────────────────────────────────┘   │
-│  ┌────────────────────────────────────────┐   │
-│  │  container_map (BPF_HASH)               │   │
-│  │  PID → container_id (用户态填充)         │   │
-│  └────────────────────────────────────────┘   │
-│  ┌────────────────────────────────────────┐   │
-│  │  Ring Buffer (256 条目)                  │   │
-│  │  events.ringbuf_output() → 用户态消费     │   │
-│  └────────────────────────────────────────┘   │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│   User Space (Python)                        │
+│   ┌───────────────────────────────────────┐  │
+│   │  Rule Engine (YAML Config)            │  │
+│   │  ├─ Frequency Deduplication (10s)     │  │
+│   │  ├─ Whitelist Filtering               │  │
+│   │  └─ Severity Classification           │  │
+│   └───────────────────────────────────────┘  │
+│   ┌───────────────────────────────────────┐  │
+│   │  Response Engine                      │  │
+│   │  ├─ Pause Container                   │  │
+│   │  ├─ Disconnect Network                │  │
+│   │  └─ Kill Process (future)             │  │
+│   └───────────────────────────────────────┘  │
+├─────────────────────────────────────────────┤
+│   Kernel Space (eBPF)                       │
+│   ┌───────────────────────────────────────┐  │
+│   │  Tracepoint Probes                    │  │
+│   │  ├─ sys_enter_mount                   │  │
+│   │  ├─ sys_enter_ptrace                  │  │
+│   │  ├─ sys_enter_openat                  │  │
+│   │  └─ sys_enter_execve (future)         │  │
+│   └───────────────────────────────────────┘  │
+│   ┌───────────────────────────────────────┐  │
+│   │  Ring Buffer (Events)                 │  │
+│   │  └─ Low-latency event transmission    │  │
+│   └───────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📁 项目结构 / Project Structure
+## 📁 Project Structure
 
 ```
 ebpf-container-guard/
-├── main.py                          # 主入口 / Entry point
-├── requirements.txt                 # Python 依赖
+├── main.py                          # Entry point
+├── requirements.txt                 # Python dependencies
 ├── LICENSE                          # MIT License
-├── README.md                        # 本文件
-├── CHANGELOG.md                     # 版本迭代记录
-├── CONTRIBUTING.md                  # 贡献指南
-├── Makefile                         # 构建/部署自动化
+├── README.md                        # This file (English)
+├── README_CN.md                     # Chinese version / 中文版
+├── CHANGELOG.md                     # Version changelog
+├── CONTRIBUTING.md                  # Contribution guide
+├── Makefile                         # Build/deploy automation
 ├── src/
 │   ├── ebpf/
-│   │   └── escape-detect.bpf.c      # eBPF 内核探针
+│   │   └── escape-detect.bpf.c      # eBPF kernel probes (mount + ptrace)
 │   ├── detector/
 │   │   ├── __init__.py
-│   │   └── engine.py                # YAML 规则引擎
+│   │   └── engine.py                # YAML rule engine
 │   └── responder/
 │       ├── __init__.py
-│       └── docker_responder.py      # Docker 响应引擎
+│       └── docker_responder.py      # Docker response engine
 ├── config/
-│   ├── rules.yaml                   # 检测规则
-│   └── responses.yaml               # 响应策略
+│   ├── rules.yaml                   # Detection rules
+│   └── responses.yaml               # Response strategies
 ├── deploy/
-│   └── Dockerfile.test              # 预制 strace 测试镜像
+│   └── Dockerfile.test              # Pre-built strace test image
 ├── tests/
 │   └── integration/
-│       └── test_escape_scenarios.sh # 集成测试（烟雾测试）
+│       └── test_escape_scenarios.sh # Smoke tests
 ├── demos/
-│   └── demo-basic.sh                # 演示脚本
+│   └── demo-basic.sh                # Demo script
 └── docs/
-    └── MVP-运行验证报告.md           # v0.1.1 运行验证报告
+    └── MVP-运行验证报告.md            # v0.1.1 verification report (Chinese)
 ```
 
 ---
 
-## ⚙️ 配置说明 / Configuration
+## ⚙️ Configuration
 
-### 检测规则 / Detection Rules (`config/rules.yaml`)
+### Detection Rules (`config/rules.yaml`)
 
 ```yaml
 rules:
   - name: "procfs_mount_escape"
-    description: "检测容器内挂载宿主机procfs文件系统"
+    description: "Detect procfs mount from container"
     severity: "CRITICAL"
     condition:
       event_type: "mount"
       fstype: "proc"
     exclude:
       comm:
-        - "dockerd"          # 排除 Docker 守护进程的正常挂载
+        - "dockerd"          # Exclude Docker daemon's normal mounts
         - "containerd"
         - "runc:[2:INIT]"
         - "runc"
+      target_path:
+        - "/proc/thread-self/fd/*"
     action: "alert_and_log"
 
   - name: "dangerous_ptrace"
-    description: "检测容器内尝试ptrace宿主机1号进程(systemd/init)"
+    description: "Detect ptrace on host PID 1 (systemd/init) from container"
     severity: "HIGH"
     condition:
       event_type: "ptrace"
-      target_pid: 1         # 核心：匹配行为方向而非具体参数
+      target_pid: 1         # Match behavior direction, not specific request codes
     action: "alert_and_log"
 
   - name: "sensitive_file_read"
-    description: "检测容器内读取宿主机敏感文件(如shadow)"
+    description: "Detect reading host sensitive files from container"
     severity: "HIGH"
     condition:
       event_type: "openat"
@@ -241,77 +231,103 @@ rules:
     action: "alert_and_log"
 ```
 
-### 响应策略 / Response Strategies (`config/responses.yaml`)
+### Response Strategies (`config/responses.yaml`)
 
 ```yaml
 responses:
   - threat_level: critical
-    action: pause_container        # 冻结容器,保留内存取证现场
+    action: pause_container        # Freeze for forensics
   - threat_level: high
-    action: isolate_network        # 断网隔离,阻止横向移动或C2回连
+    action: isolate_network        # Block lateral movement
   - threat_level: medium
-    action: kill_process           # 仅杀进程,不影响容器其他服务
+    action: kill_process           # Terminate suspicious process only
   - threat_level: low
-    action: log_only               # 仅记录审计日志,不执行自动处置
+    action: log_only               # Audit log only, no automatic action
 ```
 
 ---
 
-## 🔄 版本路线 / Version History
+## 🔄 Version History
 
-| 版本 | 特性 | 状态 |
-|------|------|------|
-| v0.1.0 | MVP: 代码从学习仓库毕业，尚未验证 | ❌ 不可运行 |
-| v0.1.1 | MVP: 端到端验证通过（mount/ptrace 真实验证） | ✅ 当前版本 |
-| v0.2.0 | AI 研判集成（DeepSeek API）+ 置信度分级响应 | 📋 9 月 |
-| v0.3.0 | Streamlit 仪表盘 + 人工确认队列 | 📋 10 月 |
-| v0.4.0 | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 11 月 |
-| v1.0.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
+| Version | Features | Status |
+|---------|----------|--------|
+| v0.1.0 | MVP: Code graduated from learning repo, not yet validated | ❌ Broken |
+| v0.1.1 | MVP: End-to-end verified (mount + ptrace real-world tests) | ✅ Current |
+| v0.2.0 | AI analysis integration (DeepSeek API) + confidence-gated response | 📋 Sep |
+| v0.3.0 | Streamlit dashboard + human approval queue | 📋 Oct |
+| v0.4.0 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Nov |
+| v1.0.0 | Stable release for thesis defense | 📋 Dec |
 
-详见 [CHANGELOG.md](CHANGELOG.md)。
+See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 
 ---
 
-## 🧪 测试 / Testing
+## 🧪 Testing
 
 ```bash
-# 烟雾测试（环境依赖检查）
+# Smoke test (dependency check)
 bash tests/integration/test_escape_scenarios.sh
 
-# 真实验证（需要 root + Docker + --privileged）
-# 终端 A
-sudo python3 main.py
-
-# 终端 B
-docker run -d --privileged --name test_esc ubuntu:22.04 sleep 300
-docker exec test_esc bash -c "mkdir -p /tmp/host_proc && mount -t proc proc /tmp/host_proc"
-# 预期：🚨 CRITICAL 告警 + 容器被 pause
-
-docker rm -f test_esc
+# Real-world verification (requires root + Docker + --privileged)
+# See Demo section above for step-by-step instructions
 ```
 
 ---
 
-## 🔒 安全说明 / Security
+## 📖 Documentation
 
-- **需要 root 权限**：eBPF 程序加载和 Docker socket 访问均需要 root
-- **生产环境**：部署前请充分测试，根据实际环境调整规则和阈值
-- **误报处理**：通过 `exclude` 规则配置白名单，排除正常基础设施进程
-- **性能开销**：两个 eBPF 探针（mount + ptrace）CPU 开销 < 2%，Ring Buffer 256 条目约 100KB 内存
-
----
-
-## 👤 维护者 / Maintainer
-
-[@chenjx12](https://github.com/Chenjx12)
+- [CHANGELOG.md](CHANGELOG.md) — version history and release notes
+- [docs/MVP-运行验证报告.md](docs/MVP-运行验证报告.md) — v0.1.1 end-to-end verification report (Chinese)
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
 
 ---
 
-## 📚 学习资源 / Learning Resources
+## 🤝 Contributing
 
-想从零开始学习 eBPF？查看配套学习笔记：
-- [eBPF Learning Notes](https://github.com/Chenjx12/ebpf-learning-notes) — 从 Hello World 到 K8s 部署的完整学习路线（19 个代码示例 + 4 个小节笔记）
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/chenjx12/ebpf-container-guard.git
+cd ebpf-container-guard
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run in development mode
+sudo python3 main.py --verbose
+```
 
 ---
 
-**最后更新 / Last Updated**: 2026-08-08
+## 🔒 Security Considerations
+
+- **Privileged Access**: eBPF requires root/sudo privileges
+- **Production Use**: Test thoroughly before deploying to production
+- **False Positives**: Tune rules based on your environment
+- **Performance**: Monitor CPU/memory overhead (typically < 2%)
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 👤 Maintainer
+
+[@chenjx12](https://github.com/chenjx12)
+
+---
+
+## 📚 Learning Resources
+
+If you want to learn eBPF from scratch, check out my learning notes:
+- [eBPF Learning Notes](https://github.com/chenjx12/ebpf-learning-notes) - Complete learning path from Hello World to K8s deployment
+
+---
+
+**Last Updated**: 2026-08-07
