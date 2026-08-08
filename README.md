@@ -265,7 +265,8 @@ responses:
 | Version | Features | Status |
 |---------|----------|--------|
  | v0.1 | MVP: Basic detection + Docker response (v0.1.1) | ✅ Stable |
-| v0.2 | 3-tier detection: rules → attack matrix → AI judge (v0.2.1) | ✅ Current |
+| v0.2 | 3-tier detection: rules → attack matrix → AI judge | ✅ Stable |
+|       | ↳ v0.2.1 — current (JSON event log, AI live-tested) | |
 | v0.3 | Streamlit dashboard + human approval queue | 📋 Planned |
 | v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |

@@ -9,15 +9,11 @@ Licensed under the MIT License. See LICENSE for details.
 """
 
 import argparse
-import json
 import sys
-import os
 import time
-import threading
 from pathlib import Path
 
 from bcc import BPF
-import ctypes as ct
 import docker
 
 # Add src to path for module imports
@@ -27,6 +23,8 @@ from detector.engine import EscapeDetector, print_alert
 from detector.attack_matrix import AttackMatrix
 from detector.ai_analyzer import AIAnalyzer
 from responder.docker_responder import ResponseEngine
+from core.identity import ContainerIdentity
+from core.event_log import EventLogger
 
 
 # ============================================================
@@ -101,102 +99,19 @@ class ContainerEscapeMonitor:
             self.docker_client = docker.from_env()
         except docker.errors.DockerException as e:
             print(f"[!] Docker connection failed: {e}", file=sys.stderr)
-            print("[!] Hint: ensure Docker is running (systemctl start docker)",
-                  file=sys.stderr)
             sys.exit(1)
 
-        # 7. Initialize container identity maps
-        print("[7/7] Initializing container identity maps...")
-        self._refresh_all_maps()
-
-        # Start background map refresh thread
-        self._stop_refresh = threading.Event()
-        self._refresh_thread = threading.Thread(
-            target=self._refresh_loop, daemon=True)
-        self._refresh_thread.start()
+        # 7. Initialize container identity + event log
+        print("[7/7] Initializing container identity + event log...")
+        self.identity = ContainerIdentity(self.bpf, self.docker_client)
+        self.identity.start()
+        self.logger = EventLogger()
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.2.1")
+        print("  eBPF Container Guard v0.2.2")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
-
-    # ================================================================
-    # Container identity mapping (background-refreshed)
-    # ================================================================
-
-    def _refresh_all_maps(self):
-        """Refresh both PID map (kernel) and cgroup map (userspace)."""
-        self.cgroup_map = getattr(self, 'cgroup_map', {})
-        self._build_cgroup_map()
-        self.update_container_map()
-
-    def _refresh_loop(self):
-        """Background thread: periodically refresh container maps."""
-        while not self._stop_refresh.is_set():
-            self._stop_refresh.wait(timeout=5)  # refresh every 5s
-            if not self._stop_refresh.is_set():
-                self._refresh_all_maps()
-
-    def update_container_map(self):
-        """Populate BPF container_map: pid -> container_short_id"""
-        try:
-            containers = self.docker_client.containers.list()
-            mapped = 0
-            for container in containers:
-                try:
-                    top_result = container.top()
-                except Exception:
-                    continue
-                for process in top_result['Processes']:
-                    pid_str = process[1].strip()
-                    if not pid_str.isdigit():
-                        continue
-                    pid = int(pid_str)
-                    cid = container.id[:12]
-
-                    # BCC map Leaf type
-                    ContainerId = self.bpf['container_map'].Leaf
-                    c_id = ContainerId()
-                    c_id.id = cid.encode('utf-8')
-                    self.bpf['container_map'][ct.c_uint32(pid)] = c_id
-                    mapped += 1
-            print(f"  [Map] PID map: {mapped} processes "
-                  f"across {len(containers)} containers")
-        except Exception as e:
-            print(f"  [!] PID map update failed: {e}", file=sys.stderr)
-
-    def _build_cgroup_map(self):
-        """Build cgroup_inode -> container_short_id mapping.
-
-        Used as fallback when the BPF pid->container_id map misses
-        (e.g., process started between map syncs). The cgroup_id is
-        captured atomically in kernel space, avoiding /proc TOCTOU races.
-        """
-        self.cgroup_map = {}
-        try:
-            for c in self.docker_client.containers.list():
-                cgroup_path = (
-                    f"/sys/fs/cgroup/system.slice/docker-{c.id}.scope"
-                )
-                if os.path.exists(cgroup_path):
-                    inode = os.stat(cgroup_path).st_ino
-                    self.cgroup_map[inode] = c.id[:12]
-        except Exception as e:
-            print(f"  [!] cgroup map build failed: {e}", file=sys.stderr)
-
-    def _resolve_by_cgroup_fs(self, pid):
-        """Last-resort fallback: read /proc/<pid>/cgroup for container ID."""
-        try:
-            with open(f"/proc/{pid}/cgroup", 'r') as f:
-                for line in f:
-                    if 'docker-' in line and '.scope' in line:
-                        start = line.index('docker-') + 7
-                        end = line.index('.scope', start)
-                        return line[start:end][:12]
-        except (FileNotFoundError, PermissionError, ValueError):
-            pass
-        return 'host'
 
     # ================================================================
     # Event processing pipeline
@@ -214,22 +129,13 @@ class ContainerEscapeMonitor:
             # Resolve container identity (3-tier fallback)
             raw_cid = event.container_id.decode(
                 'utf-8', errors='replace').rstrip('\x00')
-            event_pid = event.pid
-            event_cgid = event.cgroup_id
-
-            if raw_cid in ('host', '', 'unknown'):
-                # Tier 1: cgroup_inode map (race-free, kernel-captured)
-                # Refreshed every 15s by background thread
-                if event_cgid in getattr(self, 'cgroup_map', {}):
-                    raw_cid = self.cgroup_map[event_cgid]
-                elif event_pid > 0:
-                    # Tier 2: /proc/<pid>/cgroup (process still alive)
-                    raw_cid = self._resolve_by_cgroup_fs(event_pid)
+            raw_cid = self.identity.resolve(
+                event.pid, event.cgroup_id, raw_cid)
 
             # Build event dict for rule engine
             event_dict = {
                 'event_type': event_type_map.get(event.event_type, 'unknown'),
-                'pid': event_pid,
+                'pid': event.pid,
                 'uid': event.uid,
                 'comm': event.comm.decode('utf-8', errors='replace'),
                 'container_id': raw_cid,
@@ -308,13 +214,13 @@ class ContainerEscapeMonitor:
                         self.responder.handle_alert(alert)
 
                         # === Event Log ===
-                        self._write_event_log(alert, matrix_result,
-                                              ai_result, action)
+                        self.logger.write(alert, matrix_result,
+                                          ai_result, action)
                     else:
                         # No attack vector → basic alert only
                         print_alert(alert)
                         self.responder.handle_alert(alert)
-                        self._write_event_log(alert)
+                        self.logger.write(alert)
             else:
                 # Normal event — green output (verbose mode)
                 if self.verbose:
@@ -327,65 +233,7 @@ class ContainerEscapeMonitor:
                 traceback.print_exc()
 
     # ================================================================
-    # v0.2.1: structured JSON event logging
-    # ================================================================
-
-    def _write_event_log(self, alert, matrix_result=None, ai_result=None,
-                         action="log_only", event_dict=None):
-        """Write a structured JSON event log entry.
-
-        Records every pipeline decision — alert or false positive — for audit
-        and dashboard consumption. One JSON object per line, appended to
-        events.log.
-        """
-        evt = alert.get('event', event_dict or {})
-        log_entry = {
-            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
-            'container_id': evt.get('container_id', 'unknown'),
-            'event_type': evt.get('event_type', 'unknown'),
-            'rule': alert.get('rule_name', 'none'),
-            'severity': alert.get('severity', 'INFO'),
-            # Tier 1: rule engine
-            'tier1_match': alert.get('rule_name', 'none') != 'none',
-            # Tier 2: attack matrix
-            'tier2_vector': alert.get('attack_vector'),
-            'tier2_confidence': alert.get('matrix_confidence'),
-            'tier2_combo': matrix_result.boosted if matrix_result else False,
-            'tier2_narrative': matrix_result.combination_narrative if matrix_result else '',
-            # Tier 3: AI judge
-            'tier3_ai_verdict': None,
-            'tier3_ai_confidence': None,
-            'tier3_ai_technique': None,
-            'tier3_ai_report': None,
-            # Action
-            'action': action,
-            # Raw event
-            'event': {
-                'pid': evt.get('pid'),
-                'comm': evt.get('comm'),
-                'uid': evt.get('uid'),
-                'fstype': evt.get('fstype'),
-                'target_path': evt.get('target_path'),
-                'target_pid': evt.get('target_pid'),
-                'request': evt.get('request'),
-                'daddr': evt.get('daddr'),
-                'dport': evt.get('dport'),
-            },
-        }
-
-        if ai_result:
-            log_entry['tier3_ai_verdict'] = (
-                'true_positive' if ai_result.is_attack else 'false_positive')
-            log_entry['tier3_ai_confidence'] = ai_result.confidence
-            log_entry['tier3_ai_technique'] = ai_result.technique
-            log_entry['tier3_ai_report'] = ai_result.report
-            log_entry['action'] = ai_result.suggested_action
-
-        with open('events.log', 'a') as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
-
-    # ================================================================
-    # v0.2.0: enriched alert printing
+    # Enriched alert printing
     # ================================================================
 
     def _print_alert_v2(self, alert, matrix_result):
@@ -477,6 +325,7 @@ class ContainerEscapeMonitor:
                 time.sleep(0.1)
         except KeyboardInterrupt:
             print("\n[i] Shutting down...")
+            self.identity.stop()
             print("👋 eBPF Container Guard stopped.")
 
 
