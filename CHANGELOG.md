@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **3-Tier Detection Pipeline**: Rule engine (Tier 1) → Attack matrix (Tier 2) → AI judge (Tier 3)
 - **3 new eBPF probes**: execve, connect, openat (kernel-space path filter)
 - **Attack matrix** (`src/detector/attack_matrix.py`): 8 attack vectors mapped to CVEs, 6 combination boost rules, 10s time window
-- **AI analyzer** (`src/detector/ai_analyzer.py`): DeepSeek API integration, confidence-gated response (>85% auto / 60-85% review / <60% log), offline fallback mode
+- **AI analyzer** (`src/detector/ai_analyzer.py`): DeepSeek API integration (code ready, pending key), confidence-gated response (>85% auto / 60-85% review / <60% log), offline fallback mode verified
 - **5 new YAML rules**: docker_socket_mount, nsenter_escape, privileged_exec, reverse_shell, sensitive_file_access, host_directory_access
 - Ring Buffer upgraded from 256 to 4096 entries
 

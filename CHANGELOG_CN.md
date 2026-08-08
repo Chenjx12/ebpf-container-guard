@@ -24,7 +24,7 @@
 - **三层检测管线**：规则引擎（Tier 1）→ 行为矩阵（Tier 2）→ AI 研判（Tier 3）
 - **3 个新 eBPF 探针**：execve、connect、openat（内核态路径过滤）
 - **行为矩阵**（`src/detector/attack_matrix.py`）：8 个攻击向量 × 6 条组合规则，10 秒时间窗口
-- **AI 分析器**（`src/detector/ai_analyzer.py`）：DeepSeek API 集成，置信度分级响应（>85% 自动 / 60-85% 待确认 / <60% 仅记录），离线回退模式
+- **AI 分析器**（`src/detector/ai_analyzer.py`）：DeepSeek API 集成（代码就绪，待配置密钥），置信度分级响应（>85% 自动 / 60-85% 待确认 / <60% 仅记录），离线回退模式已验证
 - **5 条新 YAML 规则**：docker_socket_mount、nsenter_escape、privileged_exec、reverse_shell、sensitive_file_access、host_directory_access
 - Ring Buffer 从 256 升级到 4096 条目
 

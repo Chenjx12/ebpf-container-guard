@@ -389,9 +389,9 @@ Confidence: 88% 🔴 Auto-Response              ← Above 85% threshold
 | Container identity | ❌ | ✅ Dynamic refresh | ✅ Dynamic refresh |
 | Rule engine | ✅ | ✅ 4/4 | ✅ 8/8 |
 | Attack matrix | ❌ | ❌ | ✅ 8 vectors |
-| AI judge | ❌ | ❌ | ✅ + offline fallback |
+| AI judge | ❌ | ❌ | ⚠️ Code ready, API key pending |
 | Combo detection | ❌ | ❌ | ✅ 10s window |
 | Auto-response | ❌ | ✅ pause | ✅ pause + isolate |
 | End-to-end | ❌ | ✅ mount+ptrace | ✅ All 5 probes |
 
-**Conclusion**: eBPF Container Guard v0.2.0 **3-tier detection pipeline end-to-end verified** on kernel 6.8. Behavior matrix combination scoring and AI judge fallback mode both confirmed working.
+**Conclusion**: eBPF Container Guard v0.2.0 **3-tier detection pipeline verified** on kernel 6.8. Tier 1 (rule engine) and Tier 2 (attack matrix + combo detection) fully tested. Tier 3 (AI judge) code ready — awaiting DeepSeek API key for live testing.
