@@ -326,7 +326,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📚 Learning Resources
 
 If you want to learn eBPF from scratch, check out my learning notes:
-- [eBPF Learning Notes](https://github.com/chenjx12/ebpf-learning-notes) - Complete learning path from Hello World to K8s deployment
+- [eBPF Learning Notes](https://github.com/Chenjx12/ebpf-learning-notes) — Companion tutorial: 19 code examples + 4-part learning path from Hello World to K8s deployment (Chinese)
 
 ---
 

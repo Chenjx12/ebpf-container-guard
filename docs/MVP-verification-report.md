@@ -116,7 +116,7 @@ include/linux/compiler-clang.h:66:9: warning: '__HAVE_BUILTIN_BSWAP16__' macro r
 
 ### 3.3 Clang Warnings
 
-The 3 `macro redefined` warnings are harmless. They originate from BCC's libbpf headers conflicting with the compiler's built-in macros. This is a known BCC behavior — the learning repo's `code/09-response/escape-respond.py` exhibits the same warnings. **They do not affect eBPF probe loading or execution.**
+The 3 `macro redefined` warnings are harmless. They originate from BCC's libbpf headers conflicting with the compiler's built-in macros. This is a known BCC behavior — the [learning repo](https://github.com/Chenjx12/ebpf-learning-notes)'s `code/09-response/escape-respond.py` exhibits the same warnings. **They do not affect eBPF probe loading or execution.**
 
 ---
 
@@ -232,7 +232,7 @@ Ptrace请求: PTRACE_ATTACH -> 目标PID: 1
 **Root Cause**: `main.py` imported non-existent class names (`DetectionEngine` / `DockerResponder`), and lacked the complete eBPF loading and Ring Buffer consumption code.
 
 **Fix** (2026-08-08):
-- Rewrote `main.py` (80 → 257 lines) following the proven pipeline pattern from the learning repo's `code/09-response/escape-respond.py`
+- Rewrote `main.py` (80 → 257 lines) following the proven pipeline pattern from [`escape-respond.py`](https://github.com/Chenjx12/ebpf-learning-notes/blob/main/code/09-response/escape-respond.py)
 - Corrected imports: `EscapeDetector`, `ResponseEngine`
 - Added: BCC eBPF loading, Ring Buffer event parsing, 3-tier container identity fallback, detection-response closed loop, background refresh thread
 - Core modules (`src/ebpf/`, `src/detector/`, `src/responder/`, `config/`) — **zero changes**

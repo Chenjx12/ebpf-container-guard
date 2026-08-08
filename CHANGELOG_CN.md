@@ -23,7 +23,7 @@
 
 ### 修复
 - **main.py 完全不可用** — 基于已验证的参考实现
-  （`ebpf-learning-notes/code/09-response/escape-respond.py`）完全重写。
+  （[`escape-respond.py`](https://github.com/Chenjx12/ebpf-learning-notes/blob/main/code/09-response/escape-respond.py)）完全重写。
   原来导入的类名不存在（`DetectionEngine` → `EscapeDetector`，
   `DockerResponder` → `ResponseEngine`）。eBPF 加载、Ring Buffer 消费、
   检测-响应管线全部缺失。

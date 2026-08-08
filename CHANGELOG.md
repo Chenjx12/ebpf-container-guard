@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **main.py completely non-functional** — rewrote based on working reference
-  (`ebpf-learning-notes/code/09-response/escape-respond.py`). Imports were
+  ([`escape-respond.py`](https://github.com/Chenjx12/ebpf-learning-notes/blob/main/code/09-response/escape-respond.py)). Imports were
   pointing to non-existent class names (`DetectionEngine` → `EscapeDetector`,
   `DockerResponder` → `ResponseEngine`). eBPF loading, Ring Buffer consumption,
   and detection-response pipeline were entirely missing.

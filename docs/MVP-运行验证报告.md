@@ -117,7 +117,7 @@ include/linux/compiler-clang.h:66:9: warning: '__HAVE_BUILTIN_BSWAP16__' macro r
 
 ### 3.3 clang 警告说明
 
-3 个 `macro redefined` 警告**不影响功能**，来源是 BCC 框架的 libbpf 头文件与编译器的内置宏定义冲突。这是 BCC 的已知行为，学习仓库 `code/09-response/escape-respond.py` 运行时同样存在。**不影响 eBPF 探针的加载和执行。**
+3 个 `macro redefined` 警告**不影响功能**，来源是 BCC 框架的 libbpf 头文件与编译器的内置宏定义冲突。这是 BCC 的已知行为，[学习仓库](https://github.com/Chenjx12/ebpf-learning-notes) `code/09-response/escape-respond.py` 运行时同样存在。**不影响 eBPF 探针的加载和执行。**
 
 ---
 
@@ -233,7 +233,7 @@ Ptrace请求: PTRACE_ATTACH -> 目标PID: 1
 **原因**: `main.py` 导入了不存在的类名 `DetectionEngine` / `DockerResponder`，且缺失完整的 eBPF 加载和 Ring Buffer 消费代码。
 
 **修复** (2026-08-08):
-- 重写 `main.py`（80 行 → 240 行），基于学习仓库 `code/09-response/escape-respond.py` 的已验证管线模式
+- 重写 `main.py`（80 行 → 240 行），基于 [escape-respond.py](https://github.com/Chenjx12/ebpf-learning-notes/blob/main/code/09-response/escape-respond.py) 的已验证管线模式
 - 实际模块类名：`EscapeDetector`、`ResponseEngine`
 - 新增: BCC eBPF 加载、Ring Buffer 事件解析、3 级容器身份回退、检测-响应闭环
 - 核心模块 (`src/ebpf/`, `src/detector/`, `src/responder/`, `config/`) **零改动**
