@@ -2,6 +2,8 @@
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
+[**中文版 / Chinese Version**](CONTRIBUTING_CN.md)
+
 ## 🎯 How to Contribute
 
 ### Reporting Bugs
