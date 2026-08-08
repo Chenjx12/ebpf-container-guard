@@ -12,10 +12,30 @@
 ## [未发布]
 
 ### 计划中
-- 基于 DeepSeek API 的 AI 威胁研判
-- 置信度分级响应系统
-- Streamlit 仪表盘
-- Kubernetes 原生支持（DaemonSet + NetworkPolicy）
+- Streamlit 仪表盘（v0.3.0）
+- Kubernetes 原生支持（v0.4.0）
+- 性能压测 & systemd 部署
+
+---
+
+## [0.2.0] - 2026-08-08
+
+### 新增
+- **三层检测管线**：规则引擎（Tier 1）→ 行为矩阵（Tier 2）→ AI 研判（Tier 3）
+- **3 个新 eBPF 探针**：execve、connect、openat（内核态路径过滤）
+- **行为矩阵**（`src/detector/attack_matrix.py`）：8 个攻击向量 × 6 条组合规则，10 秒时间窗口
+- **AI 分析器**（`src/detector/ai_analyzer.py`）：DeepSeek API 集成，置信度分级响应（>85% 自动 / 60-85% 待确认 / <60% 仅记录），离线回退模式
+- **5 条新 YAML 规则**：docker_socket_mount、nsenter_escape、privileged_exec、reverse_shell、sensitive_file_access、host_directory_access
+- Ring Buffer 从 256 升级到 4096 条目
+
+### 变更
+- 告警信息增强：新增 attack_vector、cve_refs、matrix_confidence 字段
+- 宿主机进程事件自动过滤，仅保留容器相关规则
+- 规则引擎支持 `attack_vector` 和 `cve_refs` 字段
+
+### 验证
+- 单事件命中：procfs_mount → 置信度 85%
+- 组合命中：procfs_mount + sensitive_file_access → 置信度 88% → 自动响应
 
 ---
 

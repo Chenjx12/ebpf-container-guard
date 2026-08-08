@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -16,12 +16,12 @@
 
 ## 🎯 核心特性
 
-- **内核级监控** — eBPF tracepoint 零开销捕获 mount/ptrace 系统调用，不修改内核源码
-- **容器身份识别** — 3 级回退策略（PID Map → Cgroup Inode → /proc/cgroup），精准关联容器
-- **智能降噪** — YAML 规则引擎，支持白名单排除 + fnmatch 通配符，避免正常基础设施进程误报
-- **自动响应** — 检测到逃逸后立即执行：冻结容器保留现场 / 断网隔离阻止横向移动 / 终止可疑进程，10 分钟冷却期防重复
-- **可配置** — 检测规则和响应策略通过 YAML 文件定义，运维人员友好
-- **云原生就绪** — Docker 单机版已验证，K8s DaemonSet 支持规划在 v0.4.0
+- **三层检测管线** — 规则引擎（8 条规则，毫秒级）→ 行为矩阵（行为→CVE 映射，组合评分）→ AI 研判（DeepSeek，置信度分级响应）
+- **5 个 eBPF 探针** — mount、ptrace、execve、connect、openat（内核态路径过滤）
+- **容器身份识别** — PID Map → Cgroup Inode → /proc/cgroup 三级回退 + 后台动态刷新
+- **AI 威胁研判** — DeepSeek API 集成，支持攻击确认、手法识别、未知攻击发现，含离线回退模式
+- **自动响应** — 容器冻结/断网/杀进程/仅记录，10 分钟冷却期 + JSON 结构化审计日志
+- **可配置** — 8 条检测规则 + 4 级响应策略，YAML 文件定义，支持热加载
 
 ---
 
@@ -149,33 +149,42 @@ Ptrace请求: PTRACE_SECCOMP_GET_METADATA -> 目标PID: 1
 │  │  └─ 后台线程 (5s 刷新)   动态刷新映射表     │   │
 │  └────────────────────────────────────────┘   │
 │  ┌────────────────────────────────────────┐   │
-│  │  engine.py — YAML 规则引擎              │   │
-│  │  ├─ 按 event_type 建索引，避免全量遍历    │   │
-│  │  ├─ 精确匹配 + 列表 OR + fnmatch 排除    │   │
-│  │  └─ 告警分级: CRITICAL / HIGH / MEDIUM  │   │
+│  │  engine.py — Tier 1 规则引擎（8 条）     │   │
+│  │  ├─ mount/ptrace/execve/connect/openat   │   │
+│  │  ├─ 索引匹配 + 白名单 + fnmatch 排除     │   │
+│  │  └─ 告警分级: CRITICAL / HIGH           │   │
+│  ├────────────────────────────────────────┤   │
+│  │  attack_matrix.py — Tier 2 行为矩阵     │   │
+│  │  ├─ 8 攻击向量 × 6 组合规则              │   │
+│  │  ├─ 10s 窗口组合评分                      │   │
+│  │  └─ 行为 → CVE 自动映射                  │   │
+│  ├────────────────────────────────────────┤   │
+│  │  ai_analyzer.py — Tier 3 AI 研判       │   │
+│  │  ├─ DeepSeek API 置信度分级              │   │
+│  │  └─ 未知攻击 → 建议新规则                  │   │
+│  │  ┌────────────────────────────────────┐ │   │
+│  │  │  docker_responder.py — 响应引擎     │ │   │
+│  │  │  ├─ pause/isolate/kill/log          │ │   │
+│  │  │  └─ 10min 冷却 + JSON 审计           │ │   │
+│  │  └────────────────────────────────────┘ │   │
 │  └────────────────────────────────────────┘   │
-│  ┌────────────────────────────────────────┐   │
-│  │  docker_responder.py — 响应引擎         │   │
-│  │  ├─ pause_container    冻结容器保留现场   │   │
-│  │  ├─ isolate_network    断网隔离阻止C2    │   │
-│  │  ├─ kill_process       终止可疑进程       │   │
-│  │  ├─ kill_container     销毁整个容器       │   │
-│  │  └─ log_only           仅记录审计日志     │   │
-│  │  └─ 10min 冷却期 + JSON 审计日志         │   │
 │  └────────────────────────────────────────┘   │
 ├──────────────────────────────────────────────┤
 │  内核态 eBPF                                   │
 │  ┌────────────────────────────────────────┐   │
-│  │  tracepoint/syscalls/sys_enter_mount    │   │
-│  │  tracepoint/syscalls/sys_enter_ptrace   │   │
-│  │  （openat 已注释：高频调用，256 条目不足）  │   │
+│  │  Tracepoint 探针 (5 个)                  │   │
+│  │  ├─ sys_enter_mount                     │   │
+│  │  ├─ sys_enter_ptrace                    │   │
+│  │  ├─ sys_enter_execve                    │   │
+│  │  ├─ sys_enter_connect                   │   │
+│  │  └─ sys_enter_openat (路径过滤)          │   │
 │  └────────────────────────────────────────┘   │
 │  ┌────────────────────────────────────────┐   │
 │  │  container_map (BPF_HASH)               │   │
-│  │  PID → container_id  用户态定期填充      │   │
+│  │  PID → container_id  后台 5s 刷新        │   │
 │  └────────────────────────────────────────┘   │
 │  ┌────────────────────────────────────────┐   │
-│  │  Ring Buffer (256 条目)                  │   │
+│  │  Ring Buffer (4096 条目, v0.2.0 升级)    │   │
 │  │  events.ringbuf_output() → 用户态消费    │   │
 │  └────────────────────────────────────────┘   │
 └──────────────────────────────────────────────┘
@@ -197,16 +206,19 @@ ebpf-container-guard/
 ├── Makefile                         # 构建/部署自动化
 ├── src/
 │   ├── ebpf/
-│   │   └── escape-detect.bpf.c      # eBPF 内核探针（mount + ptrace）
+│   │   └── escape-detect.bpf.c      # eBPF 内核探针（5 个 tracepoint）
 │   ├── detector/
 │   │   ├── __init__.py
-│   │   └── engine.py                # YAML 规则引擎
+│   │   ├── engine.py                # Tier 1: YAML 规则引擎
+│   │   ├── attack_matrix.py         # Tier 2: 行为→CVE 矩阵
+│   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI 研判
 │   └── responder/
 │       ├── __init__.py
 │       └── docker_responder.py      # Docker 响应引擎
 ├── config/
-│   ├── rules.yaml                   # 检测规则
-│   └── responses.yaml               # 响应策略
+│   ├── rules.yaml                   # 8 条检测规则
+│   ├── responses.yaml               # 4 级响应策略
+│   └── ai_config.yaml.example       # DeepSeek API 密钥模板
 ├── deploy/
 │   └── Dockerfile.test              # 预制 strace 测试镜像
 ├── tests/
@@ -215,7 +227,7 @@ ebpf-container-guard/
 ├── demos/
 │   └── demo-basic.sh                # 演示脚本
 └── docs/
-    └── MVP-运行验证报告.md            # v0.1.1 运行验证报告
+    └── MVP-运行验证报告.md            # v0.2.0 验证报告
 ```
 
 ---
@@ -281,7 +293,8 @@ responses:
 | 版本 | 特性 | 状态 |
 |------|------|------|
 | v0.1.0 | MVP：代码从学习仓库毕业，尚未验证 | ❌ 不可运行 |
-| v0.1.1 | MVP：端到端验证通过（mount + ptrace 真实验证） | ✅ 当前版本 |
+| v0.1.1 | MVP：端到端验证通过（mount + ptrace） | ✅ 稳定版 |
+| v0.2.0 | 三层检测：规则引擎 → 行为矩阵 → AI 研判（5 探针，8 规则） | ✅ 当前版本 |
 | v0.2.0 | AI 研判集成（DeepSeek API）+ 置信度分级响应 | 📋 9 月 |
 | v0.3.0 | Streamlit 仪表盘 + 人工确认队列 | 📋 10 月 |
 | v0.4.0 | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 11 月 |

@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -14,12 +14,12 @@
 
 ## 🎯 Key Features
 
-- **Kernel-level Monitoring**: Zero-overhead syscall capture via eBPF tracepoints (mount, ptrace)
-- **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) for accurate container attribution
-- **Smart Noise Reduction**: YAML-based rule engine with whitelist exclusion + fnmatch wildcard support
-- **Auto Response**: Automatic container isolation (pause/disconnect/kill) with 10-minute cooldown
-- **Configurable**: Hot-reload detection rules and response strategies via YAML files
-- **Cloud-Native Ready**: Docker single-host verified; K8s DaemonSet planned in v0.4.0
+- **3-Tier Detection Pipeline**: Rule engine (8 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
+- **5 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
+- **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) with background refresh
+- **AI-Powered Analysis**: DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — with offline fallback mode
+- **Auto Response**: Container isolation (pause/disconnect/kill) with 10-minute cooldown and structured JSON audit logs
+- **Configurable**: 8 detection rules + response strategies via YAML, hot-reload support
 
 ---
 
@@ -125,25 +125,35 @@ Ptrace请求: PTRACE_SECCOMP_GET_METADATA -> 目标PID: 1
 ┌─────────────────────────────────────────────┐
 │   User Space (Python)                        │
 │   ┌───────────────────────────────────────┐  │
-│   │  Rule Engine (YAML Config)            │  │
-│   │  ├─ Frequency Deduplication (10s)     │  │
-│   │  ├─ Whitelist Filtering               │  │
-│   │  └─ Severity Classification           │  │
-│   └───────────────────────────────────────┘  │
-│   ┌───────────────────────────────────────┐  │
-│   │  Response Engine                      │  │
-│   │  ├─ Pause Container                   │  │
-│   │  ├─ Disconnect Network                │  │
-│   │  └─ Kill Process (future)             │  │
+│   │  Tier 1: Rule Engine (8 YAML rules)    │  │
+│   │  ├─ mount, ptrace, execve, connect,    │  │
+│   │  │   openat — 4 attack surfaces        │  │
+│   │  ├─ Whitelist exclusion + fnmatch      │  │
+│   │  └─ Severity: CRITICAL / HIGH          │  │
+│   ├───────────────────────────────────────┤  │
+│   │  Tier 2: Attack Matrix                 │  │
+│   │  ├─ 8 vectors × 6 combo rules          │  │
+│   │  ├─ 10s window combination scoring     │  │
+│   │  └─ Behavior → CVE mapping             │  │
+│   ├───────────────────────────────────────┤  │
+│   │  Tier 3: AI Judge (DeepSeek)           │  │
+│   │  ├─ Confidence-gated response          │  │
+│   │  └─ Unknown attack → suggested rules   │  │
+│   │  ┌───────────────────────────────────┐ │  │
+│   │  │  Response Engine                   │ │  │
+│   │  │  ├─ Pause / Isolate / Kill / Log   │ │  │
+│   │  │  └─ 10-min cooldown + JSON audit   │ │  │
+│   │  └───────────────────────────────────┘ │  │
 │   └───────────────────────────────────────┘  │
 ├─────────────────────────────────────────────┤
-│   Kernel Space (eBPF)                       │
+│   Kernel Space (eBPF) — 4096-entry Ring Buffer │
 │   ┌───────────────────────────────────────┐  │
-│   │  Tracepoint Probes                    │  │
+│   │  Tracepoint Probes (5)                │  │
 │   │  ├─ sys_enter_mount                   │  │
 │   │  ├─ sys_enter_ptrace                  │  │
-│   │  ├─ sys_enter_openat                  │  │
-│   │  └─ sys_enter_execve (future)         │  │
+│   │  ├─ sys_enter_execve                  │  │
+│   │  ├─ sys_enter_connect                 │  │
+│   │  └─ sys_enter_openat (path-filtered)  │  │
 │   └───────────────────────────────────────┘  │
 │   ┌───────────────────────────────────────┐  │
 │   │  Ring Buffer (Events)                 │  │
@@ -168,16 +178,19 @@ ebpf-container-guard/
 ├── Makefile                         # Build/deploy automation
 ├── src/
 │   ├── ebpf/
-│   │   └── escape-detect.bpf.c      # eBPF kernel probes (mount + ptrace)
+│   │   └── escape-detect.bpf.c      # eBPF kernel probes (5 tracepoints)
 │   ├── detector/
 │   │   ├── __init__.py
-│   │   └── engine.py                # YAML rule engine
+│   │   ├── engine.py                # Tier 1: YAML rule engine
+│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix
+│   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI judge
 │   └── responder/
 │       ├── __init__.py
 │       └── docker_responder.py      # Docker response engine
 ├── config/
-│   ├── rules.yaml                   # Detection rules
-│   └── responses.yaml               # Response strategies
+│   ├── rules.yaml                   # 8 detection rules
+│   ├── responses.yaml               # 4-tier response strategies
+│   └── ai_config.yaml.example       # DeepSeek API key template
 ├── deploy/
 │   └── Dockerfile.test              # Pre-built strace test image
 ├── tests/
@@ -186,7 +199,7 @@ ebpf-container-guard/
 ├── demos/
 │   └── demo-basic.sh                # Demo script
 └── docs/
-    └── MVP-运行验证报告.md            # v0.1.1 verification report (Chinese)
+    └── MVP-运行验证报告.md            # v0.2.0 — 3-tier detection
 ```
 
 ---
@@ -252,7 +265,8 @@ responses:
 | Version | Features | Status |
 |---------|----------|--------|
 | v0.1.0 | MVP: Code graduated from learning repo, not yet validated | ❌ Broken |
-| v0.1.1 | MVP: End-to-end verified (mount + ptrace real-world tests) | ✅ Current |
+| v0.1.1 | MVP: End-to-end verified (mount + ptrace) | ✅ Stable |
+| v0.2.0 | 3-tier detection: rules → attack matrix → AI judge (5 probes, 8 rules) | ✅ Current |
 | v0.2.0 | AI analysis integration (DeepSeek API) + confidence-gated response | 📋 Sep |
 | v0.3.0 | Streamlit dashboard + human approval queue | 📋 Oct |
 | v0.4.0 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Nov |
@@ -277,7 +291,7 @@ bash tests/integration/test_escape_scenarios.sh
 ## 📖 Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) — version history and release notes
-- [docs/MVP-运行验证报告.md](docs/MVP-运行验证报告.md) — v0.1.1 end-to-end verification report (Chinese)
+- [docs/MVP-运行验证报告.md](docs/MVP-运行验证报告.md) — v0.2.0 verification report
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
 
 ---

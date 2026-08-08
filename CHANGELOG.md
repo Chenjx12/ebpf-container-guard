@@ -10,10 +10,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- AI analysis integration with DeepSeek API
-- Confidence-based graded response system
-- Streamlit dashboard
-- Kubernetes native support (DaemonSet + NetworkPolicy)
+- Streamlit dashboard (v0.3.0)
+- Kubernetes native support (v0.4.0)
+- Performance benchmarking & systemd deployment
+
+## [0.2.0] - 2026-08-08
+
+### Added
+- **3-Tier Detection Pipeline**: Rule engine (Tier 1) → Attack matrix (Tier 2) → AI judge (Tier 3)
+- **3 new eBPF probes**: execve, connect, openat (kernel-space path filter)
+- **Attack matrix** (`src/detector/attack_matrix.py`): 8 attack vectors mapped to CVEs, 6 combination boost rules, 10s time window
+- **AI analyzer** (`src/detector/ai_analyzer.py`): DeepSeek API integration, confidence-gated response (>85% auto / 60-85% review / <60% log), offline fallback mode
+- **5 new YAML rules**: docker_socket_mount, nsenter_escape, privileged_exec, reverse_shell, sensitive_file_access, host_directory_access
+- Ring Buffer upgraded from 256 to 4096 entries
+
+### Changed
+- Detection pipeline now enriched: alerts include attack_vector, cve_refs, matrix_confidence
+- Host process events automatically filtered for container-specific rules
+- Rule engine now supports `attack_vector` and `cve_refs` fields
+
+### Verified
+- Single hit: procfs_mount → confidence 85%
+- Combo hit: procfs_mount + sensitive_file_access → confidence 88% → auto-response triggered
+- 5-probe Ring Buffer stable at 4096 entries with kernel-space openat filter
 
 ## [0.1.1] - 2026-08-08
 
