@@ -383,9 +383,9 @@ docker exec test_esc bash -c "mkdir -p /tmp/host_proc && mount -t proc proc /tmp
 | 容器身份识别 | ❌ | ✅ 动态刷新 | ✅ 动态刷新 |
 | 规则引擎匹配 | ✅ | ✅ 4/4 | ✅ 8/8 |
 | 行为矩阵 | ❌ | ❌ | ✅ 8 vectors |
-| AI 研判 | ❌ | ❌ | ⚠️ 代码就绪，API Key 待配置 |
+| AI 研判 | ❌ | ❌ | ✅ DeepSeek API 实测验证 |
 | 组合检测 | ❌ | ❌ | ✅ 10s 窗口 |
 | 自动响应 | ❌ | ✅ pause | ✅ pause + isolate |
 | 端到端验证 | ❌ | ✅ mount+ptrace | ✅ 全部 5 探针 |
 
-**结论**: eBPF Container Guard v0.2.0 **三层检测管线端到端验证通过**。Tier 1（规则引擎）和 Tier 2（行为矩阵+组合检测）完全验证。Tier 3（AI 研判）代码就绪但待配置 DeepSeek API Key 后实测。
+**结论**: eBPF Container Guard v0.2.0 **三层检测管线端到端验证通过**。Tier 1（规则引擎）和 Tier 2（行为矩阵+组合检测）完全验证。Tier 3（AI 研判）DeepSeek API 实测验证：正确识别误报、区分攻击类型、给出上下文感知的处置建议。
