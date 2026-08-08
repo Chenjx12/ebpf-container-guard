@@ -47,6 +47,10 @@ config/ai_config.yaml
 *.log
 logs/
 
+# AI / Claude
+.claude/
+**/.claude*
+
 # Testing
 .pytest_cache/
 .coverage
