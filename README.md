@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.1-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -264,13 +264,11 @@ responses:
 
 | Version | Features | Status |
 |---------|----------|--------|
-| v0.1.0 | MVP: Code graduated from learning repo, not yet validated | ❌ Broken |
-| v0.1.1 | MVP: End-to-end verified (mount + ptrace) | ✅ Stable |
-| v0.2.0 | 3-tier detection: rules → attack matrix → AI judge (5 probes, 8 rules) | ✅ Current |
-| v0.2.0 | AI analysis integration (DeepSeek API) + confidence-gated response | 📋 Sep |
-| v0.3.0 | Streamlit dashboard + human approval queue | 📋 Oct |
-| v0.4.0 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Nov |
-| v1.0.0 | Stable release for thesis defense | 📋 Dec |
+ | v0.1 | MVP: Basic detection + Docker response (v0.1.1) | ✅ Stable |
+| v0.2 | 3-tier detection: rules → attack matrix → AI judge (v0.2.1) | ✅ Current |
+| v0.3 | Streamlit dashboard + human approval queue | 📋 Planned |
+| v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
+| v1.0 | Stable release for thesis defense | 📋 Dec |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 
