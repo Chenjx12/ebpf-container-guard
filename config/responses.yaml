@@ -1,0 +1,16 @@
+responses:
+  - threat_level: critical
+    action: pause_container        # 冻结容器,保留内存现场
+    description: "立即冻结高危容器,等待人工取证"
+    
+  - threat_level: high
+    action: isolate_network        # 断网隔离
+    description: "切断容器网络连接,防止横向移动"
+    
+  - threat_level: medium
+    action: kill_process           # 仅杀进程
+    description: "终止可疑进程,但不影响容器其他服务"
+    
+  - threat_level: low
+    action: log_only               # 仅记录
+    description: "写入审计日志,不执行自动处置"

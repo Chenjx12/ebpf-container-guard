@@ -1,0 +1,15 @@
+# Dockerfile.test — 预制测试镜像（含 strace，用于 ptrace 逃逸检测验证）
+# 构建: docker build -f deploy/Dockerfile.test -t ebpf-test:latest .
+# 使用: docker run -d --privileged --pid=host --cap-add=SYS_PTRACE --name test ebpf-test:latest
+
+FROM ubuntu:22.04
+
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+        strace \
+        procps \
+        mount \
+    && rm -rf /var/lib/apt/lists/*
+
+# 默认保持运行，方便 docker exec 测试
+CMD ["sleep", "infinity"]

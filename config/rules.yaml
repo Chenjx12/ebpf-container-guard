@@ -1,0 +1,35 @@
+rules:
+  - name: "procfs_mount_escape"
+    description: "检测容器内挂载宿主机procfs文件系统"
+    severity: "CRITICAL"
+    condition:
+      event_type: "mount"
+      fstype: "proc"
+    exclude:
+      comm:
+        - "dockerd"
+        - "containerd"
+        - "runc:[2:INIT]"
+        - "runc"
+        - "docker-proxy"
+      target_path:
+        - "/proc/thread-self/fd/*"
+    action: "alert_and_log"
+
+  - name: "dangerous_ptrace"
+    description: "检测容器内尝试ptrace宿主机1号进程(systemd/init)"
+    severity: "HIGH"
+    condition:
+      event_type: "ptrace"
+      target_pid: 1 # 核心修改:只要对 PID 1 发起 ptrace,一律视为逃逸告警!
+    action: "alert_and_log"
+
+  - name: "sensitive_file_read"
+    description: "检测容器内读取宿主机敏感文件(如shadow)"
+    severity: "HIGH"
+    condition:
+      event_type: "openat"
+      target_path:
+        - "/host_etc/shadow" # 匹配测试脚本挂载的路径
+        # 也可以匹配更通用的，比如包含 /etc/shadow 的路径
+    action: "alert_and_log"
