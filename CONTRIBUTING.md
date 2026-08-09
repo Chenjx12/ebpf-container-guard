@@ -92,14 +92,32 @@ bash tests/integration/test_escape_scenarios.sh
 ## 📋 Project Structure
 
 ```
-src/
-├── ebpf/          # eBPF kernel programs (.bpf.c)
-├── detector/      # Detection engine (rule matching, filtering)
-└── responder/     # Response engine (Docker/K8s actions)
-
-config/            # YAML configuration files
-tests/             # Integration and unit tests
-docs/              # Documentation
+ebpf-container-guard/
+├── main.py                          # Entry point (pipeline orchestration)
+├── src/
+│   ├── core/                        # Infrastructure
+│   │   ├── identity.py              # Container identity (3-tier fallback + event-driven refresh)
+│   │   ├── event_log.py             # Structured JSON event logger (state machine)
+│   │   ├── scope.py                 # Monitoring scope (include/exclude containers)
+│   │   ├── escalation.py            # Response escalation (repeated attacks → blocklist)
+│   │   └── netblock.py              # Network traffic blocking (iptables DROP, reversible)
+│   ├── ebpf/                        # eBPF kernel programs (.bpf.c, 5 tracepoints)
+│   ├── detector/                    # Detection pipeline (3-tier)
+│   │   ├── engine.py                # Tier 1: YAML rule engine
+│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix
+│   │   └── ai_analyzer.py           # Tier 3: AI judge (OpenAI-compatible)
+│   └── responder/                   # Response engine (graded automation)
+│       └── docker_responder.py      # Docker actions + human review queue
+├── config/                          # YAML configuration files
+│   ├── rules.yaml                   # 8 detection rules
+│   ├── responses.yaml               # Severity→action policy
+│   ├── monitor.yaml                 # Monitoring scope (include/exclude)
+│   ├── blocklist.yaml               # Blocked images (runtime state, gitignored)
+│   └── ai_config.yaml.example       # AI API config template
+├── deploy/                          # Deployment assets
+├── tests/                           # Integration and unit tests
+├── demos/                           # Demo scripts
+└── docs/                            # Documentation (bilingual)
 ```
 
 ## 🧪 Testing

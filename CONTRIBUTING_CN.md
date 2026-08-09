@@ -99,14 +99,32 @@ bash tests/integration/test_escape_scenarios.sh
 ## 📋 项目结构
 
 ```
-src/
-├── ebpf/          # eBPF 内核程序 (.bpf.c)
-├── detector/      # 检测引擎（规则匹配、过滤）
-└── responder/     # 响应引擎（Docker/K8s 动作）
-
-config/            # YAML 配置文件
-tests/             # 集成测试和单元测试
-docs/              # 文档
+ebpf-container-guard/
+├── main.py                          # 主入口（管线编排）
+├── src/
+│   ├── core/                        # 基础设施
+│   │   ├── identity.py              # 容器身份识别（三级回退 + 事件驱动刷新）
+│   │   ├── event_log.py             # 结构化 JSON 事件日志（状态机）
+│   │   ├── scope.py                 # 监控范围（include/exclude 容器）
+│   │   ├── escalation.py            # 响应升级（重复攻击 → 镜像拉黑）
+│   │   └── netblock.py              # 网络流量阻断（iptables DROP，可逆）
+│   ├── ebpf/                        # eBPF 内核程序（.bpf.c，5 个 tracepoint）
+│   ├── detector/                    # 检测管线（三层）
+│   │   ├── engine.py                # Tier 1: YAML 规则引擎
+│   │   ├── attack_matrix.py         # Tier 2: 行为→CVE 矩阵
+│   │   └── ai_analyzer.py           # Tier 3: AI 研判（OpenAI 兼容）
+│   └── responder/                   # 响应引擎（分级自动化）
+│       └── docker_responder.py      # Docker 动作 + 人工判决队列
+├── config/                          # YAML 配置文件
+│   ├── rules.yaml                   # 8 条检测规则
+│   ├── responses.yaml               # 严重度→动作策略
+│   ├── monitor.yaml                 # 监控范围（include/exclude）
+│   ├── blocklist.yaml               # 拉黑镜像（运行时状态，gitignored）
+│   └── ai_config.yaml.example       # AI API 配置模板
+├── deploy/                          # 部署资产
+├── tests/                           # 集成测试和单元测试
+├── demos/                           # 演示脚本
+└── docs/                            # 文档（中英双语）
 ```
 
 ---
