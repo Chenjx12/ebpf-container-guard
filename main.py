@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.3.8)
+eBPF Container Guard - Main Entry Point (v0.3.9)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -31,6 +31,7 @@ from core.event_log import EventLogger
 from core.scope import ContainerScope
 from core.escalation import EscalationManager
 from core.netblock import NetBlocker, ip_int_to_str
+from core.netblock_xdp import XDPNetBlocker, CompositeNetBlocker
 from core.decision_executor import DecisionExecutor
 
 
@@ -124,7 +125,24 @@ class ContainerEscapeMonitor:
         # 9. Initialize response escalation + network blocker
         self.escalation = EscalationManager(
             str(script_dir / "config" / "blocklist.yaml"))
-        self.netblocker = NetBlocker()
+
+        # v0.3.9: netblock backend
+        #   iptables — outbound blocking (FORWARD, default, reliable)
+        #   xdp      — inbound blocking (NIC ingress, kernel-level)
+        #   mixed    — both: XDP inbound + iptables outbound (recommended)
+        backend = self._get_netblock_backend()
+        self.netblock_backend = backend
+        if backend == 'mixed':
+            xdp = XDPNetBlocker(iface=self._get_xdp_iface())
+            self.netblocker = CompositeNetBlocker(
+                xdp, NetBlocker())
+        elif backend == 'xdp':
+            self.netblocker = XDPNetBlocker(iface=self._get_xdp_iface())
+            if not self.netblocker.enabled:
+                print("  [NetBlock] XDP 加载失败，回退 iptables")
+                self.netblocker = NetBlocker()
+        else:
+            self.netblocker = NetBlocker()
 
         # 10. Initialize decision executor (human verdicts → Docker actions)
         self.executor = DecisionExecutor(
@@ -148,7 +166,7 @@ class ContainerEscapeMonitor:
         self._ai_cfg_watcher.start()
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.3.8")
+        print("  eBPF Container Guard v0.3.9")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -399,6 +417,37 @@ class ContainerEscapeMonitor:
                   f"CID:{cid} FS:{event_dict.get('fstype', '')} "
                   f"Path:{event_dict.get('target_path', '')}\033[0m")
         # openat is filtered in kernel space; if it reaches here, print it
+
+    # ================================================================
+    # Netblock backend config (v0.3.9)
+    # ================================================================
+
+    def _get_netblock_backend(self) -> str:
+        """Read netblock_backend from monitor.yaml: 'iptables' | 'xdp'."""
+        try:
+            import yaml
+            with open(Path(__file__).parent / "config" / "monitor.yaml",
+                      'r') as f:
+                cfg = yaml.safe_load(f) or {}
+            backend = cfg.get('netblock_backend', 'mixed')
+            print(f"  [NetBlock] backend: {backend}")
+            return backend if backend in ('iptables', 'xdp', 'mixed') \
+                else 'iptables'
+        except Exception:
+            return 'iptables'
+
+    def _get_xdp_iface(self) -> str:
+        """XDP attach interface — docker0 (container traffic) or eth0."""
+        import subprocess
+        try:
+            out = subprocess.run(
+                ["ip", "link", "show", "docker0"],
+                capture_output=True, text=True, timeout=5)
+            if out.returncode == 0:
+                return "docker0"
+        except Exception:
+            pass
+        return "eth0"
 
     # ================================================================
     # AI config hot-reload (v0.3.6)

@@ -12,3 +12,6 @@ exclude: []
 # 匹配依据: name = 容器名, id = 容器短 ID（12 位）
 #   match target: name = container name, id = container short ID
 match_by: "name"
+
+# 网络阻断后端: iptables（用户态，可逆） | xdp（内核态，微秒级，v0.3.9）
+netblock_backend: "mixed"  # xdp(入站) + iptables(出站)

@@ -18,7 +18,27 @@
 
 ---
 
+## [0.3.9] - 2026-08-09
+
+### 新增
+- **XDP 网络阻断**（`src/ebpf/xdp-block.bpf.c` + `src/core/netblock_xdp.py`）：
+  - eBPF XDP 程序在网卡入口丢弃阻断包（微秒级，内核态）
+  - 两个阻断表：整 IP 和 IP:端口（TCP/UDP）
+- **混合后端**（`CompositeNetBlocker`）：XDP 入站 + iptables FORWARD 出站
+  （C2/反弹 shell）——`netblock_backend: mixed`（默认）
+
+### 设计说明
+- XDP 仅处理入站（进入接口的包）。容器出站流量（反弹 shell / C2）
+  不经过 docker0 的 XDP——iptables FORWARD 覆盖出站，XDP 覆盖入站攻击流量。
+  此分工已记录在决策文档。
+
+### 验证
+- XDP 程序加载、挂载 docker0、map 阻断/解除正常
+- 混合端到端：基线 CONNECTED → 阻断 FAILED → 解除 CONNECTED
+- 测试套件：15/15 通过
+
 ## [0.3.8] - 2026-08-09
+
 
 ### 新增
 - **RBAC 登录**（CSAI 式）：进入面板需用户名+密码

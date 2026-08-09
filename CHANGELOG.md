@@ -14,7 +14,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.9] - 2026-08-09
+
+### Added
+- **XDP network blocking** (`src/ebpf/xdp-block.bpf.c` + `src/core/netblock_xdp.py`):
+  - eBPF XDP program drops blocked packets at NIC ingress (microsecond, kernel-level)
+  - Two block maps: whole-IP and IP:port (TCP/UDP)
+- **Mixed backend** (`CompositeNetBlocker`): XDP for inbound + iptables FORWARD
+  for outbound (C2 / reverse shell) — `netblock_backend: mixed` (default)
+
+### Design note
+- XDP is ingress-only (packets entering an interface). Outbound container
+  traffic (reverse shell / C2) does not pass XDP on docker0 — iptables FORWARD
+  covers outbound, XDP covers inbound attack traffic. This split is documented
+  in decision record.
+
+### Verified
+- XDP program loads, attaches to docker0, map block/unblock works
+- Mixed E2E: baseline CONNECTED → blocked FAILED → unblocked CONNECTED
+- Test suite: 15/15 PASS
+
 ## [0.3.8] - 2026-08-09
+
 
 ### Added
 - **RBAC login** (CSAI-style): username/password required to enter dashboard
