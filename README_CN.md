@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.3-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -372,12 +372,10 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 
 | 版本 | 特性 | 状态 |
 |------|------|------|
- | v0.1 | MVP：基础检测 + Docker 响应（v0.1.1） | ✅ 稳定版 |
-| v0.2 | 三层检测：规则引擎 → 行为矩阵 → AI 研判 | ✅ 稳定版 |
-|       | ↳ v0.2.5 — 稳定版（分级自动化，流量阻断，响应升级） | |
-
-| v0.3 | 面板：Streamlit 原型（告警流、容器级判决队列、证据视图） | 🚧 原型 |
-|       | ↳ v0.3.3 — 当前版本（规则热加载，15 项测试） | |
+| v0.1 | MVP：基础检测 + Docker 响应 | ✅ 稳定版 |
+| v0.2 | 三层检测 + 分级自动化（流量阻断、响应升级） | ✅ 稳定版 |
+| v0.3 | 面板 + 人机协同（异步 AI、规则热加载、判决执行） | ✅ 当前版本 |
+|       | ↳ v0.3.3 — 当前版本 | |
 | v0.4 | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 

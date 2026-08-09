@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard — 安全监控面板 (v0.3 prototype)
+eBPF Container Guard — 安全监控面板 (v0.3.3)
 
 Streamlit dashboard reading events.log (JSONL) written by main.py.
 
@@ -150,7 +150,7 @@ def get_container_profile(container_id: str) -> dict:
 # Sidebar (static)
 # ================================================================
 st.sidebar.title("🛡️ eBPF Container Guard")
-st.sidebar.caption("v0.3 prototype · 实时检测 · AI 研判 · 人机协同")
+st.sidebar.caption("v0.3.3 · 实时检测 · AI 研判 · 人机协同")
 st.sidebar.caption(f"自动刷新: 每 {REFRESH_SECONDS} 秒")
 st.sidebar.divider()
 st.sidebar.subheader("📊 数据源")

@@ -1,8 +1,8 @@
 # MVP Verification Report
 
 > **Date**: 2026-08-08
-> **Version**: v0.1.0 → v0.1.1 → v0.2.5
-> **Status**: ✅ v0.2.5 end-to-end verified
+> **Version**: v0.1.0 → v0.3.3
+> **Status**: ✅ v0.3.3 end-to-end verified
 
 [**中文版 / Chinese Version**](MVP-运行验证报告.md)
 

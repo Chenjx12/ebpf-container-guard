@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.3-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -345,12 +345,10 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 
 | Version | Features | Status |
 |---------|----------|--------|
- | v0.1 | MVP: Basic detection + Docker response (v0.1.1) | ✅ Stable |
-| v0.2 | 3-tier detection: rules → attack matrix → AI judge | ✅ Stable |
-|       | ↳ v0.2.5 — stable (graded automation, netblock, escalation) | |
-
-| v0.3 | Dashboard: Streamlit prototype (alert stream, container-level review queue, evidence view) | 🚧 Prototype |
-|       | ↳ v0.3.3 — current (rules hot-reload, 15 tests) | |
+| v0.1 | MVP: Basic detection + Docker response | ✅ Stable |
+| v0.2 | 3-tier detection + graded automation (netblock, escalation) | ✅ Stable |
+| v0.3 | Dashboard + human-in-the-loop (async AI, hot-reload, decision executor) | ✅ Current |
+|       | ↳ v0.3.3 — current | |
 | v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 
