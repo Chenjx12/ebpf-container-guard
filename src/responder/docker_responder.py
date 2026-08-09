@@ -59,7 +59,11 @@ class ResponseEngine:
         return container_id  # 无法解析，返回原值
 
     def handle_alert(self, alert):
-        """处理告警事件,执行自动响应"""
+        """处理告警事件,执行自动响应
+
+        Returns:
+            str: 实际执行状态 — 'executed' / 'skipped_host' / 'skipped_cooldown'
+        """
         severity = alert.get('severity', 'LOW').lower()
         container_id = alert['event'].get('container_id', '')
         event_pid = alert['event'].get('pid', 0)
@@ -70,8 +74,8 @@ class ResponseEngine:
         # 跳过宿主机进程
         if container_id in ['', 'host', 'unknown']:
             print(f"[INFO] 跳过宿主机事件(PID={event_pid}),不执行响应")
-            return
-        
+            return 'skipped_host'
+
         # 检查冷却时间
         now = time.time()
         if container_id in self.cooldown:
@@ -79,31 +83,34 @@ class ResponseEngine:
             if now - last_time < self.cooldown_period:
                 remaining = int(self.cooldown_period - (now - last_time))
                 print(f"[SKIP] 容器 {container_id[:12]} 在冷却期内 (剩余{remaining}秒)")
-                return
-        
+                return 'skipped_cooldown'
+
         # 获取对应的响应动作
         action = self.policy.get(severity, 'log_only')
-        
+
         print(f"\n🛡️  [RESPONSE] 触发自动防御: {severity.upper()} → {action}")
-        
+
         # 执行响应动作
         try:
+            success = True
             if action == 'pause_container':
                 self.pause_container(container_id)
             elif action == 'isolate_network':
-                self.isolate_network(container_id)
+                success = self.isolate_network(container_id)
             elif action == 'kill_process':
                 self.kill_process(container_id, alert['event']['pid'])
             elif action == 'kill_container':
                 self.kill_container(container_id)
             elif action == 'log_only':
                 self.log_only(alert)
-            
+
             # 记录冷却时间
             self.cooldown[container_id] = now
-            
+            return 'executed' if success else 'error'
+
         except Exception as e:
             print(f"[ERROR] 响应执行失败: {e}", file=sys.stderr)
+            return 'error'
     
     def pause_container(self, container_id):
         """冻结容器(推荐用于CRITICAL级别,保留取证现场)"""
@@ -118,7 +125,11 @@ class ResponseEngine:
             print(f"❌ 冻结容器失败: {e}")
     
     def isolate_network(self, container_id):
-        """断网隔离(阻止C2回连或横向移动)"""
+        """断网隔离(阻止C2回连或横向移动)
+
+        Note: docker-py 7.x removed Container.disconnect() — use
+        Network.disconnect(container) instead.
+        """
         try:
             container = self.docker_client.containers.get(container_id)
             networks = container.attrs['NetworkSettings']['Networks']
@@ -129,7 +140,8 @@ class ResponseEngine:
                 if network_name == 'none':
                     continue
                 try:
-                    container.disconnect(network_name)
+                    network = self.docker_client.networks.get(network_name)
+                    network.disconnect(container)
                     disconnected.append(network_name)
                     print(f"✅ Container {container_id[:12]} DISCONNECTED from {network_name}")
                 except docker.errors.APIError as e:
@@ -139,9 +151,11 @@ class ResponseEngine:
                 self._audit_log(container_id, "ISOLATE", f"Disconnected: {disconnected}")
             if failed:
                 print(f"⚠️  部分网络断开失败: {'; '.join(failed)}")
-                # 即使部分失败也算完成，至少尝试过了
+                return False  # 部分失败 → 报告错误
+            return True
         except docker.errors.APIError as e:
             print(f"❌ 断网隔离失败: {e}")
+            return False
     
     def kill_process(self, container_id, pid):
         """终止可疑进程(中等威胁级别)

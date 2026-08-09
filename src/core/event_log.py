@@ -8,7 +8,11 @@ decision — true positives, false positives, and AI verdicts.
 
 import json
 import time
+from datetime import datetime
 from typing import Optional
+
+# Log format version — bump when schema changes
+LOG_FORMAT_VERSION = 1
 
 
 class EventLogger:
@@ -18,7 +22,8 @@ class EventLogger:
         self.log_path = log_path
 
     def write(self, alert: dict, matrix_result=None, ai_result=None,
-              action: str = "log_only", event_dict: dict = None):
+              action: str = "log_only", action_status: str = "executed",
+              tier1_match: bool = True, event_dict: dict = None):
         """Write a pipeline decision to the event log.
 
         Args:
@@ -26,17 +31,22 @@ class EventLogger:
             matrix_result: Attack matrix analysis result (optional).
             ai_result: AI judge analysis result (optional).
             action: Final response action taken.
+            action_status: What actually happened: 'executed',
+                'skipped_cooldown', or 'skipped_host'.
+            tier1_match: Whether a rule matched (True for alerts).
             event_dict: Raw event dict (used when alert has no embedded event).
         """
         evt = alert.get('event', event_dict or {})
+        now = datetime.now()
         entry = {
-            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'version': LOG_FORMAT_VERSION,
+            'timestamp': now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3],
             'container_id': evt.get('container_id', 'unknown'),
             'event_type': evt.get('event_type', 'unknown'),
             'rule': alert.get('rule_name', 'none'),
             'severity': alert.get('severity', 'INFO'),
             # Tier 1
-            'tier1_match': True,
+            'tier1_match': tier1_match,
             # Tier 2
             'tier2_vector': alert.get('attack_vector'),
             'tier2_confidence': alert.get('matrix_confidence'),
@@ -48,8 +58,9 @@ class EventLogger:
             'tier3_ai_confidence': None,
             'tier3_ai_technique': None,
             'tier3_ai_report': None,
-            # Action
+            # Action (intended vs actually executed)
             'action': action,
+            'action_status': action_status,
             # Raw event
             'event': {
                 'pid': evt.get('pid'),

@@ -105,7 +105,7 @@ class ContainerEscapeMonitor:
         print("[7/7] Initializing container identity + event log...")
         self.identity = ContainerIdentity(self.bpf, self.docker_client)
         self.identity.start()
-        self.logger = EventLogger()
+        self.logger = EventLogger(str(script_dir / "events.log"))
 
         print("\n========================================")
         print("  eBPF Container Guard v0.2.2")
@@ -211,16 +211,17 @@ class ContainerEscapeMonitor:
 
                         # === Response ===
                         alert['severity'] = alert.get('severity', 'LOW')
-                        self.responder.handle_alert(alert)
+                        status = self.responder.handle_alert(alert)
 
                         # === Event Log ===
                         self.logger.write(alert, matrix_result,
-                                          ai_result, action)
+                                          ai_result, action,
+                                          action_status=status)
                     else:
                         # No attack vector → basic alert only
                         print_alert(alert)
-                        self.responder.handle_alert(alert)
-                        self.logger.write(alert)
+                        status = self.responder.handle_alert(alert)
+                        self.logger.write(alert, action_status=status)
             else:
                 # Normal event — green output (verbose mode)
                 if self.verbose:
