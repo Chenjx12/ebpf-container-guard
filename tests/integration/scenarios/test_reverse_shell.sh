@@ -29,8 +29,7 @@ print_result "反弹 shell / C2 出站 (reverse_shell)"
 
 # 1. 构建镜像
 print_test "构建测试镜像 $IMAGE"
-docker image inspect "$IMAGE" > /dev/null 2>&1 || \
-    docker build -q -t "$IMAGE" -f ../images/Dockerfile.net ../.. > /dev/null 2>&1
+bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"
 print_pass
 
 # 2. 重置环境 + 启动 guard

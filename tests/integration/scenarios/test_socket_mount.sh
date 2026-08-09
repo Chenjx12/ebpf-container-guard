@@ -22,9 +22,12 @@ print_result "Docker socket 挂载 (docker_socket_mount)"
 
 # 1. 构建镜像（若已存在则跳过）
 print_test "准备测试镜像 $IMAGE"
-docker image inspect "$IMAGE" > /dev/null 2>&1 || \
-    docker build -q -t "$IMAGE" -f ../images/Dockerfile.mount ../.. > /dev/null 2>&1
-print_pass
+if bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"; then
+    print_pass
+else
+    print_fail "镜像不可用"
+    exit 1
+fi
 
 # 2. 重置环境 + 启动 guard
 reset_environment

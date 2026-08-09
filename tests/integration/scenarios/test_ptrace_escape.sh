@@ -23,8 +23,7 @@ print_result "ptrace 注入逃逸 (ptrace_host_init)"
 
 # 1. 构建镜像
 print_test "构建测试镜像 $IMAGE"
-docker image inspect "$IMAGE" > /dev/null 2>&1 || \
-    docker build -q -t "$IMAGE" -f ../images/Dockerfile.ptrace ../.. > /dev/null 2>&1
+bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"
 print_pass
 
 # 2. 重置环境 + 启动 guard
