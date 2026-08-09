@@ -1,0 +1,5 @@
+# ptrace 注入测试镜像（strace）
+FROM ubuntu:22.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    strace && rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]

@@ -1,0 +1,3 @@
+# 敏感文件访问测试镜像（基础 ubuntu 即可）
+FROM ubuntu:22.04
+CMD ["sleep", "infinity"]

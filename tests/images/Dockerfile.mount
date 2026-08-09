@@ -1,0 +1,5 @@
+# 挂载逃逸测试镜像（procfs/docker.sock 挂载）
+FROM ubuntu:22.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    util-linux mount && rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]

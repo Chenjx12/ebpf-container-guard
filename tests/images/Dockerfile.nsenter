@@ -1,0 +1,5 @@
+# nsenter 逃逸测试镜像（util-linux）
+FROM ubuntu:22.04
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    util-linux && rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]
