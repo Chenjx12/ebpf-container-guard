@@ -1,3 +1,4 @@
 bcc
 pyyaml
 docker
+streamlit
