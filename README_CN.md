@@ -134,6 +134,77 @@ Ptrace请求: PTRACE_SECCOMP_GET_METADATA -> 目标PID: 1
 
 > 💡 **设计哲学**：现代 `strace` 使用了 6+ 种不同的 ptrace 操作码（`PTRACE_SECCOMP_GET_METADATA`, `PTRACE_SYSCALL`, `PTRACE_GET_SYSCALL_INFO` 等），不仅限于传统的 `PTRACE_ATTACH`。本系统通过匹配 **行为方向（target_pid=1）** 而非具体参数来检测逃逸，不会被参数级别的变化绕过。
 
+### 场景 3：AI 威胁研判（DeepSeek，已实测）
+
+当行为矩阵置信度落在灰色区间（60-85%）时，AI 研判模块结合上下文分析告警：
+
+```bash
+# 终端 A：启动监控（启用 AI）
+cp config/ai_config.yaml.example config/ai_config.yaml
+# 编辑 config/ai_config.yaml 填入你的 DeepSeek API Key
+sudo python3 main.py
+
+# 终端 B：容器初始化进程读取 /etc/passwd
+docker run -d --privileged --name test ubuntu:22.04 sleep 300
+```
+
+**实测输出（DeepSeek API, 2026-08-09）：**
+
+```
+🚨 安全告警 - HIGH
+规则: sensitive_file_access
+攻击向量: sensitive_file_access
+━━━ 行为矩阵分析 ━━━
+关联CVE: CVE-2019-5736
+置信度: 75% 🟡 AI研判
+
+🤖 AI 研判报告:
+   判定: ⚠️ 误报
+   置信度: 30%
+   分析: 该警报检测到容器内进程读取了/etc/passwd文件，但该文件是系统常规文件，
+         许多合法应用都会读取它。进程名为runc:[2:INIT]，是容器初始化过程中的
+         正常操作，且没有其他恶意行为。这更可能是误报，建议仅记录日志并观察。
+   建议: log_only
+```
+
+AI 正确识别了这条误报——规则引擎匹配了模式，但 AI 理解了上下文（`runc` 初始化读取 `/etc/passwd` 是正常行为）。这正是三层模型的核心价值：**确定性规则兜底全覆盖，AI 从噪音中甄别真实攻击**。
+
+**AI 也能发现规则之外的攻击：**
+```
+🚨 安全告警 - HIGH
+规则: reverse_shell
+🤖 AI 研判报告:
+   判定: ✅ 攻击
+   置信度: 85%
+   分析: 该容器内bash进程向非标端口30255发起连接，符合反向Shell典型特征。
+         且此前已有敏感文件访问行为，攻击意图明显。建议立即终止容器并隔离网络。
+   建议: kill_container
+```
+
+---
+
+## 🤖 AI 配置
+
+使用你的 DeepSeek API Key 启用 AI 研判：
+
+```bash
+cp config/ai_config.yaml.example config/ai_config.yaml
+# 编辑该文件填入你的 Key
+```
+
+```yaml
+# config/ai_config.yaml（gitignored，永不提交）
+api_key: "sk-your-deepseek-api-key-here"
+model: "deepseek-chat"
+
+# 置信度分级响应阈值
+auto_response_threshold: 85    # > 85% → 自动执行响应
+pending_review_threshold: 60   # 60-85% → AI 研判分析
+                               # < 60% → 仅记录
+```
+
+未配置 Key 时系统运行在**离线回退模式**：由矩阵置信度驱动决策（>85% 自动响应，60-85% 标记待审，<60% 静默）。
+
 ---
 
 ## 🏗️ 系统架构

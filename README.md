@@ -117,6 +117,77 @@ Ptrace请求: PTRACE_SECCOMP_GET_METADATA -> 目标PID: 1
 
 > 💡 Modern `strace` uses 6+ different ptrace request codes (not just `PTRACE_ATTACH`). Our detection matches **behavior direction (target_pid=1)** rather than specific parameters, making it resilient to parameter-level evasion.
 
+### Scenario 3: AI Threat Analysis (DeepSeek, live-tested)
+
+When matrix confidence falls in the gray zone (60-85%), the AI judge analyzes the alert with surrounding context:
+
+```bash
+# Terminal A: start monitor (with AI enabled)
+cp config/ai_config.yaml.example config/ai_config.yaml
+# edit config/ai_config.yaml with your DeepSeek API key
+sudo python3 main.py
+
+# Terminal B: container process reads /etc/passwd during init
+docker run -d --privileged --name test ubuntu:22.04 sleep 300
+```
+
+**Verified output (DeepSeek API, 2026-08-09):**
+
+```
+🚨 安全告警 - HIGH
+规则: sensitive_file_access
+攻击向量: sensitive_file_access
+━━━ 行为矩阵分析 ━━━
+关联CVE: CVE-2019-5736
+置信度: 75% 🟡 AI研判
+
+🤖 AI 研判报告:
+   判定: ⚠️ 误报
+   置信度: 30%
+   分析: 该警报检测到容器内进程读取了/etc/passwd文件，但该文件是系统常规文件，
+         许多合法应用都会读取它。进程名为runc:[2:INIT]，是容器初始化过程中的
+         正常操作，且没有其他恶意行为。这更可能是误报，建议仅记录日志并观察。
+   建议: log_only
+```
+
+The AI correctly identified this as a false positive — the rule engine matched the pattern, but the AI understood the context (`runc` init is expected to read `/etc/passwd`). This is the key value of the 3-tier model: **deterministic rules catch everything, AI separates real attacks from noise**.
+
+**AI also catches what rules miss:**
+```
+🚨 安全告警 - HIGH
+规则: reverse_shell
+🤖 AI 研判报告:
+   判定: ✅ 攻击
+   置信度: 85%
+   分析: 该容器内bash进程向非标端口30255发起连接，符合反向Shell典型特征。
+         且此前已有敏感文件访问行为，攻击意图明显。建议立即终止容器并隔离网络。
+   建议: kill_container
+```
+
+---
+
+## 🤖 AI Configuration
+
+Enable AI analysis with your DeepSeek API key:
+
+```bash
+cp config/ai_config.yaml.example config/ai_config.yaml
+# edit the file with your key
+```
+
+```yaml
+# config/ai_config.yaml (gitignored — never committed)
+api_key: "sk-your-deepseek-api-key-here"
+model: "deepseek-chat"
+
+# Confidence thresholds for graded response
+auto_response_threshold: 85    # > 85% → auto execute response
+pending_review_threshold: 60   # 60-85% → AI judge analysis
+                               # < 60% → log only
+```
+
+Without a key, the system runs in **offline fallback mode**: matrix confidence drives decisions (>85% auto-response, 60-85% flagged for review, <60% silent).
+
 ---
 
 ## 🏗️ Architecture
