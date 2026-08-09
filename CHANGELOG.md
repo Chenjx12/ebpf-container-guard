@@ -10,9 +10,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Streamlit dashboard (v0.3)
+- Async AI analysis (background queue — unblock ring buffer callback)
 - Kubernetes native support (v0.4)
+- Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
+
+## [0.3.0] - 2026-08-09
+
+### Added
+- **Streamlit security dashboard** (`dashboard/app.py`): overview metrics, live alert stream (3s auto-refresh via st.fragment), container filter
+- **Human review queue** — container-level (decision record #18): verdicts act on the container, all its pending events cascade-marked
+- **Evidence view** (decision record #19): container profile (image/privileged/status/ports via Docker API) + behavior timeline (attack chain from events.log)
+- Decisions persisted to `decisions.log` (scope=container)
+
+### Fixed
+- **Dashboard blank page**: auto-refresh loop (sleep→rerun) never rendered — replaced with `st.fragment(run_every=3)`
+- **Verdict not disappearing**: `load_decisions` cache not cleared after decision — added `load_decisions.clear()`
+- **Kill executed on repeated attacks** (v0.2.5 fix): irreversible actions ALWAYS queue for human review (decision record #14)
+
+### Known Issue
+- AI sync call blocks ring buffer callback during API latency — deferred to async AI / background queue
+
+### Verified
+- Alert stream real-time: mount escape + reverse shell → 6 events on screen
+- Container-level review: 4 containers grouped, verdict cascades (17 events → one click)
+- Repeated attacks: containers survive (kill queued, never auto)
 
 ## [0.2.5] - 2026-08-09
 
