@@ -31,8 +31,6 @@
 
 ## [0.3.2] - 2026-08-09
 
-## [0.3.2] - 2026-08-09
-
 ### 新增
 - **异步 AI 研判**（ai_analyzer.py 的 `AsyncAIAnalyzer`）：
   - AI API 调用移到后台工作线程队列——Ring Buffer 回调不再被 DeepSeek 延迟阻塞（原来要等数秒）
