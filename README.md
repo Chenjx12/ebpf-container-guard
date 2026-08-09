@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.2-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -177,6 +177,9 @@ ebpf-container-guard/
 ├── CONTRIBUTING.md                  # Contribution guide
 ├── Makefile                         # Build/deploy automation
 ├── src/
+│   ├── core/                        # Infrastructure
+│   │   ├── identity.py              # Container identity (3-tier fallback + refresh)
+│   │   └── event_log.py             # Structured JSON event logger
 │   ├── ebpf/
 │   │   └── escape-detect.bpf.c      # eBPF kernel probes (5 tracepoints)
 │   ├── detector/
@@ -266,7 +269,7 @@ responses:
 |---------|----------|--------|
  | v0.1 | MVP: Basic detection + Docker response (v0.1.1) | ✅ Stable |
 | v0.2 | 3-tier detection: rules → attack matrix → AI judge | ✅ Stable |
-|       | ↳ v0.2.1 — current (JSON event log, AI live-tested) | |
+|       | ↳ v0.2.2 — current (modularized, JSON log, docker-py 7.x compat) | |
 | v0.3 | Streamlit dashboard + human approval queue | 📋 Planned |
 | v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |

@@ -12,9 +12,28 @@
 ## [未发布]
 
 ### 计划中
-- Streamlit 仪表盘（v0.3.0）
-- Kubernetes 原生支持（v0.4.0）
+- Streamlit 仪表盘（v0.3）
+- Kubernetes 原生支持（v0.4）
 - 性能压测 & systemd 部署
+
+---
+
+## [0.2.2] - 2026-08-09
+
+### 变更
+- **代码模块化**：`ContainerIdentity`（identity.py）和 `EventLogger`（event_log.py）拆分为 `src/core/` 独立模块，main.py 专注管线编排
+- **事件日志增强**：`version` 字段、毫秒时间戳、`action_status`（executed / skipped_host / skipped_cooldown / error）、`tier1_match` 参数化
+- **日志绝对路径**：无论从哪个目录运行，日志都写入项目根目录
+
+### 修复
+- **docker-py 7.x 兼容**：7.x 移除了 `Container.disconnect()`——断网隔离改用 `Network.disconnect(container)`；实测 `DISCONNECTED from bridge` 成功
+- **响应静默失败**：`isolate_network` 现在返回成功/失败，`handle_alert` 返回实际执行状态（动作失败不再误报 'executed'）
+- **重构引入的变量引用错误**：`event_pid → event.pid`
+
+### 验证
+- mount 逃逸 → CRITICAL → pause_container → status=executed
+- 反弹 shell → HIGH → isolate_network → DISCONNECTED from bridge
+- 冷却机制 → status=skipped_cooldown（剩余 592 秒）
 
 ---
 
@@ -96,7 +115,6 @@
 
 ## 版本规划
 
-- **v0.2.0**（2026 年 9 月）：AI 研判集成
-- **v0.3.0**（2026 年 10 月）：Streamlit 仪表盘
-- **v0.4.0**（2026 年 11 月）：Kubernetes 原生支持
-- **v1.0.0**（2026 年 12 月）：稳定版，毕设答辩前发布
+- **v0.3**（2026 年 10 月）：Streamlit 仪表盘
+- **v0.4**（2026 年 11 月）：Kubernetes 原生支持
+- **v1.0**（2026 年 12 月）：稳定版，毕设答辩前发布

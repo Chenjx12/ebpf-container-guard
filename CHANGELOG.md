@@ -10,9 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Streamlit dashboard (v0.3.0)
-- Kubernetes native support (v0.4.0)
+- Streamlit dashboard (v0.3)
+- Kubernetes native support (v0.4)
 - Performance benchmarking & systemd deployment
+
+## [0.2.2] - 2026-08-09
+
+### Changed
+- **Modularized codebase**: extracted `ContainerIdentity` (identity.py) and `EventLogger` (event_log.py) into `src/core/`, main.py now focuses on pipeline orchestration
+- **Event log enhanced**: `version` field, millisecond timestamps, `action_status` (executed / skipped_host / skipped_cooldown / error), parameterized `tier1_match`
+- **EventLogger absolute path**: log written to project root regardless of CWD
+
+### Fixed
+- **docker-py 7.x compatibility**: `Container.disconnect()` removed in docker-py 7.x — network isolation now uses `Network.disconnect(container)`; verified `DISCONNECTED from bridge`
+- **Silent response failure**: `isolate_network` now returns success/failure, `handle_alert` returns actual execution status (no more false 'executed' when action failed)
+- **Broken variable ref**: `event_pid → event.pid` during refactor
+
+### Verified
+- mount escape → CRITICAL → pause_container → status=executed
+- reverse shell → HIGH → isolate_network → DISCONNECTED from bridge
+- Cooldown mechanism → status=skipped_cooldown (592s remaining)
 
 ## [0.2.0] - 2026-08-08
 
@@ -88,7 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version Planning
 
-- **v0.2.0** (Sep 2026): AI analysis integration
-- **v0.3.0** (Oct 2026): Streamlit dashboard
-- **v0.4.0** (Nov 2026): Kubernetes native support
-- **v1.0.0** (Dec 2026): Stable release for thesis defense
+- **v0.3** (Oct 2026): Streamlit dashboard
+- **v0.4** (Nov 2026): Kubernetes native support
+- **v1.0** (Dec 2026): Stable release for thesis defense
