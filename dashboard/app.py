@@ -81,15 +81,18 @@ def load_decisions() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def record_decision(event_ts: str, container_id: str, rule: str,
-                    decision: str):
-    """Append a human verdict to decisions.log, then refresh caches."""
+def record_decision(container_id: str, decision: str, event_count: int = 1):
+    """Append a container-level verdict to decisions.log, then refresh.
+
+    判决粒度 = 容器（决策记录 #14）：处置动作作用于容器，
+    该容器的全部待判决事件联动标记。
+    """
     entry = {
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
-        'event_ts': event_ts,
         'container_id': container_id,
-        'rule': rule,
         'decision': decision,
+        'scope': 'container',
+        'event_count': event_count,
     }
     with open(DECISIONS_LOG, 'a') as f:
         f.write(json.dumps(entry, ensure_ascii=False) + '\n')
@@ -177,15 +180,17 @@ def render_dynamic():
     if selected != "全部":
         events = events[events['container_id'] == selected]
 
-    # ---- Human review queue ----
+    # ---- Human review queue (container-level) ----
     st.header("⏳ 待人工判决队列")
-    st.caption("AI 判定仅供参考 — 最终裁决权在人工。"
-               "确认处置 = 认定真实攻击，执行不可逆动作（kill/拉黑）；"
-               "驳回 = 认定误报/无害，不处置。")
+    st.caption("判决粒度 = **容器**（处置动作作用于容器）。"
+               "确认处置 = 认定真实攻击 → kill/拉黑该容器（其全部事件联动标记）；"
+               "驳回 = 认定误报/无害 → 解除隔离。"
+               "AI 判定仅供参考，最终裁决权在人工。")
 
-    decided_keys = set()
-    if not decisions.empty and 'event_ts' in decisions.columns:
-        decided_keys = set(decisions['event_ts'].astype(str))
+    # 已判决的容器（decisions.log 按 container_id 记录）
+    decided_containers = set()
+    if not decisions.empty and 'container_id' in decisions.columns:
+        decided_containers = set(decisions['container_id'].astype(str))
 
     pending = events[events['state'] == 'pending_review'] \
         if 'state' in events.columns else events.iloc[0:0]
@@ -193,108 +198,108 @@ def render_dynamic():
     if pending.empty:
         st.success("✅ 队列为空 — 当前没有需要人工判决的事件")
     else:
-        for _, ev in pending.iterrows():
-            key = str(ev['timestamp'])
-            if key in decided_keys:
-                continue  # already decided
+        # 按容器分组
+        for cid, group in pending.groupby('container_id'):
+            if str(cid) in decided_containers:
+                continue  # 该容器已判决 → 全部事件联动标记，跳过
+
             with st.container(border=True):
-                c1, c2 = st.columns([3, 1])
-                with c1:
+                # ---- 容器头部 + 画像摘要 ----
+                profile = get_container_profile(cid)
+                if profile:
+                    priv = "✅ 特权" if profile['privileged'] else "普通"
+                    st.markdown(f"**📦 容器 `{cid}`** — "
+                                f"`{profile['name']}` · "
+                                f"镜像 `{profile['image']}` · "
+                                f"{profile['status']} · {priv}")
+                else:
+                    st.markdown(f"**📦 容器 `{cid}`** — ⚠️ 已删除")
+
+                n_pending = len(group)
+                st.caption(f"该容器 {n_pending} 条待判决事件 — "
+                           f"处置作用于整个容器，事件联动标记")
+
+                # ---- 该容器的全部待判决事件 ----
+                for _, ev in group.sort_values('timestamp').iterrows():
                     sev = ev.get('severity', 'INFO')
                     sev_color = {"CRITICAL": "🔴", "HIGH": "🟠",
                                  "MEDIUM": "🟡", "LOW": "🔵"}.get(sev, "⚪")
-                    st.markdown(f"**{sev_color} [{sev}] "
-                                f"{ev.get('rule', '?')}** — "
-                                f"容器 `{ev.get('container_id', '?')}`")
-                    st.caption(f"{ev.get('timestamp')} · "
-                               f"事件: {ev.get('event_type', '?')} · "
-                               f"矩阵置信度: "
-                               f"{ev.get('tier2_confidence', '?')}%")
+                    st.markdown(
+                        f"- {sev_color} `{str(ev['timestamp'])[11:19]}` "
+                        f"**{ev.get('rule', '?')}** · "
+                        f"{ev.get('event_type', '?')} · "
+                        f"矩阵置信度 {ev.get('tier2_confidence', '?')}%")
                     if ev.get('tier3_ai_report'):
-                        st.write(f"🤖 **AI 研判**: {ev['tier3_ai_report']}")
+                        st.markdown(f"  🤖 AI: {ev['tier3_ai_report']}")
                     verdict = ev.get('tier3_ai_verdict')
                     if verdict:
-                        vstr = ("✅ 真实攻击" if verdict == "true_positive"
+                        vstr = ("✅ 攻击" if verdict == "true_positive"
                                 else "⚠️ 误报")
-                        st.write(f"AI 判定: {vstr} "
-                                 f"(置信度 {ev.get('tier3_ai_confidence', '?')}%)")
+                        st.markdown(f"  AI 判定: {vstr} "
+                                    f"({ev.get('tier3_ai_confidence', '?')}%)")
                     else:
-                        # 未触发 AI 研判 — 解释原因，避免误解为遗漏
                         conf2 = ev.get('tier2_confidence')
                         if ev.get('action') == 'block_image':
-                            st.caption("🚫 镜像已被拉黑 — 最高置信度判决，"
-                                       "无需 AI 研判")
+                            st.markdown("  🚫 镜像已拉黑 — 无需 AI 研判")
                         elif conf2 and conf2 >= 85:
-                            st.caption("🔴 矩阵高置信度 (≥85%) — "
-                                       "确定性足够，未触发 AI 研判")
-                        else:
-                            st.caption("ℹ️ 未触发 AI 研判")
+                            st.markdown("  🔴 矩阵高置信度 — 未触发 AI 研判")
                     if ev.get('escalation'):
-                        st.warning(f"⏫ 升级: {ev['escalation']}")
+                        st.markdown(f"  ⏫ 升级: {ev['escalation']}")
 
-                    # ---- 证据视图：容器画像 + 行为时间线 ----
-                    cid = ev.get('container_id', '')
-                    with st.expander(f"🔍 判决证据 — 容器 {cid} 画像与行为时间线"):
-                        profile = get_container_profile(cid)
-                        if profile:
-                            priv = "✅ 是（高危）" if profile['privileged'] \
-                                else "❌ 否"
+                # ---- 证据视图：行为时间线（该容器全部事件）----
+                with st.expander(f"🔍 判决证据 — 容器 {cid} 行为时间线"):
+                    cid_events = events[
+                        events['container_id'] == cid
+                    ].sort_values('timestamp')
+                    if cid_events.empty:
+                        st.caption("该容器无其他事件记录")
+                    else:
+                        st.caption(f"该容器共 {len(cid_events)} 条事件记录 "
+                                   f"(攻击链):")
+                        for _, ce in cid_events.iterrows():
+                            sev_c = {"CRITICAL": "🔴", "HIGH": "🟠",
+                                     "MEDIUM": "🟡"}.get(
+                                         ce.get('severity', ''), "")
                             st.markdown(
-                                f"**容器**: `{profile['name']}` · "
-                                f"**镜像**: `{profile['image']}` · "
-                                f"**状态**: {profile['status']} · "
-                                f"**创建**: {profile['created']}")
-                            st.markdown(
-                                f"**Privileged**: {priv} · "
-                                f"**端口映射**: {profile['ports']} · "
-                                f"**PID**: {profile['pid']}")
-                        else:
-                            st.caption("⚠️ 容器已删除 — 只能依赖事件记录判决")
+                                f"- `{str(ce['timestamp'])[11:19]}` "
+                                f"{sev_c} **{ce.get('rule', '?')}** · "
+                                f"{ce.get('event_type', '?')} · "
+                                f"置信度 {ce.get('tier2_confidence', '?')}%"
+                                f" · {ce.get('state', '?')}")
 
-                        # 该容器全部事件时间线（攻击链）
-                        cid_events = events[
-                            events['container_id'] == cid
-                        ].sort_values('timestamp')
-                        if cid_events.empty:
-                            st.caption("该容器无其他事件记录")
-                        else:
-                            st.caption(f"该容器共 {len(cid_events)} 条事件记录 "
-                                       f"(攻击链):")
-                            for _, ce in cid_events.iterrows():
-                                sev_c = {"CRITICAL": "🔴", "HIGH": "🟠",
-                                         "MEDIUM": "🟡"}.get(
-                                             ce.get('severity', ''), "")
-                                st.markdown(
-                                    f"- `{str(ce['timestamp'])[11:19]}` "
-                                    f"{sev_c} **{ce.get('rule', '?')}** · "
-                                    f"{ce.get('event_type', '?')} · "
-                                    f"置信度 {ce.get('tier2_confidence', '?')}%"
-                                    f" · {ce.get('state', '?')}")
-                with c2:
-                    if st.button("✅ 确认处置",
-                                 key=f"confirm_{key}",
+                # ---- 容器级判决按钮 ----
+                b1, b2 = st.columns(2)
+                with b1:
+                    if st.button("✅ 确认处置（kill/拉黑容器）",
+                                 key=f"confirm_{cid}",
                                  use_container_width=True,
-                                 help="认定真实攻击 → 执行不可逆处置 (kill/拉黑)"):
-                        record_decision(key, ev.get('container_id', ''),
-                                        ev.get('rule', ''), 'confirmed')
-                        st.toast("✅ 已确认处置 — 执行 kill/拉黑")
+                                 help="认定真实攻击 → 执行不可逆处置，"
+                                      "该容器全部事件联动标记"):
+                        record_decision(cid, 'confirmed',
+                                        event_count=n_pending)
+                        st.toast(f"✅ 已确认处置容器 {cid} — "
+                                 f"{n_pending} 条事件联动标记")
                         st.rerun()
-                    if st.button("❌ 驳回",
-                                 key=f"dismiss_{key}",
+                with b2:
+                    if st.button("❌ 驳回（误报，解除隔离）",
+                                 key=f"dismiss_{cid}",
                                  use_container_width=True,
-                                 help="认定误报/无害 → 不处置，解除隔离"):
-                        record_decision(key, ev.get('container_id', ''),
-                                        ev.get('rule', ''), 'dismissed')
-                        st.toast("❌ 已驳回 — 误报，解除隔离")
+                                 help="认定误报/无害 → 不处置，"
+                                      "该容器全部事件联动标记"):
+                        record_decision(cid, 'dismissed',
+                                        event_count=n_pending)
+                        st.toast(f"❌ 已驳回容器 {cid} — "
+                                 f"{n_pending} 条事件联动标记")
                         st.rerun()
 
     # ---- Live alert stream ----
     st.header("📡 实时告警流")
 
-    if not decisions.empty and 'event_ts' in decisions.columns:
-        dec_map = dict(zip(decisions['event_ts'].astype(str),
+    # 容器级判决联动：decisions.log 按 container_id 记录
+    if not decisions.empty and 'container_id' in decisions.columns:
+        dec_map = dict(zip(decisions['container_id'].astype(str),
                            decisions['decision']))
-        events['human_decision'] = events['timestamp'].astype(str).map(
+        events['human_decision'] = events['container_id'].astype(str).map(
             dec_map).fillna('')
     else:
         events['human_decision'] = ''
