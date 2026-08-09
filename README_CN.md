@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.2-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.3-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -371,7 +371,7 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |------|------|------|
  | v0.1 | MVP：基础检测 + Docker 响应（v0.1.1） | ✅ 稳定版 |
 | v0.2 | 三层检测：规则引擎 → 行为矩阵 → AI 研判 | ✅ 稳定版 |
-|       | ↳ v0.2.2 — 当前版本（模块化，JSON 日志，docker-py 7.x 兼容） | |
+|       | ↳ v0.2.3 — 当前版本（监控范围，JSON 日志，模块化） | |
 | v0.3 | Streamlit 仪表盘 + 人工确认队列 | 📋 规划中 |
 | v0.4 | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
