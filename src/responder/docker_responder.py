@@ -96,13 +96,14 @@ class ResponseEngine:
         else:
             action = self.policy.get(severity, 'log_only')
 
-        # 护栏：不可逆动作需要 AI 高置信度，否则进人工队列
+        # 决策记录 #14：不可逆动作永远进人工队列（即使 AI 置信度 95%）
+        # 可逆动作（pause/isolate/netblock）已自动执行填上时间缺口，
+        # kill/拉黑是最终处置，必须由人按确认按钮执行
         if action in self.IRREVERSIBLE_ACTIONS:
-            if ai_confidence is None or ai_confidence < 85:
-                print(f"\n⏳ [QUEUE] {action} 需要人工确认 "
-                      f"(AI置信度={ai_confidence or 'N/A'} < 85%)")
-                print(f"  已进入待判决队列，等待面板人工确认")
-                return 'queued_human'
+            print(f"\n⏳ [QUEUE] {action} 需要人工确认 "
+                  f"(AI置信度={ai_confidence or 'N/A'})")
+            print(f"  已进入待判决队列，等待面板人工确认")
+            return 'queued_human'
 
         # 检查冷却时间
         now = time.time()
