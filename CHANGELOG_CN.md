@@ -18,7 +18,24 @@
 
 ---
 
+## [0.3.6] - 2026-08-09
+
+### 新增
+- **设置面板**：AI 配置表单
+  - base_url / model / api_key / 阈值——无需手动编辑 yaml
+  - API Key 掩码显示（sk-...后4位）；留空 = 保留现有 key
+  - 保存 → ai_config.yaml → guard 热加载 3 秒生效（无需重启）
+- **AI 配置热加载**：`AsyncAIAnalyzer.reload()` + mtime 监听
+  （v0.3.3 模式）——启用 AI / 切换模型实时生效
+
+### 验证
+- 单元：reload() 从禁用→启用，model 更新
+- 端到端：空 key 启动（AI 禁用）→ 保存真实 key → guard 重载
+  （"config reloaded: enabled"）→ 攻击产出 5 条 AI 研判
+- 测试套件：15/15 通过
+
 ## [0.3.5] - 2026-08-09
+
 
 ### 新增
 - **规则管理面板**：

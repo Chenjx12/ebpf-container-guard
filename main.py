@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.3.5)
+eBPF Container Guard - Main Entry Point (v0.3.6)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -139,8 +139,16 @@ class ContainerEscapeMonitor:
             target=self._rules_watch_loop, daemon=True)
         self._rules_watcher.start()
 
+        # 12. Start AI config hot-reload watcher (v0.3.6)
+        self._ai_cfg_path = script_dir / "config" / "ai_config.yaml"
+        self._ai_cfg_mtime = self._ai_cfg_path.stat().st_mtime \
+            if self._ai_cfg_path.exists() else 0
+        self._ai_cfg_watcher = threading.Thread(
+            target=self._ai_cfg_watch_loop, daemon=True)
+        self._ai_cfg_watcher.start()
+
         print("\n========================================")
-        print("  eBPF Container Guard v0.3.5")
+        print("  eBPF Container Guard v0.3.6")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -391,6 +399,25 @@ class ContainerEscapeMonitor:
                   f"CID:{cid} FS:{event_dict.get('fstype', '')} "
                   f"Path:{event_dict.get('target_path', '')}\033[0m")
         # openat is filtered in kernel space; if it reaches here, print it
+
+    # ================================================================
+    # AI config hot-reload (v0.3.6)
+    # ================================================================
+
+    def _ai_cfg_watch_loop(self):
+        """Watch ai_config.yaml mtime — dashboard settings take effect
+        without restarting guard."""
+        while True:
+            time.sleep(3)
+            try:
+                if self._ai_cfg_path.exists():
+                    mtime = self._ai_cfg_path.stat().st_mtime
+                    if mtime != self._ai_cfg_mtime:
+                        print("[AI] ⚡ 检测到 AI 配置变化，热加载中...")
+                        self.ai.reload()
+                        self._ai_cfg_mtime = mtime
+            except Exception as e:
+                print(f"  [!] AI config watcher error: {e}", file=sys.stderr)
 
     # ================================================================
     # Rules hot-reload (v0.3.3)

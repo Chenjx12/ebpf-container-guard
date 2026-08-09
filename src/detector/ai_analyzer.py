@@ -286,6 +286,7 @@ class AsyncAIAnalyzer:
     def __init__(self, config_path: str = "config/ai_config.yaml",
                  results_path: str = "ai_results.log",
                  worker_count: int = 1):
+        self.config_path = config_path
         self.analyzer = AIAnalyzer(config_path)
         self.results_path = results_path
         self._queue = queue_mod.Queue(maxsize=100)
@@ -300,6 +301,26 @@ class AsyncAIAnalyzer:
             w.start()
         print(f"  [AI] async worker x{len(self._workers)} started "
               f"(results → {self.results_path})")
+
+    def reload(self):
+        """Reload AI config (v0.3.6) — dashboard settings take effect
+        without restarting guard. Workers stay alive; submit() checks
+        enabled state each time."""
+        import yaml
+        try:
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f) or {}
+            self.analyzer.api_key = config.get("api_key", "")
+            self.analyzer.model = config.get("model", "deepseek-chat")
+            base = config.get("base_url", "https://api.deepseek.com/v1")
+            self.analyzer.base_url = base.rstrip('/')
+            self.analyzer.enabled = bool(self.analyzer.api_key)
+            status = "enabled" if self.analyzer.enabled else "disabled"
+            print(f"  [AI] config reloaded: {status} "
+                  f"(model={self.analyzer.model}, "
+                  f"base_url={self.analyzer.base_url})")
+        except Exception as e:
+            print(f"  [!] AI config reload failed: {e}", file=sys.stderr)
 
     def stop(self):
         self._stop.set()

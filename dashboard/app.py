@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard — 安全监控面板 (v0.3.5)
+eBPF Container Guard — 安全监控面板 (v0.3.6)
 
 Streamlit dashboard reading events.log (JSONL) written by main.py.
 
@@ -101,6 +101,7 @@ def load_ai_results() -> pd.DataFrame:
 
 RULES_PATH = SCRIPT_DIR / "config" / "rules.yaml"
 RULES_AUDIT_LOG = SCRIPT_DIR / "rules_audit.log"
+AI_CONFIG_PATH = SCRIPT_DIR / "config" / "ai_config.yaml"
 
 
 def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
@@ -225,7 +226,7 @@ def get_container_profile(container_id: str) -> dict:
 # Sidebar (static)
 # ================================================================
 st.sidebar.title("🛡️ eBPF Container Guard")
-st.sidebar.caption("v0.3.5 · 实时检测 · AI 研判 · 人机协同")
+st.sidebar.caption("v0.3.6 · 实时检测 · AI 研判 · 人机协同")
 st.sidebar.caption(f"自动刷新: 每 {REFRESH_SECONDS} 秒")
 st.sidebar.divider()
 st.sidebar.subheader("📊 数据源")
@@ -393,6 +394,68 @@ def render_dynamic():
                         st.toast(f"❌ 已驳回容器 {cid} — "
                                  f"{n_pending} 条事件联动标记")
                         st.rerun()
+
+    # ---- Settings: AI config (v0.3.6) ----
+    st.header("⚙️ 设置")
+    with st.expander("🤖 AI 配置", expanded=False):
+        st.caption("填写后点击保存 — guard 热加载 3 秒生效，无需重启。"
+                   "API Key 仅保存在本地 ai_config.yaml（gitignored）")
+
+        import yaml as _yaml
+        ai_cfg = {}
+        if AI_CONFIG_PATH.exists():
+            try:
+                with open(AI_CONFIG_PATH, 'r') as f:
+                    ai_cfg = _yaml.safe_load(f) or {}
+            except Exception:
+                pass
+
+        has_key = bool(ai_cfg.get('api_key'))
+        ai_status = "✅ 已启用" if has_key else "⚠️ 未配置 (AI 研判禁用)"
+        st.markdown(f"**当前状态**: {ai_status} · "
+                    f"Model: `{ai_cfg.get('model', 'deepseek-chat')}` · "
+                    f"Base URL: `{ai_cfg.get('base_url', 'https://api.deepseek.com/v1')}`")
+
+        with st.form("ai_config_form"):
+            base_url = st.text_input(
+                "Base URL（OpenAI 兼容端点）",
+                value=ai_cfg.get('base_url', 'https://api.deepseek.com/v1'),
+                placeholder="https://api.deepseek.com/v1")
+            model = st.text_input(
+                "Model", value=ai_cfg.get('model', 'deepseek-chat'))
+            # 已有 key 时留空 = 保留原 key
+            key_placeholder = ("已配置 (sk-...%s)" % ai_cfg['api_key'][-4:]
+                               if has_key else "sk-...")
+            api_key = st.text_input(
+                "API Key（留空 = 保留现有）",
+                type="password", placeholder=key_placeholder)
+            c1, c2 = st.columns(2)
+            auto_th = c1.number_input(
+                "自动响应阈值 (%)",
+                value=int(ai_cfg.get('auto_response_threshold', 85)),
+                min_value=0, max_value=100)
+            review_th = c2.number_input(
+                "人工研判阈值 (%)",
+                value=int(ai_cfg.get('pending_review_threshold', 60)),
+                min_value=0, max_value=100)
+            save_ai = st.form_submit_button("💾 保存 AI 配置")
+
+            if save_ai:
+                new_cfg = {
+                    'api_key': api_key if api_key else ai_cfg.get('api_key', ''),
+                    'model': model,
+                    'base_url': base_url,
+                    'auto_response_threshold': int(auto_th),
+                    'pending_review_threshold': int(review_th),
+                }
+                try:
+                    with open(AI_CONFIG_PATH, 'w') as f:
+                        _yaml.safe_dump(new_cfg, f, allow_unicode=True,
+                                        sort_keys=False)
+                    st.toast("✅ AI 配置已保存 — guard 热加载生效")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"保存失败: {e}")
 
     # ---- AI suggested rules (v0.3.4) ----
     st.header("🧠 AI 建议规则")

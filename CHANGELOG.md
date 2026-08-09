@@ -14,7 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.6] - 2026-08-09
+
+### Added
+- **Settings panel** (dashboard): AI configuration form
+  - base_url / model / api_key / thresholds — no manual yaml editing
+  - API key shown masked (sk-...last4); empty input keeps existing key
+  - Save → ai_config.yaml → guard hot-reloads within 3s (no restart)
+- **AI config hot-reload**: `AsyncAIAnalyzer.reload()` + mtime watcher
+  (v0.3.3 pattern) — enabling AI / switching model takes effect live
+
+### Verified
+- Unit: reload() flips disabled→enabled, model updates
+- E2E: started with empty key (AI disabled) → saved real key → guard
+  reloaded ("config reloaded: enabled") → attack produced 5 AI verdicts
+- Test suite: 15/15 PASS
+
 ## [0.3.5] - 2026-08-09
+
 
 ### Added
 - **Rule management panel** (dashboard):
