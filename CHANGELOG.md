@@ -14,7 +14,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.8] - 2026-08-09
+
+### Added
+- **RBAC login** (CSAI-style): username/password required to enter dashboard
+  - Roles: admin > operator > analyst
+  - Initial admin auto-created on first session; password printed to terminal
+  - Password hashing: pbkdf2_hmac(sha256, 100k); users.yaml gitignored
+  - Change own password (all roles)
+- **Role-filtered navigation**: pages shown per role
+  - All: overview / review queue / AI rules / rule view / alerts
+  - admin+operator: settings (AI config)
+  - admin: member management
+- **Member management**: admin adds members (password required, one role each);
+  operator views list; admin+operator see all members
+- **Temporary token authorization** (delegated access):
+  - admin grants add_member / add_rule; operator grants add_rule
+  - TTL 1-5 min, single-use, purpose-locked
+  - Analyst can add rules via operator/admin token (needs to see rules for
+    better analysis — rule VIEW is open to all)
+  - Full audit trail: auth_audit.log records who granted what to whom, when used
+
+### Verified
+- Auth unit: hash/verify/create/change/initial admin (11 tests)
+- Login: admin/operator/analyst sessions, wrong password rejected
+- Token loop: operator grants add_rule → analyst verifies → adds rule →
+  token single-use → audit shows grantor op1 / used_by sec1
+- Operator cannot grant add_member; admin can
+- Test suite: 15/15 PASS
+
 ## [0.3.7] - 2026-08-09
+
 
 ### Changed
 - **Dashboard refactored to multi-page** (`st.navigation`):

@@ -1,4 +1,4 @@
-"""📜 规则管理 — 查看/添加/审计 (v0.3.7)"""
+"""📜 规则管理 — 查看（所有角色）/ 添加（admin+运维，安全员需token）/ 审计 (v0.3.8)"""
 
 import sys
 from pathlib import Path
@@ -6,14 +6,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 
-from common import load_rules, load_rule_audit, append_rule_to_yaml
+from common import load_rules, load_rule_audit, append_rule_to_yaml, TOKENS
 
 
 def run():
+    username = st.session_state.get('username', '')
+    role = st.session_state.get('role', '')
+
     st.title("📜 规则管理")
     st.caption("查看现有检测规则、手动添加规则 — 所有变更记录审计日志，"
-               "热加载 3 秒生效")
+               "热加载 3 秒生效。"
+               "（安全员可查看规则以辅助研判；添加规则需 admin/运维 或临时 token）")
 
+    # ---- 查看规则：所有角色 ----
     rules_df = load_rules()
     if not rules_df.empty:
         show_cols = [c for c in ['name', 'severity', 'description',
@@ -21,8 +26,26 @@ def run():
         st.dataframe(rules_df[show_cols], use_container_width=True,
                      hide_index=True)
 
+    # ---- 添加规则：admin/operator 直接; analyst 需 token ----
+    can_add = role in ('admin', 'operator')
+    if not can_add:
+        with st.expander("🔑 添加规则（需临时 token）"):
+            st.caption("向 admin/运维 索取 add_rule 临时 token")
+            with st.form("analyst_rule_token"):
+                token = st.text_input("临时 token", type="password")
+                if st.form_submit_button("验证 token"):
+                    if TOKENS.verify(token, 'add_rule', username):
+                        st.session_state['rule_token_ok'] = True
+                        st.success("✅ token 有效")
+                        st.rerun()
+                    else:
+                        st.error("❌ token 无效或已过期")
+        can_add = st.session_state.get('rule_token_ok', False)
+
     # 手动添加规则表单
-    with st.expander("➕ 手动添加规则"):
+    with st.expander("➕ 手动添加规则", expanded=can_add):
+        if not can_add:
+            st.caption("⛔ 无权限 — 需要 admin/运维 权限或临时 token")
         with st.form("manual_rule_form"):
             c1, c2 = st.columns(2)
             rule_name = c1.text_input("规则名 (英文+下划线)",
@@ -43,7 +66,9 @@ def run():
             submitted = st.form_submit_button("✅ 添加规则")
 
             if submitted:
-                if not rule_name or not condition_key or not condition_value:
+                if not can_add:
+                    st.error("⛔ 无权限添加规则")
+                elif not rule_name or not condition_key or not condition_value:
                     st.error("规则名和条件必填")
                 else:
                     rule = {

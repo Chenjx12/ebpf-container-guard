@@ -60,3 +60,6 @@ config/blocklist.yaml
 decisions.log
 ai_results.log
 rules_audit.log
+config/users.yaml
+config/tokens.yaml
+auth_audit.log

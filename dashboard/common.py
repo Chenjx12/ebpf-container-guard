@@ -220,3 +220,13 @@ def get_container_profile(container_id: str) -> dict:
         return None
 
 
+
+
+# ================================================================
+# Auth singleton (v0.3.8)
+# ================================================================
+from auth import AuthManager, TokenManager
+
+AUTH = AuthManager(str(SCRIPT_DIR / "config" / "users.yaml"))
+TOKENS = TokenManager(str(SCRIPT_DIR / "config" / "tokens.yaml"),
+                      str(SCRIPT_DIR / "auth_audit.log"), auth=AUTH)
