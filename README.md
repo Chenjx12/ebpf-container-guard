@@ -18,8 +18,11 @@
 - **5 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
 - **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) with background refresh
 - **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — verified with real API calls, correctly distinguishes true positives from false positives
-- **Auto Response**: Container isolation (pause/disconnect/kill) with 10-minute cooldown and structured JSON audit logs
-- **Configurable**: 8 detection rules + response strategies via YAML, hot-reload support
+- **Graded Automation** (human-in-the-loop): reversible actions auto-execute (pause/isolate/network block); irreversible verdicts (kill/image blocklist) queue for human review — AI suggestions execute with confidence guardrails
+- **Network Traffic Blocking**: iptables DROP for confirmed malicious IP:port (reversible, TTL cleanup, business traffic preserved)
+- **Response Escalation**: repeated attacks from the same image escalate pause → kill (queued) → image blocklist (queued), stopping attack loops
+- **Event State Machine**: every event tracked as new → quarantine → pending_review → resolved (foundation for the v0.3 review dashboard)
+- **Configurable**: 8 detection rules + response strategies + monitoring scope (include/exclude containers) via YAML, hot-reload support
 
 ---
 
@@ -249,7 +252,7 @@ ebpf-container-guard/
 ├── demos/
 │   └── demo-basic.sh                # Demo script
 └── docs/
-    └── MVP-运行验证报告.md            # v0.2.0 — 3-tier detection
+    └── MVP-运行验证报告.md            # Verification report (bilingual)
 ```
 
 ---
@@ -368,7 +371,7 @@ bash tests/integration/test_escape_scenarios.sh
 ## 📖 Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) — version history and release notes
-- [docs/MVP-运行验证报告.md](docs/MVP-运行验证报告.md) — v0.2.0 verification report
+- [docs/MVP-运行验证报告.md](docs/MVP-运行验证报告.md) — verification report (bilingual)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
 
 ---

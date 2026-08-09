@@ -1,8 +1,8 @@
 # MVP Verification Report
 
 > **Date**: 2026-08-08
-> **Version**: v0.1.0 → v0.1.1 → v0.2.1
-> **Status**: ✅ v0.2.1 end-to-end verified
+> **Version**: v0.1.0 → v0.1.1 → v0.2.5
+> **Status**: ✅ v0.2.5 end-to-end verified
 
 [**中文版 / Chinese Version**](MVP-运行验证报告.md)
 
@@ -216,7 +216,7 @@ Ptrace请求: PTRACE_ATTACH -> 目标PID: 1
   - Background map refresh thread (5s interval)
 
 ❌ Planned for future versions:
-  - DeepSeek AI threat analysis (v0.2.0, Sep)
+  - Human approval queue (v0.3 dashboard)
   - Streamlit dashboard (v0.3.0, Oct)
   - K8s DaemonSet deployment (v0.4.0, Nov)
   - Rule hot-reload
