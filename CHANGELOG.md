@@ -108,3 +108,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **v0.3** (Oct 2026): Streamlit dashboard
 - **v0.4** (Nov 2026): Kubernetes native support
 - **v1.0** (Dec 2026): Stable release for thesis defense
+
+## [0.2.3] - 2026-08-09
+
+### Added
+- **Configurable monitoring scope** (`config/monitor.yaml`): choose which containers to monitor
+  - `include`: whitelist mode — monitor ONLY listed containers (fnmatch wildcards)
+  - `exclude`: blacklist mode — never monitor listed containers (takes priority)
+  - `match_by`: match by container name or short ID
+  - Empty lists = monitor all (default, behavior unchanged)
+- **ContainerScope** (`src/core/scope.py`): standalone module, follows modularized architecture
+- **Cold-path name resolution** (`src/core/identity.py`): container name resolved on-demand via Docker API when background refresh hasn't caught up, then cached
+
+### Purpose
+- Foundation for v0.3 dashboard container filtering
+- Users can scope monitoring to production containers only, or exclude noisy test containers
+
+### Verified
+- Unit tests: 5/5 scope logic (default, include, exclude, priority, match_by=id)
+- E2E exclude: container `t_exc` produces 0 alerts even on cold path (mount escape before background refresh)
+- E2E include: only `t_inc` alerts (4/4 from included container, non-included produces 0)
+- Regression: default config monitors all (3 alerts)

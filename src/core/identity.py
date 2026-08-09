@@ -27,7 +27,8 @@ class ContainerIdentity:
     def __init__(self, bpf, docker_client=None):
         self.bpf = bpf
         self.docker_client = docker_client or docker.from_env()
-        self.cgroup_map = {}
+        self.cgroup_map = {}          # inode -> (short_id, name)
+        self._id_to_name = {}         # short_id -> container name
 
         self._stop_refresh = threading.Event()
         self._refresh_thread = threading.Thread(
@@ -58,13 +59,33 @@ class ContainerIdentity:
 
         # Tier 1: cgroup inode map (race-free)
         if cgroup_id in self.cgroup_map:
-            return self.cgroup_map[cgroup_id]
+            return self.cgroup_map[cgroup_id][0]
 
         # Tier 2: /proc/<pid>/cgroup
         if pid > 0:
             return self._resolve_via_proc(pid)
 
         return 'host'
+
+    def get_name(self, container_id: str) -> str:
+        """Look up container name by short ID ('' if unknown).
+
+        Cold path: if the background refresh hasn't seen this container yet
+        (e.g. just started), query Docker directly and cache. The container
+        ID set is bounded, so this runs at most once per container.
+        """
+        if not container_id or container_id in ('host', 'unknown'):
+            return ''
+        name = self._id_to_name.get(container_id)
+        if name:
+            return name
+        try:
+            c = self.docker_client.containers.get(container_id)
+            name = c.name
+            self._id_to_name[container_id] = name
+            return name
+        except Exception:
+            return ''
 
     # -----------------------------------------------------------
     # Internal: map management
@@ -111,8 +132,9 @@ class ContainerIdentity:
             print(f"  [!] PID map update failed: {e}", file=sys.stderr)
 
     def _build_cgroup_map(self):
-        """Build cgroup_inode → container_short_id mapping."""
+        """Build cgroup_inode → (short_id, name) mapping."""
         self.cgroup_map = {}
+        self._id_to_name = {}
         try:
             for c in self.docker_client.containers.list():
                 cgroup_path = (
@@ -120,7 +142,9 @@ class ContainerIdentity:
                 )
                 if os.path.exists(cgroup_path):
                     inode = os.stat(cgroup_path).st_ino
-                    self.cgroup_map[inode] = c.id[:12]
+                    short_id = c.id[:12]
+                    self.cgroup_map[inode] = (short_id, c.name)
+                    self._id_to_name[short_id] = c.name
         except Exception as e:
             print(f"  [!] cgroup map build failed: {e}", file=sys.stderr)
 

@@ -25,6 +25,7 @@ from detector.ai_analyzer import AIAnalyzer
 from responder.docker_responder import ResponseEngine
 from core.identity import ContainerIdentity
 from core.event_log import EventLogger
+from core.scope import ContainerScope
 
 
 # ============================================================
@@ -102,13 +103,17 @@ class ContainerEscapeMonitor:
             sys.exit(1)
 
         # 7. Initialize container identity + event log
-        print("[7/7] Initializing container identity + event log...")
+        print("[7/8] Initializing container identity + event log...")
         self.identity = ContainerIdentity(self.bpf, self.docker_client)
         self.identity.start()
         self.logger = EventLogger(str(script_dir / "events.log"))
 
+        # 8. Initialize monitoring scope (include/exclude filters)
+        print("[8/8] Initializing monitoring scope...")
+        self.scope = ContainerScope(str(script_dir / "config" / "monitor.yaml"))
+
         print("\n========================================")
-        print("  eBPF Container Guard v0.2.2")
+        print("  eBPF Container Guard v0.2.3")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -131,6 +136,11 @@ class ContainerEscapeMonitor:
                 'utf-8', errors='replace').rstrip('\x00')
             raw_cid = self.identity.resolve(
                 event.pid, event.cgroup_id, raw_cid)
+
+            # Apply monitoring scope filter (include/exclude)
+            if not self.scope.should_monitor(raw_cid,
+                                             self.identity.get_name(raw_cid)):
+                return  # container excluded from monitoring scope
 
             # Build event dict for rule engine
             event_dict = {

@@ -1,0 +1,14 @@
+# 监控范围配置 — 选择要监控的容器
+# Monitoring scope — choose which containers to monitor
+
+# include: 只监控列表中的容器（支持通配符 fnmatch）；为空 = 监控所有
+#   include: only monitor listed containers (wildcards supported); empty = all
+include: []
+
+# exclude: 永不监控列表中的容器（支持通配符）；exclude 优先于 include
+#   exclude: never monitor listed containers (wildcards supported); takes priority
+exclude: []
+
+# 匹配依据: name = 容器名, id = 容器短 ID（12 位）
+#   match target: name = container name, id = container short ID
+match_by: "name"
