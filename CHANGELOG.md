@@ -36,8 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - 2026-08-09
 
-## [0.3.0] - 2026-08-09
-
 ### Added
 - **Streamlit security dashboard** (`dashboard/app.py`): overview metrics, live alert stream (3s auto-refresh via st.fragment), container filter
 - **Human review queue** — container-level (decision record #18): verdicts act on the container, all its pending events cascade-marked
