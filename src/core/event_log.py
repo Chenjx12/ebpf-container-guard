@@ -24,7 +24,7 @@ class EventLogger:
     def write(self, alert: dict, matrix_result=None, ai_result=None,
               action: str = "log_only", action_status: str = "executed",
               tier1_match: bool = True, event_dict: dict = None,
-              netblocked: bool = False):
+              netblocked: bool = False, event_ts: str = None):
         """Write a pipeline decision to the event log.
 
         Args:
@@ -37,9 +37,12 @@ class EventLogger:
             tier1_match: Whether a rule matched (True for alerts).
             event_dict: Raw event dict (used when alert has no embedded event).
             netblocked: Whether malicious traffic was blocked (iptables DROP).
+            event_ts: External ISO timestamp (v0.3.2 async AI matching —
+                must match the one passed to AsyncAIAnalyzer.submit).
         """
         evt = alert.get('event', event_dict or {})
         now = datetime.now()
+        ts = event_ts or now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]
 
         # Event state machine (v0.2.5, decision record #16):
         #   new → quarantine → pending_review → confirmed / dismissed
@@ -52,7 +55,7 @@ class EventLogger:
 
         entry = {
             'version': LOG_FORMAT_VERSION,
-            'timestamp': now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3],
+            'timestamp': ts,
             'container_id': evt.get('container_id', 'unknown'),
             'event_type': evt.get('event_type', 'unknown'),
             'rule': alert.get('rule_name', 'none'),

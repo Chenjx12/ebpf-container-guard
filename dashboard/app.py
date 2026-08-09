@@ -28,6 +28,7 @@ import streamlit as st
 SCRIPT_DIR = Path(__file__).parent.parent.resolve()
 EVENTS_LOG = SCRIPT_DIR / "events.log"
 DECISIONS_LOG = SCRIPT_DIR / "decisions.log"
+AI_RESULTS_LOG = SCRIPT_DIR / "ai_results.log"
 
 REFRESH_SECONDS = 3
 
@@ -80,6 +81,23 @@ def load_decisions() -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 
+
+
+@st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
+def load_ai_results() -> pd.DataFrame:
+    """Load ai_results.log (async AI verdicts, v0.3.2)."""
+    if not AI_RESULTS_LOG.exists():
+        return pd.DataFrame()
+    try:
+        rows = []
+        with open(AI_RESULTS_LOG, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+        return pd.DataFrame(rows)
+    except Exception:
+        return pd.DataFrame()
 
 def record_decision(container_id: str, decision: str, event_count: int = 1):
     """Append a container-level verdict to decisions.log, then refresh.
@@ -149,6 +167,7 @@ def render_dynamic():
     """Dynamic section — auto-refreshes every REFRESH_SECONDS."""
     events = load_events()
     decisions = load_decisions()
+    ai_results = load_ai_results()
 
     if events.empty:
         st.warning("⚠️ 暂无事件数据 — 请先运行: sudo python3 main.py")
@@ -186,6 +205,12 @@ def render_dynamic():
                "确认处置 = 认定真实攻击 → kill/拉黑该容器（其全部事件联动标记）；"
                "驳回 = 认定误报/无害 → 解除隔离。"
                "AI 判定仅供参考，最终裁决权在人工。")
+
+    # AI 异步结果映射（v0.3.2）：event timestamp -> AI verdict
+    ai_map = {}
+    if not ai_results.empty and 'event_ts' in ai_results.columns:
+        for _, ar in ai_results.iterrows():
+            ai_map[str(ar['event_ts'])] = ar
 
     # 已判决的容器（decisions.log 按 container_id 记录）
     decided_containers = set()
@@ -229,20 +254,22 @@ def render_dynamic():
                         f"**{ev.get('rule', '?')}** · "
                         f"{ev.get('event_type', '?')} · "
                         f"矩阵置信度 {ev.get('tier2_confidence', '?')}%")
-                    if ev.get('tier3_ai_report'):
-                        st.markdown(f"  🤖 AI: {ev['tier3_ai_report']}")
-                    verdict = ev.get('tier3_ai_verdict')
-                    if verdict:
-                        vstr = ("✅ 攻击" if verdict == "true_positive"
-                                else "⚠️ 误报")
-                        st.markdown(f"  AI 判定: {vstr} "
-                                    f"({ev.get('tier3_ai_confidence', '?')}%)")
+                    # v0.3.2: AI 结果来自 ai_results.log（异步回填）
+                    ai_row = ai_map.get(str(ev['timestamp']))
+                    if ai_row is not None:
+                        vstr = ("✅ 攻击" if ai_row['ai_verdict']
+                                == "true_positive" else "⚠️ 误报")
+                        st.markdown(f"  🤖 AI: {vstr} "
+                                    f"({ai_row['ai_confidence']}%) — "
+                                    f"{ai_row.get('ai_report', '')[:80]}")
                     else:
                         conf2 = ev.get('tier2_confidence')
                         if ev.get('action') == 'block_image':
                             st.markdown("  🚫 镜像已拉黑 — 无需 AI 研判")
                         elif conf2 and conf2 >= 85:
                             st.markdown("  🔴 矩阵高置信度 — 未触发 AI 研判")
+                        else:
+                            st.markdown("  ⏳ AI 研判中…（异步回填）")
                     if ev.get('escalation'):
                         st.markdown(f"  ⏫ 升级: {ev['escalation']}")
 

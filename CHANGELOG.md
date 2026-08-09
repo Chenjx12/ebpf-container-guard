@@ -10,10 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Async AI analysis (background queue — unblock ring buffer callback)
 - Kubernetes native support (v0.4)
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
+
+## [0.3.2] - 2026-08-09
+
+### Added
+- **Async AI analysis** (`AsyncAIAnalyzer` in ai_analyzer.py):
+  - AI API calls moved to a background worker queue — ring buffer callback no longer blocks on DeepSeek latency (was seconds)
+  - Events are logged instantly, AI verdicts fill in asynchronously to `ai_results.log`
+  - AI is now an advisor, not a decision-maker: matrix confidence drives reversible responses, irreversible verdicts wait for humans (v0.3.1)
+- **Dashboard**: merges async AI results (ai_results.log) into the review queue — shows "AI 研判中…" while pending, verdict appears when ready
+
+### Fixed
+- `time.strftime('%f')` not supported (microseconds) — replaced with `datetime.now().strftime()` for ISO timestamps with milliseconds; event_ts now matches between events.log and ai_results.log
+
+### Verified
+- Events on screen within 3s (no AI blocking) — previously waited for API latency
+- ai_results.log fills in async: false_positive (30%) and true_positive (85%) correctly identified
+- Timestamp matching between events.log ↔ ai_results.log ✅
 
 ## [0.3.1] - 2026-08-09
 

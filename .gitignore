@@ -58,3 +58,4 @@ htmlcov/
 events.log
 config/blocklist.yaml
 decisions.log
+ai_results.log

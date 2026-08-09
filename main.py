@@ -11,6 +11,7 @@ Licensed under the MIT License. See LICENSE for details.
 import argparse
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from socket import htons
 
@@ -22,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 from detector.engine import EscapeDetector, print_alert
 from detector.attack_matrix import AttackMatrix
-from detector.ai_analyzer import AIAnalyzer
+from detector.ai_analyzer import AsyncAIAnalyzer
 from responder.docker_responder import ResponseEngine
 from core.identity import ContainerIdentity
 from core.event_log import EventLogger
@@ -94,9 +95,12 @@ class ContainerEscapeMonitor:
         print(f"  [Matrix] {len(BEHAVIOR_MATRIX)} vectors, "
               f"{len(COMBINATION_BOOSTS)} combination rules")
 
-        # 5. Initialize AI analyzer (Tier 3: DeepSeek judge)
+        # 5. Initialize AI analyzer (Tier 3: async DeepSeek judge)
         print("[5/8] Initializing AI analyzer...")
-        self.ai = AIAnalyzer()
+        self.ai = AsyncAIAnalyzer(
+            config_path=str(script_dir / "config" / "ai_config.yaml"),
+            results_path=str(script_dir / "ai_results.log"))
+        self.ai.start()
 
         # 6. Connect to Docker daemon
         print("[6/8] Connecting to Docker daemon...")
@@ -218,20 +222,19 @@ class ContainerEscapeMonitor:
                         # Print enriched alert
                         self._print_alert_v2(alert, matrix_result)
 
-                        # === Tier 3: AI Judge (gray zone or unknown) ===
+                        # === Tier 3: AI Judge (async, v0.3.2) ===
+                        # 事件先记录 + 矩阵驱动响应（不阻塞），AI 结果异步
+                        # 回填到 ai_results.log 供面板展示（AI 是顾问不是决策者）
                         ai_result = None
+                        event_ts = datetime.now().strftime(
+                            '%Y-%m-%dT%H:%M:%S.%f')[:-3]
                         if matrix_result.escalate_to_ai:
                             context = self.matrix.get_context_events(raw_cid)
-                            ai_result = self.ai.analyze(
-                                alert, context, matrix_result.final_confidence)
-                            if ai_result:
-                                self._print_ai_report(ai_result)
-                                alert['ai_confidence'] = ai_result.confidence
-                                action = ai_result.suggested_action
-                            else:
-                                action = matrix_result.suggested_action
-                        else:
-                            action = matrix_result.suggested_action
+                            self.ai.submit(
+                                alert, context,
+                                matrix_result.final_confidence,
+                                event_ts)
+                        action = matrix_result.suggested_action
 
                         # === v0.2.5: Escalation + Network Blocking ===
                         container_image = self.identity.get_image(raw_cid)
@@ -256,8 +259,9 @@ class ContainerEscapeMonitor:
                                   f"重复攻击 → {esc_action}")
                             alert['escalation'] = esc_action
                             forced = esc_action
-                            conf = alert.get('ai_confidence',
-                                             matrix_result.final_confidence)
+                            # v0.3.2: AI 异步化，不可逆动作的置信度参考
+                            # 使用矩阵置信度（AI 结果后补，不阻塞）
+                            conf = matrix_result.final_confidence
                         else:
                             forced = None
                             conf = None
@@ -282,7 +286,8 @@ class ContainerEscapeMonitor:
                         self.logger.write(alert, matrix_result,
                                           ai_result, action,
                                           action_status=status,
-                                          netblocked=netblocked)
+                                          netblocked=netblocked,
+                                          event_ts=event_ts)
                     else:
                         # No attack vector → basic alert only
                         print_alert(alert)
@@ -394,6 +399,7 @@ class ContainerEscapeMonitor:
             print("\n[i] Shutting down...")
             self.identity.stop()
             self.executor.stop()
+            self.ai.stop()
             print("👋 eBPF Container Guard stopped.")
 
 

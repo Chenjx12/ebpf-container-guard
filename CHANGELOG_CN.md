@@ -12,12 +12,28 @@
 ## [未发布]
 
 ### 计划中
-- 异步 AI 研判（后台队列 — 解除 Ring Buffer 回调阻塞）
 - Kubernetes 原生支持（v0.4）
 - 定制前端面板（CSAI 风格，决策记录 #17）
 - 性能压测 & systemd 部署
 
 ---
+
+## [0.3.2] - 2026-08-09
+
+### 新增
+- **异步 AI 研判**（ai_analyzer.py 的 `AsyncAIAnalyzer`）：
+  - AI API 调用移到后台工作线程队列——Ring Buffer 回调不再被 DeepSeek 延迟阻塞（原来要等数秒）
+  - 事件立即记录，AI 结论异步回填到 `ai_results.log`
+  - AI 现在是顾问而非决策者：矩阵置信度驱动可逆响应，不可逆裁决等人工（v0.3.1）
+- **面板**：合并异步 AI 结果（ai_results.log）到判决队列——AI 未完成时显示"AI 研判中…"，完成后显示结论
+
+### 修复
+- `time.strftime('%f')` 不支持微秒——改用 `datetime.now().strftime()` 生成毫秒级 ISO 时间戳；event_ts 现在与 events.log 一致
+
+### 验证
+- 事件 3 秒内上屏（不再等 AI）——之前要等 API 延迟
+- ai_results.log 异步回填：误报（30%）和攻击（85%）正确识别
+- events.log ↔ ai_results.log 时间戳匹配 ✅
 
 ## [0.3.1] - 2026-08-09
 

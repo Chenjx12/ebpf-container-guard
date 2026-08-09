@@ -260,3 +260,92 @@ class AIAnalyzer:
             )
         else:
             return None  # Too low to report
+
+
+# ================================================================
+# Async AI Analyzer (v0.3.2)
+# ================================================================
+
+import queue as queue_mod
+import threading
+
+
+class AsyncAIAnalyzer:
+    """Async AI threat analysis — unblocks the ring buffer callback.
+
+    The AI API call (seconds of latency) moves to a background worker:
+      1. handle_event submits (alert, context, confidence) to a queue — instant
+      2. Background thread consumes, calls DeepSeek, writes result to
+         ai_results.log (JSONL) for the dashboard to merge and display
+
+    Response decisions are NOT gated on AI anymore: matrix confidence drives
+    reversible auto-responses, irreversible verdicts wait for humans
+    (v0.3.1 decision executor). AI is an advisor, not the decision-maker.
+    """
+
+    def __init__(self, config_path: str = "config/ai_config.yaml",
+                 results_path: str = "ai_results.log",
+                 worker_count: int = 1):
+        self.analyzer = AIAnalyzer(config_path)
+        self.results_path = results_path
+        self._queue = queue_mod.Queue(maxsize=100)
+        self._stop = threading.Event()
+        self._workers = [
+            threading.Thread(target=self._worker_loop, daemon=True)
+            for _ in range(worker_count)
+        ]
+
+    def start(self):
+        for w in self._workers:
+            w.start()
+        print(f"  [AI] async worker x{len(self._workers)} started "
+              f"(results → {self.results_path})")
+
+    def stop(self):
+        self._stop.set()
+
+    def submit(self, alert: dict, context_vectors: list,
+               base_confidence: int, event_ts: str):
+        """Queue an alert for AI analysis — returns immediately."""
+        if not self.analyzer.enabled:
+            return
+        try:
+            self._queue.put_nowait(
+                (alert, context_vectors, base_confidence, event_ts))
+        except queue_mod.Full:
+            print("  [!] AI queue full — dropping analysis request")
+
+    # -----------------------------------------------------------
+
+    def _worker_loop(self):
+        while not self._stop.is_set():
+            try:
+                alert, context, confidence, event_ts = \
+                    self._queue.get(timeout=1)
+            except queue_mod.Empty:
+                continue
+            try:
+                result = self.analyzer.analyze(alert, context, confidence)
+                if result:
+                    self._write_result(event_ts, alert, result)
+            except Exception as e:
+                print(f"  [AI] worker error: {e}", file=sys.stderr)
+
+    def _write_result(self, event_ts: str, alert: dict, result: AIResult):
+        """Append AI analysis result to ai_results.log (JSONL)."""
+        entry = {
+            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'event_ts': event_ts,
+            'container_id': alert.get('event', {}).get('container_id', ''),
+            'rule': alert.get('rule_name', ''),
+            'attack_vector': alert.get('attack_vector', ''),
+            'ai_verdict': ('true_positive' if result.is_attack
+                           else 'false_positive'),
+            'ai_confidence': result.confidence,
+            'ai_technique': result.technique,
+            'ai_report': result.report,
+            'ai_suggested_action': result.suggested_action,
+            'suggested_rule': result.suggested_rule,
+        }
+        with open(self.results_path, 'a') as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
