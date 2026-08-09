@@ -14,7 +14,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.7] - 2026-08-09
+
+### Changed
+- **Dashboard refactored to multi-page** (`st.navigation`):
+  - 📊 Overview (metrics + container filter)
+  - ⏳ Review Queue (container-level verdicts + evidence)
+  - 🧠 AI Suggested Rules (unknown attack discovery review)
+  - 📜 Rule Management (view/add/audit)
+  - 📡 Live Alert Stream (+ netblock records)
+  - ⚙️ Settings (AI config, hot-reload)
+- `dashboard/common.py` — shared data loading/actions for all pages
+- Each page has its own URL (shareable); single `streamlit run`
+
+### Purpose
+- Browser-style navigation (sidebar) — first step toward CSAI-style
+  frontend architecture (decision record #17)
+- Page structure maps directly to future frontend routes; data model
+  (events/decisions/rules logs) is framework-agnostic and reusable
+
+### Verified
+- All 6 pages HTTP 200 at their URLs
+- No import/error issues; guard unchanged
+
 ## [0.3.6] - 2026-08-09
+
 
 ### Added
 - **Settings panel** (dashboard): AI configuration form

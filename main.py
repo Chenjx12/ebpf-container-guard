@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.3.6)
+eBPF Container Guard - Main Entry Point (v0.3.7)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -148,7 +148,7 @@ class ContainerEscapeMonitor:
         self._ai_cfg_watcher.start()
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.3.6")
+        print("  eBPF Container Guard v0.3.7")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
