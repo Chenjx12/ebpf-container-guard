@@ -29,6 +29,7 @@ from core.event_log import EventLogger
 from core.scope import ContainerScope
 from core.escalation import EscalationManager
 from core.netblock import NetBlocker, ip_int_to_str
+from core.decision_executor import DecisionExecutor
 
 
 # ============================================================
@@ -119,6 +120,11 @@ class ContainerEscapeMonitor:
         self.escalation = EscalationManager(
             str(script_dir / "config" / "blocklist.yaml"))
         self.netblocker = NetBlocker()
+
+        # 10. Initialize decision executor (human verdicts → Docker actions)
+        self.executor = DecisionExecutor(
+            str(script_dir / "decisions.log"), self.docker_client)
+        self.executor.start()
 
         print("\n========================================")
         print("  eBPF Container Guard v0.2.5")
@@ -387,6 +393,7 @@ class ContainerEscapeMonitor:
         except KeyboardInterrupt:
             print("\n[i] Shutting down...")
             self.identity.stop()
+            self.executor.stop()
             print("👋 eBPF Container Guard stopped.")
 
 

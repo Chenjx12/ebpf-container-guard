@@ -15,6 +15,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.1] - 2026-08-09
+
+### Added
+- **Decision executor** (`src/core/decision_executor.py`) — closes the human-in-the-loop loop:
+  - Dashboard verdicts (decisions.log) are now EXECUTED by guard
+  - `confirmed` → container killed (human-authorized irreversible action)
+  - `dismissed` → isolation released (unpause + network reconnect)
+  - Execution result written back to decisions.log (`executed` field + timestamp)
+  - Startup seeds already-processed entries (no re-execution of old verdicts)
+
+### Purpose
+- The final step of human-machine collaboration: human verdict → guard executes
+- Previously verdicts only landed in decisions.log with no effect (loop was broken)
+
+### Verified
+- dismissed → container unpaused (paused → running) ✅
+- confirmed → container killed (paused → exited) ✅
+- decisions.log shows executed=True + executed_at ✅
+
+## [0.3.0] - 2026-08-09
+
 ## [0.3.0] - 2026-08-09
 
 ### Added

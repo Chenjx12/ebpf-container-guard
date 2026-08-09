@@ -350,7 +350,7 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |       | ↳ v0.2.5 — stable (graded automation, netblock, escalation) | |
 
 | v0.3 | Dashboard: Streamlit prototype (alert stream, container-level review queue, evidence view) | 🚧 Prototype |
-|       | ↳ v0.3.0 — current (dashboard prototype) | |
+|       | ↳ v0.3.1 — current (decision executor, human loop closed) | |
 | v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 

@@ -19,6 +19,27 @@
 
 ---
 
+## [0.3.1] - 2026-08-09
+
+### 新增
+- **判决执行器**（`src/core/decision_executor.py`）— 补全人机协同闭环：
+  - 面板判决（decisions.log）现在由 guard 真正执行
+  - `confirmed` → 容器被 kill（人工授权的不可逆动作）
+  - `dismissed` → 解除隔离（unpause + 网络重连）
+  - 执行结果回写 decisions.log（`executed` 字段 + 时间戳）
+  - 启动时标记已处理条目（不重复执行旧判决）
+
+### 目的
+- 人机协同的最后一步：人工裁决 → guard 执行
+- 之前判决只落在 decisions.log 无实际效果（闭环断裂）
+
+### 验证
+- 驳回 → 容器 unpause 恢复（paused → running）✅
+- 确认 → 容器 kill（paused → exited）✅
+- decisions.log 显示 executed=True + executed_at ✅
+
+## [0.3.0] - 2026-08-09
+
 ## [0.3.0] - 2026-08-09
 
 ### 新增
