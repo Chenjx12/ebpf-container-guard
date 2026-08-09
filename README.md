@@ -17,7 +17,7 @@
 - **3-Tier Detection Pipeline**: Rule engine (8 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
 - **5 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
 - **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) with background refresh
-- **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — offline fallback mode verified; real API call pending key
+- **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — verified with real API calls, correctly distinguishes true positives from false positives
 - **Auto Response**: Container isolation (pause/disconnect/kill) with 10-minute cooldown and structured JSON audit logs
 - **Configurable**: 8 detection rules + response strategies via YAML, hot-reload support
 
