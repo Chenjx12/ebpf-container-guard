@@ -19,9 +19,9 @@ import docker
 class ContainerIdentity:
     """Resolves process identity to Docker container ID.
 
-    Maintains two maps synchronized via background thread:
-      - BPF container_map: PID → container_short_id (kernel-space)
-      - cgroup_map: cgroup_inode → container_short_id (userspace cache)
+    Dual-channel map synchronization:
+      - Event-driven (primary): Docker events (start/die) → instant update
+      - Polling (fallback): 5s full scan, catches missed events / reconnects
     """
 
     def __init__(self, bpf, docker_client=None):
@@ -33,14 +33,17 @@ class ContainerIdentity:
         self._stop_refresh = threading.Event()
         self._refresh_thread = threading.Thread(
             target=self._refresh_loop, daemon=True)
+        self._events_thread = threading.Thread(
+            target=self._events_loop, daemon=True)
 
     def start(self):
-        """Start background map refresh thread."""
+        """Start both refresh channels."""
         self._refresh_all()
         self._refresh_thread.start()
+        self._events_thread.start()
 
     def stop(self):
-        """Stop background refresh thread."""
+        """Stop both refresh channels."""
         self._stop_refresh.set()
 
     def resolve(self, pid: int, cgroup_id: int, bpf_tag: str) -> str:
@@ -98,11 +101,120 @@ class ContainerIdentity:
         self._update_pid_map()
 
     def _refresh_loop(self):
-        """Background thread: periodically refresh both maps."""
+        """Fallback channel: periodically refresh both maps (every 5s).
+
+        Catches containers missed by the event stream (e.g. containers
+        running before guard started, or dropped events during reconnect).
+        """
         while not self._stop_refresh.is_set():
             self._stop_refresh.wait(timeout=5)
             if not self._stop_refresh.is_set():
                 self._refresh_all()
+
+    def _events_loop(self):
+        """Primary channel: listen to Docker events for instant map updates.
+
+        Container start/die events update the maps in real-time, eliminating
+        the cold-path window between container creation and the next poll.
+        """
+        while not self._stop_refresh.is_set():
+            try:
+                for event in self.docker_client.events(decode=True):
+                    if self._stop_refresh.is_set():
+                        return
+                    self._handle_docker_event(event)
+            except Exception as e:
+                # Event stream broken → back off, then reconnect
+                print(f"  [!] Docker event stream error: {e}, "
+                      f"reconnecting in 2s", file=sys.stderr)
+                self._stop_refresh.wait(2)
+
+    # -----------------------------------------------------------
+    # Docker event handlers
+    # -----------------------------------------------------------
+
+    def _handle_docker_event(self, event):
+        """Route a Docker event to the appropriate map update."""
+        if event.get('Type') != 'container':
+            return
+        # docker-py compatibility: 'status' (newer) vs 'Action' (older)
+        status = event.get('status') or event.get('Action')
+        if not status:
+            return
+        actor = event.get('Actor', {})
+        cid = actor.get('ID', '')
+        attrs = actor.get('Attributes', {})
+        name = attrs.get('name', '')
+
+        if status in ('start', 'restart'):
+            self._on_container_start(cid, name)
+        elif status in ('die', 'destroy', 'stop'):
+            self._on_container_stop(cid, name)
+
+    def _on_container_start(self, cid, name):
+        """Container started — add to cgroup map + name index + BPF PID map.
+
+        The cgroup directory may not exist immediately after start,
+        so retry briefly; the polling thread catches anything missed.
+        """
+        short_id = cid[:12]
+        cgroup_path = f"/sys/fs/cgroup/system.slice/docker-{cid}.scope"
+
+        for _ in range(10):  # retry up to 5s
+            if self._stop_refresh.is_set():
+                return
+            if os.path.exists(cgroup_path):
+                inode = os.stat(cgroup_path).st_ino
+                self.cgroup_map[inode] = (short_id, name)
+                self._id_to_name[short_id] = name
+                break
+            self._stop_refresh.wait(0.5)
+
+        # Update BPF PID map for this container (may fail if process not
+        # ready yet — polling thread picks it up)
+        try:
+            c = self.docker_client.containers.get(cid)
+            top = c.top()
+            ContainerId = self.bpf['container_map'].Leaf
+            for process in top['Processes']:
+                pid_str = process[1].strip()
+                if pid_str.isdigit():
+                    entry = ContainerId()
+                    entry.id = short_id.encode('utf-8')
+                    self.bpf['container_map'][ct.c_uint32(int(pid_str))] = entry
+        except Exception:
+            pass  # not ready yet — polling will handle
+
+    def _on_container_stop(self, cid, name):
+        """Container stopped — remove from all maps.
+
+        Note: on 'die', the cgroup directory may already be deleted by the
+        kernel, so we must match by ID (not stat the path) when deleting.
+        """
+        short_id = cid[:12]
+
+        # Remove from cgroup map (match by stored short_id)
+        for inode, (sid, _) in list(self.cgroup_map.items()):
+            if sid == short_id:
+                del self.cgroup_map[inode]
+                break
+
+        self._id_to_name.pop(short_id, None)
+
+        # Remove from BPF PID map (match by stored value)
+        try:
+            for key in list(self.bpf['container_map'].keys()):
+                val = self.bpf['container_map'].get(key)
+                if val is None:
+                    continue
+                try:
+                    val_id = bytes(val.id).split(b'\x00')[0].decode('utf-8')
+                except Exception:
+                    continue
+                if val_id == short_id:
+                    del self.bpf['container_map'][key]
+        except Exception:
+            pass
 
     def _update_pid_map(self):
         """Populate BPF container_map: pid → container_short_id."""

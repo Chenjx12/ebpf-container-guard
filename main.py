@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.2.0)
+eBPF Container Guard - Main Entry Point (v0.2.4)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -72,30 +72,30 @@ class ContainerEscapeMonitor:
         ebpf_c_file = str(script_dir / "src" / "ebpf" / "escape-detect.bpf.c")
 
         # 1. Compile and load eBPF program
-        print("[1/5] Compiling and loading eBPF program...")
+        print("[1/8] Compiling and loading eBPF program...")
         self.bpf = BPF(src_file=ebpf_c_file)
 
         # 2. Load detection rules
-        print("[2/5] Loading detection rules...")
+        print("[2/8] Loading detection rules...")
         self.detector = EscapeDetector(rules_file)
 
         # 3. Load response strategies
-        print("[3/7] Loading response strategies...")
+        print("[3/8] Loading response strategies...")
         self.responder = ResponseEngine(responses_file)
 
         # 4. Initialize attack matrix (Tier 2: behavior → CVE)
-        print("[4/7] Initializing attack matrix...")
+        print("[4/8] Initializing attack matrix...")
         self.matrix = AttackMatrix()
         from detector.attack_matrix import BEHAVIOR_MATRIX, COMBINATION_BOOSTS
         print(f"  [Matrix] {len(BEHAVIOR_MATRIX)} vectors, "
               f"{len(COMBINATION_BOOSTS)} combination rules")
 
         # 5. Initialize AI analyzer (Tier 3: DeepSeek judge)
-        print("[5/7] Initializing AI analyzer...")
+        print("[5/8] Initializing AI analyzer...")
         self.ai = AIAnalyzer()
 
         # 6. Connect to Docker daemon
-        print("[6/7] Connecting to Docker daemon...")
+        print("[6/8] Connecting to Docker daemon...")
         try:
             self.docker_client = docker.from_env()
         except docker.errors.DockerException as e:
@@ -113,7 +113,7 @@ class ContainerEscapeMonitor:
         self.scope = ContainerScope(str(script_dir / "config" / "monitor.yaml"))
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.2.3")
+        print("  eBPF Container Guard v0.2.4")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
