@@ -29,6 +29,7 @@ class ContainerIdentity:
         self.docker_client = docker_client or docker.from_env()
         self.cgroup_map = {}          # inode -> (short_id, name)
         self._id_to_name = {}         # short_id -> container name
+        self._id_to_image = {}        # short_id -> image tag
 
         self._stop_refresh = threading.Event()
         self._refresh_thread = threading.Thread(
@@ -87,6 +88,29 @@ class ContainerIdentity:
             name = c.name
             self._id_to_name[container_id] = name
             return name
+        except Exception:
+            return ''
+
+    def get_image(self, container_id: str) -> str:
+        """Look up container image by short ID ('' if unknown).
+
+        Same cold-path pattern as get_name: cache hit → return; miss →
+        query Docker directly and cache. Bounded by container ID set.
+        """
+        if not container_id or container_id in ('host', 'unknown'):
+            return ''
+        image = self._id_to_image.get(container_id) \
+            if hasattr(self, '_id_to_image') else None
+        if image:
+            return image
+        try:
+            c = self.docker_client.containers.get(container_id)
+            image = c.image.tags[0] if c.image.tags else \
+                (c.image.short_id or 'unknown')
+            if not hasattr(self, '_id_to_image'):
+                self._id_to_image = {}
+            self._id_to_image[container_id] = image
+            return image
         except Exception:
             return ''
 

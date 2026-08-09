@@ -56,3 +56,4 @@ logs/
 .coverage
 htmlcov/
 events.log
+config/blocklist.yaml

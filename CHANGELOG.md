@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kubernetes native support (v0.4)
 - Performance benchmarking & systemd deployment
 
+## [0.2.5] - 2026-08-09
+
+### Added
+- **Graded automation** (decision record #14): reversible actions auto-execute (pause/isolate/netblock); irreversible actions (kill/block) queue for human review — even with AI confidence ≥ 85%
+- **AI suggestions now execute**: `handle_alert(forced_action, ai_confidence)` — AI-suggested action runs, with guardrail: kill/block requires AI confidence ≥ 85%, otherwise queued
+- **Network traffic blocking** (`src/core/netblock.py`): iptables FORWARD DROP for malicious IP:port (reversible, TTL 1h auto-cleanup, business traffic preserved)
+- **Response escalation** (`src/core/escalation.py`): same-image repeated attacks → hit1 pause / hit2 kill (queued) / hit3 image blocklist (queued, persisted to config/blocklist.yaml)
+- **Event state machine** (decision record #16): `state` field in log — new / quarantine / pending_review / resolved; LOG_FORMAT_VERSION → 2
+- Container image lookup: `identity.get_image()` (cold path + cache, same pattern as get_name)
+
+### Purpose
+- Human-in-the-loop: reversible actions fill the response gap instantly, irreversible verdicts go to the dashboard queue (v0.3)
+- Attack loops: re-launching the same image escalates to blocklist
+
+### Verified
+- E2E: reverse shell → iptables DROP rule inserted (114.47.114.97:12150), netblocked=true in log
+- Unit: escalation pause→kill→block progression + blocklist persistence; state machine mapping
+- Regression: default monitoring unchanged
+
 ## [0.2.4] - 2026-08-09
 
 ### Added

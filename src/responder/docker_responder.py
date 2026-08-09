@@ -58,11 +58,25 @@ class ResponseEngine:
             pass
         return container_id  # 无法解析，返回原值
 
-    def handle_alert(self, alert):
+    # Actions that require human approval — never auto-executed
+    IRREVERSIBLE_ACTIONS = ('kill_container', 'block_image')
+
+    def handle_alert(self, alert, forced_action=None, ai_confidence=None):
         """处理告警事件,执行自动响应
 
+        Graded automation (decision record #14):
+        - Reversible actions (pause/isolate) → auto-execute
+        - Irreversible actions (kill/block) → queued for human review,
+          unless forced_action explicitly overrides with AI confidence >= 85
+
+        Args:
+            alert: Alert dict (severity, event, ...).
+            forced_action: AI-suggested action to execute instead of policy.
+            ai_confidence: AI confidence score (for kill guardrail).
+
         Returns:
-            str: 实际执行状态 — 'executed' / 'skipped_host' / 'skipped_cooldown'
+            str: 'executed' / 'skipped_host' / 'skipped_cooldown' /
+                 'queued_human' / 'error'
         """
         severity = alert.get('severity', 'LOW').lower()
         container_id = alert['event'].get('container_id', '')
@@ -76,6 +90,20 @@ class ResponseEngine:
             print(f"[INFO] 跳过宿主机事件(PID={event_pid}),不执行响应")
             return 'skipped_host'
 
+        # 确定响应动作：forced_action 优先（AI 建议），否则按 severity 查策略
+        if forced_action and forced_action != 'log_only':
+            action = forced_action
+        else:
+            action = self.policy.get(severity, 'log_only')
+
+        # 护栏：不可逆动作需要 AI 高置信度，否则进人工队列
+        if action in self.IRREVERSIBLE_ACTIONS:
+            if ai_confidence is None or ai_confidence < 85:
+                print(f"\n⏳ [QUEUE] {action} 需要人工确认 "
+                      f"(AI置信度={ai_confidence or 'N/A'} < 85%)")
+                print(f"  已进入待判决队列，等待面板人工确认")
+                return 'queued_human'
+
         # 检查冷却时间
         now = time.time()
         if container_id in self.cooldown:
@@ -84,9 +112,6 @@ class ResponseEngine:
                 remaining = int(self.cooldown_period - (now - last_time))
                 print(f"[SKIP] 容器 {container_id[:12]} 在冷却期内 (剩余{remaining}秒)")
                 return 'skipped_cooldown'
-
-        # 获取对应的响应动作
-        action = self.policy.get(severity, 'log_only')
 
         print(f"\n🛡️  [RESPONSE] 触发自动防御: {severity.upper()} → {action}")
 

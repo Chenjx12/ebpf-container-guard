@@ -18,6 +18,25 @@
 
 ---
 
+## [0.2.5] - 2026-08-09
+
+### 新增
+- **分级自动化**（决策记录 #14）：可逆动作自动执行（暂停/隔离/流量阻断）；不可逆动作（kill/拉黑）进人工判决队列——即使 AI 置信度 ≥ 85% 也不自动执行
+- **AI 建议真正生效**：`handle_alert(forced_action, ai_confidence)` —— AI 建议的动作会执行，带护栏：kill/拉黑要求 AI 置信度 ≥ 85%，否则进队列
+- **网络流量阻断**（`src/core/netblock.py`）：iptables FORWARD DROP 恶意 IP:port（可逆，TTL 1 小时自动清理，业务流量保留）
+- **响应升级**（`src/core/escalation.py`）：同镜像重复攻击 → 第 1 次暂停 / 第 2 次 kill（进队列）/ 第 3 次镜像拉黑（进队列，持久化到 config/blocklist.yaml）
+- **事件状态机**（决策记录 #16）：日志新增 `state` 字段——new / quarantine / pending_review / resolved；LOG_FORMAT_VERSION → 2
+- 容器镜像查询：`identity.get_image()`（冷路径 + 缓存，同 get_name 模式）
+
+### 目的
+- 人机协同：可逆动作即时填补响应缺口，不可逆裁决交给面板队列（v0.3）
+- 攻击循环：同镜像反复拉起将升级到镜像拉黑
+
+### 验证
+- 端到端：反弹 shell → iptables DROP 规则插入（114.47.114.97:12150），日志 netblocked=true
+- 单元：升级流程 pause→kill→block + 拉黑持久化；状态机映射
+- 回归：默认监控行为不变
+
 ## [0.2.4] - 2026-08-09
 
 ### 新增

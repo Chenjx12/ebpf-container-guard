@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.2.4)
+eBPF Container Guard - Main Entry Point (v0.2.5)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -12,6 +12,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from socket import htons
 
 from bcc import BPF
 import docker
@@ -26,6 +27,8 @@ from responder.docker_responder import ResponseEngine
 from core.identity import ContainerIdentity
 from core.event_log import EventLogger
 from core.scope import ContainerScope
+from core.escalation import EscalationManager
+from core.netblock import NetBlocker, ip_int_to_str
 
 
 # ============================================================
@@ -112,8 +115,13 @@ class ContainerEscapeMonitor:
         print("[8/8] Initializing monitoring scope...")
         self.scope = ContainerScope(str(script_dir / "config" / "monitor.yaml"))
 
+        # 9. Initialize response escalation + network blocker
+        self.escalation = EscalationManager(
+            str(script_dir / "config" / "blocklist.yaml"))
+        self.netblocker = NetBlocker()
+
         print("\n========================================")
-        print("  eBPF Container Guard v0.2.4")
+        print("  eBPF Container Guard v0.2.5")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -219,14 +227,56 @@ class ContainerEscapeMonitor:
                         else:
                             action = matrix_result.suggested_action
 
-                        # === Response ===
+                        # === v0.2.5: Escalation + Network Blocking ===
+                        container_image = self.identity.get_image(raw_cid)
+
+                        # Blocked image → immediate critical alert, queue kill
+                        if self.escalation.is_image_blocked(container_image):
+                            print(f"\n🚫 [BLOCKLIST] 镜像已被拉黑: "
+                                  f"{container_image} (容器 {raw_cid})")
+                            alert['event']['container_id'] = raw_cid
+                            status = self.responder.handle_alert(
+                                alert, forced_action='kill_container',
+                                ai_confidence=100)
+                            self.logger.write(alert, matrix_result,
+                                              ai_result, 'block_image',
+                                              action_status=status)
+                            continue
+
+                        # Escalation: repeated attacks from same image
+                        esc_action = self.escalation.decide(container_image)
+                        if esc_action in ('kill_container', 'block_image'):
+                            print(f"\n⏫ [ESCALATION] 镜像 {container_image} "
+                                  f"重复攻击 → {esc_action}")
+                            alert['escalation'] = esc_action
+                            forced = esc_action
+                            conf = alert.get('ai_confidence',
+                                             matrix_result.final_confidence)
+                        else:
+                            forced = None
+                            conf = None
+
+                        # Network attack → block malicious traffic (reversible)
+                        netblocked = False
+                        if attack_vector == 'reverse_shell' and \
+                                event_dict.get('daddr'):
+                            ip = ip_int_to_str(event_dict['daddr'])
+                            port = htons(event_dict.get('dport', 0))
+                            if self.netblocker.block(ip, port):
+                                netblocked = True
+                                print(f"🚫 [NETBLOCK] DROP {ip}:{port} "
+                                      f"(C2/反弹Shell阻断, 业务流量保留)")
+
+                        # === Response (graded automation) ===
                         alert['severity'] = alert.get('severity', 'LOW')
-                        status = self.responder.handle_alert(alert)
+                        status = self.responder.handle_alert(
+                            alert, forced_action=forced, ai_confidence=conf)
 
                         # === Event Log ===
                         self.logger.write(alert, matrix_result,
                                           ai_result, action,
-                                          action_status=status)
+                                          action_status=status,
+                                          netblocked=netblocked)
                     else:
                         # No attack vector → basic alert only
                         print_alert(alert)

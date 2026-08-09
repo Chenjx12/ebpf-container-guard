@@ -11,8 +11,8 @@ import time
 from datetime import datetime
 from typing import Optional
 
-# Log format version — bump when schema changes
-LOG_FORMAT_VERSION = 1
+# Log format version — bump when schema changes (v0.2.5: +state, +escalation, +netblocked)
+LOG_FORMAT_VERSION = 2
 
 
 class EventLogger:
@@ -23,7 +23,8 @@ class EventLogger:
 
     def write(self, alert: dict, matrix_result=None, ai_result=None,
               action: str = "log_only", action_status: str = "executed",
-              tier1_match: bool = True, event_dict: dict = None):
+              tier1_match: bool = True, event_dict: dict = None,
+              netblocked: bool = False):
         """Write a pipeline decision to the event log.
 
         Args:
@@ -32,12 +33,23 @@ class EventLogger:
             ai_result: AI judge analysis result (optional).
             action: Final response action taken.
             action_status: What actually happened: 'executed',
-                'skipped_cooldown', or 'skipped_host'.
+                'skipped_cooldown', 'skipped_host', 'queued_human', 'error'.
             tier1_match: Whether a rule matched (True for alerts).
             event_dict: Raw event dict (used when alert has no embedded event).
+            netblocked: Whether malicious traffic was blocked (iptables DROP).
         """
         evt = alert.get('event', event_dict or {})
         now = datetime.now()
+
+        # Event state machine (v0.2.5, decision record #16):
+        #   new → quarantine → pending_review → confirmed / dismissed
+        if action_status == 'queued_human':
+            state = 'pending_review'
+        elif action_status in ('executed',):
+            state = 'quarantine' if alert.get('escalation') else 'resolved'
+        else:
+            state = 'new'
+
         entry = {
             'version': LOG_FORMAT_VERSION,
             'timestamp': now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3],
@@ -45,6 +57,7 @@ class EventLogger:
             'event_type': evt.get('event_type', 'unknown'),
             'rule': alert.get('rule_name', 'none'),
             'severity': alert.get('severity', 'INFO'),
+            'state': state,
             # Tier 1
             'tier1_match': tier1_match,
             # Tier 2
@@ -58,6 +71,9 @@ class EventLogger:
             'tier3_ai_confidence': None,
             'tier3_ai_technique': None,
             'tier3_ai_report': None,
+            # Escalation (v0.2.5)
+            'escalation': alert.get('escalation'),
+            'netblocked': netblocked,
             # Action (intended vs actually executed)
             'action': action,
             'action_status': action_status,
