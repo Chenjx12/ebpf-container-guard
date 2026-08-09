@@ -347,8 +347,8 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |---------|----------|--------|
 | v0.1 | MVP: Basic detection + Docker response | ✅ Stable |
 | v0.2 | 3-tier detection + graded automation (netblock, escalation) | ✅ Stable |
-| v0.3 | Dashboard + human-in-the-loop (async AI, hot-reload, decision executor) | ✅ Current |
-|       | ↳ v0.3.3 — current | |
+| v0.3 | Dashboard + human-in-the-loop (async AI, hot-reload, decision executor, AI rule suggestions) | ✅ Current |
+|       | ↳ v0.3.4 — current | |
 | v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 

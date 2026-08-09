@@ -18,7 +18,20 @@
 
 ---
 
+## [0.3.4] - 2026-08-09
+
+### 新增
+- **AI 建议规则审核闭环**（面板）：AI 研判中发现未知攻击模式 → 建议新规则 → 面板人工审核 → 一键入库 rules.yaml → 热加载 3 秒内生效（v0.3.3）
+- `append_rule_to_yaml()` — 将 AI 建议规则格式化为 rules.yaml 列表项（4 空格缩进，已验证）
+- `record_decision(scope='suggested_rule')` — 跟踪已审核的建议（确认/拒绝）
+- 补全"未知攻击发现"闭环——毕设创新点：系统通过 AI 分析 + 人工审核学习新的检测模式
+
+### 验证
+- 单元：建议规则 → rules.yaml（YAML 有效，8→9 条）→ 热加载 → 规则可匹配
+- 端到端：注入 AI 建议 → 追加 rules.yaml → guard 重载（9 条）→ 攻击触发新规则（pending_review）
+
 ## [0.3.3] - 2026-08-09
+
 
 ### 新增
 - **规则热加载**：`EscapeDetector.reload()` + mtime 监听线程——guard 运行中修改 rules.yaml，3 秒内新规则生效（无需重启）

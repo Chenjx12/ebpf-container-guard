@@ -14,7 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.4] - 2026-08-09
+
+### Added
+- **AI suggested-rule review loop** (dashboard): AI discovers unknown attack patterns → suggests a rule → human reviews in the dashboard → one-click append to rules.yaml → hot-reload makes it live within 3s (v0.3.3)
+- `append_rule_to_yaml()` — formats AI-suggested rule into rules.yaml list item (4-space indent, validated)
+- `record_decision(scope='suggested_rule')` — tracks reviewed suggestions (confirm/dismiss)
+- This closes the "unknown attack discovery" loop — a thesis innovation point: the system can learn new detection patterns from AI analysis + human approval
+
+### Verified
+- Unit: suggested rule → rules.yaml (YAML valid, 8→9 rules) → hot-reload → rule matches
+- E2E: AI suggestion injected → rules.yaml appended → guard reloaded (9 rules) → attack triggered new rule (pending_review)
+
 ## [0.3.3] - 2026-08-09
+
 
 ### Added
 - **Rules hot-reload**: `EscapeDetector.reload()` + mtime watcher thread — modify rules.yaml while guard runs, new rules active within 3s (no restart)
