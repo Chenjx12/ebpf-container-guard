@@ -177,8 +177,14 @@ cp config/ai_config.yaml.example config/ai_config.yaml
 
 ```yaml
 # config/ai_config.yaml (gitignored — never committed)
-api_key: "sk-your-deepseek-api-key-here"
+api_key: "sk-your-api-key-here"
 model: "deepseek-chat"
+
+# Any OpenAI-compatible endpoint:
+#   DeepSeek:  https://api.deepseek.com/v1
+#   OpenAI:    https://api.openai.com/v1
+#   Local vLLM: http://localhost:8000/v1
+base_url: "https://api.deepseek.com/v1"
 
 # Confidence thresholds for graded response
 auto_response_threshold: 85    # > 85% → auto execute response
@@ -186,7 +192,7 @@ pending_review_threshold: 60   # 60-85% → AI judge analysis
                                # < 60% → log only
 ```
 
-Without a key, the system runs in **offline fallback mode**: matrix confidence drives decisions (>85% auto-response, 60-85% flagged for review, <60% silent).
+The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any self-hosted endpoint (vLLM / Ollama) for fully offline operation. Without a key, the system runs in **offline fallback mode**: matrix confidence drives decisions (>85% auto-response, 60-85% flagged for review, <60% silent).
 
 ---
 

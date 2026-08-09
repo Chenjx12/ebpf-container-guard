@@ -78,11 +78,22 @@ Analyze this alert and return your verdict as JSON."""
 # ================================================================
 
 class AIAnalyzer:
-    """DeepSeek API integration for threat analysis."""
+    """OpenAI-compatible API integration for threat analysis.
+
+    Works with any OpenAI-compatible chat completion endpoint:
+      - DeepSeek:      https://api.deepseek.com/v1
+      - OpenAI:        https://api.openai.com/v1
+      - vLLM/Ollama:   http://localhost:8000/v1 (local models)
+    Configure via base_url in ai_config.yaml.
+    """
+
+    # OpenAI-compatible chat completions endpoint (appended to base_url)
+    CHAT_PATH = "/chat/completions"
 
     def __init__(self, config_path: str = "config/ai_config.yaml"):
         self.api_key = None
         self.model = "deepseek-chat"
+        self.base_url = "https://api.deepseek.com/v1"
         self.enabled = False
 
         # Try to load API key from config
@@ -92,10 +103,11 @@ class AIAnalyzer:
                 config = yaml.safe_load(f) or {}
             self.api_key = config.get("api_key", "")
             self.model = config.get("model", "deepseek-chat")
+            self.base_url = config.get("base_url", self.base_url).rstrip('/')
             self.enabled = bool(self.api_key)
 
         if not self.enabled:
-            print("[AI] DeepSeek API key not configured — AI analysis disabled")
+            print("[AI] API key not configured — AI analysis disabled")
             print("[AI] Create config/ai_config.yaml with: api_key: sk-xxx")
 
     def analyze(self, alert: dict, context_vectors: List[str],
@@ -172,7 +184,10 @@ class AIAnalyzer:
         )
 
     def _call_deepseek(self, prompt: str) -> dict:
-        """Call DeepSeek Chat API and return parsed JSON response."""
+        """Call OpenAI-compatible chat completions API and parse JSON response.
+
+        Uses self.base_url (configurable), defaulting to DeepSeek.
+        """
         import urllib.request
 
         body = json.dumps({
@@ -186,7 +201,7 @@ class AIAnalyzer:
         }).encode("utf-8")
 
         req = urllib.request.Request(
-            "https://api.deepseek.com/v1/chat/completions",
+            f"{self.base_url}{self.CHAT_PATH}",
             data=body,
             headers={
                 "Content-Type": "application/json",

@@ -1,9 +1,15 @@
-# DeepSeek API Configuration
+# AI Configuration — OpenAI-compatible API
 # Copy this file to ai_config.yaml and fill in your API key
 # ai_config.yaml is gitignored — never commit it to the repo
 
-api_key: "sk-your-deepseek-api-key-here"
+api_key: "sk-your-api-key-here"
 model: "deepseek-chat"
+
+# Any OpenAI-compatible endpoint (works with DeepSeek / OpenAI / vLLM / Ollama)
+# DeepSeek:  https://api.deepseek.com/v1
+# OpenAI:    https://api.openai.com/v1
+# Local vLLM: http://localhost:8000/v1
+base_url: "https://api.deepseek.com/v1"
 
 # Confidence thresholds for graded response
 auto_response_threshold: 85    # Confidence > 85% → auto execute response

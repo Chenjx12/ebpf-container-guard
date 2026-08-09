@@ -194,8 +194,14 @@ cp config/ai_config.yaml.example config/ai_config.yaml
 
 ```yaml
 # config/ai_config.yaml（gitignored，永不提交）
-api_key: "sk-your-deepseek-api-key-here"
+api_key: "sk-your-api-key-here"
 model: "deepseek-chat"
+
+# 任意 OpenAI 兼容端点：
+#   DeepSeek:  https://api.deepseek.com/v1
+#   OpenAI:    https://api.openai.com/v1
+#   本地 vLLM:  http://localhost:8000/v1
+base_url: "https://api.deepseek.com/v1"
 
 # 置信度分级响应阈值
 auto_response_threshold: 85    # > 85% → 自动执行响应
@@ -203,7 +209,7 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
                                # < 60% → 仅记录
 ```
 
-未配置 Key 时系统运行在**离线回退模式**：由矩阵置信度驱动决策（>85% 自动响应，60-85% 标记待审，<60% 静默）。
+分析器采用 **OpenAI 兼容格式**：修改 `base_url` 即可切换 OpenAI 或任意自托管端点（vLLM / Ollama），实现完全离线运行。未配置 Key 时系统运行在**离线回退模式**：由矩阵置信度驱动决策（>85% 自动响应，60-85% 标记待审，<60% 静默）。
 
 ---
 
