@@ -59,3 +59,4 @@ events.log
 config/blocklist.yaml
 decisions.log
 ai_results.log
+rules_audit.log

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard — 安全监控面板 (v0.3.3)
+eBPF Container Guard — 安全监控面板 (v0.3.5)
 
 Streamlit dashboard reading events.log (JSONL) written by main.py.
 
@@ -100,12 +100,14 @@ def load_ai_results() -> pd.DataFrame:
         return pd.DataFrame()
 
 RULES_PATH = SCRIPT_DIR / "config" / "rules.yaml"
+RULES_AUDIT_LOG = SCRIPT_DIR / "rules_audit.log"
 
 
-def append_rule_to_yaml(rule: dict) -> bool:
-    """Append an AI-suggested rule to rules.yaml (v0.3.4).
+def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
+    """Append a rule to rules.yaml (v0.3.4/0.3.5).
 
     Guard's hot-reload watcher (v0.3.3) picks it up within 3s.
+    Every change is recorded to rules_audit.log (audit trail).
     """
     try:
         import yaml
@@ -115,10 +117,59 @@ def append_rule_to_yaml(rule: dict) -> bool:
         indented = "  - " + block.replace("\n", "\n    ").strip()
         with open(RULES_PATH, 'a') as f:
             f.write("\n" + indented + "\n")
+        log_rule_audit("add_rule", rule.get('name', 'unnamed'),
+                       source, rule)
         return True
     except Exception as e:
         st.error(f"规则写入失败: {e}")
         return False
+
+
+def log_rule_audit(action: str, rule_name: str, source: str,
+                   rule_content: dict):
+    """Record a rule change to rules_audit.log (v0.3.5).
+
+    Rule changes are knowledge-asset modifications — auditable for
+    compliance and rollback (original content preserved).
+    """
+    entry = {
+        'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        'action': action,
+        'rule_name': rule_name,
+        'source': source,  # 'ai_suggestion' | 'manual'
+        'rule': rule_content,
+    }
+    with open(RULES_AUDIT_LOG, 'a') as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+
+
+@st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
+def load_rules() -> pd.DataFrame:
+    """Load current rules from rules.yaml for display."""
+    try:
+        import yaml
+        with open(RULES_PATH, 'r') as f:
+            rules = yaml.safe_load(f).get('rules', [])
+        return pd.DataFrame(rules)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=REFRESH_SECONDS, show_spinner=False)
+def load_rule_audit() -> pd.DataFrame:
+    """Load rules_audit.log (rule change history)."""
+    if not RULES_AUDIT_LOG.exists():
+        return pd.DataFrame()
+    try:
+        rows = []
+        with open(RULES_AUDIT_LOG, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+        return pd.DataFrame(rows)
+    except Exception:
+        return pd.DataFrame()
 
 
 def record_decision(container_id: str, decision: str, event_count: int = 1,
@@ -174,7 +225,7 @@ def get_container_profile(container_id: str) -> dict:
 # Sidebar (static)
 # ================================================================
 st.sidebar.title("🛡️ eBPF Container Guard")
-st.sidebar.caption("v0.3.3 · 实时检测 · AI 研判 · 人机协同")
+st.sidebar.caption("v0.3.5 · 实时检测 · AI 研判 · 人机协同")
 st.sidebar.caption(f"自动刷新: 每 {REFRESH_SECONDS} 秒")
 st.sidebar.divider()
 st.sidebar.subheader("📊 数据源")
@@ -397,6 +448,70 @@ def render_dynamic():
                         record_decision(key, 'dismissed', scope='suggested_rule')
                         st.toast(f"❌ 已拒绝规则 {rule.get('name')}")
                         st.rerun()
+
+    # ---- Rule management (v0.3.5) ----
+    st.header("📜 规则管理")
+    st.caption("查看现有检测规则、手动添加规则 — 所有变更记录审计日志，"
+               "热加载 3 秒生效")
+
+    rules_df = load_rules()
+    if not rules_df.empty:
+        show_cols = [c for c in ['name', 'severity', 'description',
+                                 'attack_vector'] if c in rules_df.columns]
+        st.dataframe(rules_df[show_cols], use_container_width=True,
+                     hide_index=True)
+
+    # 手动添加规则表单
+    with st.expander("➕ 手动添加规则"):
+        with st.form("manual_rule_form"):
+            c1, c2 = st.columns(2)
+            rule_name = c1.text_input("规则名 (英文+下划线)",
+                                      placeholder="manual_rule_1")
+            severity = c2.selectbox("严重度", ["CRITICAL", "HIGH",
+                                              "MEDIUM", "LOW"])
+            description = st.text_input("描述")
+            c3, c4 = st.columns(2)
+            event_type = c3.selectbox("事件类型", ["mount", "ptrace",
+                                                  "openat", "execve",
+                                                  "connect"])
+            attack_vector = c4.text_input("攻击向量 (可选)",
+                                          placeholder="my_vector")
+            condition_key = st.text_input("条件字段名",
+                                          placeholder="如 fstype / comm / target_path")
+            condition_value = st.text_input("条件值",
+                                            placeholder="如 proc / nsenter / /etc/shadow")
+            submitted = st.form_submit_button("✅ 添加规则")
+
+            if submitted:
+                if not rule_name or not condition_key or not condition_value:
+                    st.error("规则名和条件必填")
+                else:
+                    rule = {
+                        'name': rule_name,
+                        'description': description or f"手动添加: {rule_name}",
+                        'severity': severity,
+                        'condition': {
+                            'event_type': event_type,
+                            condition_key: condition_value,
+                        },
+                        'action': 'alert_and_log',
+                    }
+                    if attack_vector:
+                        rule['attack_vector'] = attack_vector
+                    if append_rule_to_yaml(rule, source='manual'):
+                        load_rules.clear()
+                        st.toast(f"✅ 规则 {rule_name} 已添加并生效")
+                        st.rerun()
+
+    # 规则变更审计历史
+    audit_df = load_rule_audit()
+    if not audit_df.empty:
+        with st.expander(f"📋 规则变更审计 ({len(audit_df)} 条)"):
+            acols = [c for c in ['timestamp', 'action', 'rule_name',
+                                 'source'] if c in audit_df.columns]
+            st.dataframe(audit_df[acols].sort_values(
+                'timestamp', ascending=False), use_container_width=True,
+                hide_index=True)
 
     # ---- Live alert stream ----
     st.header("📡 实时告警流")

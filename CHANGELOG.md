@@ -14,7 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.5] - 2026-08-09
+
+### Added
+- **Rule management panel** (dashboard):
+  - View current rules (name/severity/description/attack_vector)
+  - Manually add rules via form (event_type + condition fields) — hot-reload live in 3s
+  - Rule change audit trail: `rules_audit.log` records every add (timestamp, action, rule_name, source, full content) — auditable, rollback-capable
+- `append_rule_to_yaml(rule, source)` — source: 'ai_suggestion' | 'manual'
+- `log_rule_audit()`, `load_rules()`, `load_rule_audit()` dashboard helpers
+
+### Purpose
+- Rules are knowledge assets: changes need approval + audit trail (decision record #14 principle — bigger impact, more human control)
+- AI can go offline; the rule base runs independently (learning needs AI, execution does not)
+
+### Verified
+- Unit: manual + AI rules appended → YAML valid (8→10) → hot-reload → both match
+- Audit log: 2 entries with correct source attribution
+- Test suite: 15/15 PASS (no regression)
+
 ## [0.3.4] - 2026-08-09
+
 
 ### Added
 - **AI suggested-rule review loop** (dashboard): AI discovers unknown attack patterns → suggests a rule → human reviews in the dashboard → one-click append to rules.yaml → hot-reload makes it live within 3s (v0.3.3)
