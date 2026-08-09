@@ -11,6 +11,7 @@ Licensed under the MIT License. See LICENSE for details.
 import argparse
 import sys
 import time
+import threading
 from datetime import datetime
 from pathlib import Path
 from socket import htons
@@ -129,6 +130,14 @@ class ContainerEscapeMonitor:
         self.executor = DecisionExecutor(
             str(script_dir / "decisions.log"), self.docker_client)
         self.executor.start()
+
+        # 11. Start rules hot-reload watcher (v0.3.3)
+        self._rules_path = Path(rules_file)
+        self._rules_mtime = self._rules_path.stat().st_mtime \
+            if self._rules_path.exists() else 0
+        self._rules_watcher = threading.Thread(
+            target=self._rules_watch_loop, daemon=True)
+        self._rules_watcher.start()
 
         print("\n========================================")
         print("  eBPF Container Guard v0.2.5")
@@ -382,6 +391,24 @@ class ContainerEscapeMonitor:
                   f"CID:{cid} FS:{event_dict.get('fstype', '')} "
                   f"Path:{event_dict.get('target_path', '')}\033[0m")
         # openat is filtered in kernel space; if it reaches here, print it
+
+    # ================================================================
+    # Rules hot-reload (v0.3.3)
+    # ================================================================
+
+    def _rules_watch_loop(self):
+        """Watch rules.yaml mtime — reload rules without restarting."""
+        while True:
+            time.sleep(3)
+            try:
+                if self._rules_path.exists():
+                    mtime = self._rules_path.stat().st_mtime
+                    if mtime != self._rules_mtime:
+                        print("[Detector] ⚡ 检测到规则文件变化，热加载中...")
+                        self.detector.reload()
+                        self._rules_mtime = mtime
+            except Exception as e:
+                print(f"  [!] Rules watcher error: {e}", file=sys.stderr)
 
     # ================================================================
     # Main loop

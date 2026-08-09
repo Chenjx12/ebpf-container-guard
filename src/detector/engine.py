@@ -6,10 +6,18 @@ import fnmatch
 
 class EscapeDetector:
     def __init__(self, rules_file):
-        with open(rules_file, 'r') as f:
+        self.rules_file = rules_file
+        self.rules = []
+        self.rule_index = {}
+        self.reload()
+        print(f"[Detector] 已加载 {len(self.rules)} 条规则")
+
+    def reload(self):
+        """热加载规则文件（v0.3.3）— 修改 rules.yaml 后无需重启"""
+        with open(self.rules_file, 'r') as f:
             self.rules = yaml.safe_load(f).get('rules', [])
         self.rule_index = self._build_rule_index()
-        print(f"[Detector] 已加载 {len(self.rules)} 条规则")
+        print(f"[Detector] 规则已重载: {len(self.rules)} 条")
 
     def _build_rule_index(self):
         index = {}

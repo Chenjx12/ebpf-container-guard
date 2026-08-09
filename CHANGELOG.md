@@ -14,6 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.3] - 2026-08-09
+
+### Added
+- **Rules hot-reload**: `EscapeDetector.reload()` + mtime watcher thread — modify rules.yaml while guard runs, new rules active within 3s (no restart)
+- **Test suite expanded to 15 tests**: static checks + 3-tier modules + core modules (identity/scope/escalation/netblock/decision_executor) + unit behaviors (rule match, matrix combo, escalation, scope, hot-reload, IP conversion, async AI structure)
+
+### Verified
+- E2E: modified rules.yaml while guard running → reload logged (8→9 rules) → new rule triggered within seconds
+- Unit: reload 8→9→8 rules, new rule matches
+- Test suite: 15/15 PASS
+
+## [0.3.2] - 2026-08-09
+
 ## [0.3.2] - 2026-08-09
 
 ### Added
