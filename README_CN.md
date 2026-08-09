@@ -70,6 +70,26 @@ docker run -d --privileged --pid=host --cap-add=SYS_PTRACE --name test ebpf-test
 docker exec test strace -p 1  # 触发 HIGH 级别告警
 ```
 
+
+### 面板登录（RBAC）
+
+```bash
+# 终端 1：启动检测
+sudo python3 main.py
+
+# 终端 2：前台启动面板
+streamlit run dashboard/app.py
+# → 浏览器打开 http://localhost:8501
+# → 首次启动：初始 admin 密码打印在【面板终端】中（用户名 admin）
+#   登录后请立即修改密码
+```
+
+角色：admin > 运维 > 安全员。admin 管理成员；运维添加规则；
+安全员处理判决/AI 研判。低权限角色的越权操作需向高权限角色索取
+临时 token（设置页发放）。
+
+### 使用预制 strace 镜像测试 ptrace 逃逸
+
 ---
 
 ## 📊 演示

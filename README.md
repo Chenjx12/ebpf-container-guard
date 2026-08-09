@@ -61,6 +61,26 @@ docker run -d --privileged --pid=host --cap-add=SYS_PTRACE --name test ebpf-test
 docker exec test strace -p 1  # triggers HIGH alert
 ```
 
+
+### Option 4: Dashboard with Login (RBAC)
+
+```bash
+# Terminal 1: start guard
+sudo python3 main.py
+
+# Terminal 2: start dashboard (foreground)
+streamlit run dashboard/app.py
+# → open http://localhost:8501
+# → FIRST launch: initial admin password is printed in THIS terminal
+#   (username: admin) — change it immediately after first login
+```
+
+Roles: admin > operator > analyst. Admin manages members; operator adds rules;
+analyst handles verdicts / AI review. Low-role users can request temporary
+tokens from higher roles for privileged operations (settings page).
+
+### Option 3: Test with pre-built strace image (ptrace escape)
+
 ---
 
 ## 📊 Demo

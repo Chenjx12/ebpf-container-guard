@@ -52,6 +52,23 @@ if logged_in:
     role = st.session_state['role']
     st.sidebar.markdown(f"👤 **{username}** · "
                         f"{ROLE_LABELS.get(role, role)}")
+
+    # 修改密码（所有角色，侧边栏直达）
+    with st.sidebar.expander("🔑 修改密码", expanded=False):
+        with st.form("sidebar_change_pw"):
+            old_pw = st.text_input("当前密码", type="password",
+                                   key="sb_old")
+            new_pw = st.text_input("新密码（≥6位）", type="password",
+                                   key="sb_new")
+            if st.form_submit_button("修改密码"):
+                if not AUTH.verify(username, old_pw):
+                    st.error("❌ 当前密码错误")
+                elif len(new_pw) < 6:
+                    st.error("新密码至少 6 位")
+                elif AUTH.change_password(username, new_pw):
+                    st.toast("✅ 密码已修改")
+                    st.rerun()
+
     if st.sidebar.button("🚪 退出登录"):
         for k in ['username', 'role', 'logged_in']:
             st.session_state.pop(k, None)

@@ -18,11 +18,9 @@ def run():
     ai_results = load_ai_results()
 
     if events.empty:
-        st.warning("⚠️ 暂无事件数据 — 请先运行: sudo python3 main.py")
-        st.info("本面板每 3 秒自动读取 events.log，"
-                "guard 检测到攻击后事件会自动出现。")
-        st.code("sudo python3 main.py   # 终端 1 启动 guard",
-                language="bash")
+        st.warning("⚠️ 暂无事件数据")
+        st.info("检测系统运行中 — 检测到攻击后事件会自动出现在这里。\n"
+                "若长时间无数据，请确认检测服务已由部署者启动。")
         return
 
     # ---- Overview stats ----

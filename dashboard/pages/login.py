@@ -29,7 +29,8 @@ def run():
                 st.session_state['username'] = username
                 st.session_state['role'] = role
                 st.session_state['logged_in'] = True
-                st.toast(f"✅ 欢迎, {username} ({ROLE_LABELS.get(role, role)})")
+                st.toast(f"✅ 欢迎, {username} ({ROLE_LABELS.get(role, role)}) — "
+                         f"建议立即修改初始密码")
                 st.rerun()
             else:
                 st.error("❌ 用户名或密码错误")
