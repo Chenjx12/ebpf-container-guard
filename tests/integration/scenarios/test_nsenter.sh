@@ -24,7 +24,7 @@ print_result "nsenter 命名空间逃逸 (nsenter_escape)"
 
 # 1. 构建镜像
 print_test "构建测试镜像 $IMAGE"
-bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"
+bash ./build_image.sh "$IMAGE"
 print_pass
 
 # 2. 重置环境 + 启动 guard

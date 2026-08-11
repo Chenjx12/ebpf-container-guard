@@ -18,7 +18,7 @@
 
 ---
 
-## [0.3.9] - 2026-08-09
+## [0.3.9] - 2026-08-11
 
 ### 新增
 - **XDP 网络阻断**（`src/ebpf/xdp-block.bpf.c` + `src/core/netblock_xdp.py`）：
@@ -26,6 +26,17 @@
   - 两个阻断表：整 IP 和 IP:端口（TCP/UDP）
 - **混合后端**（`CompositeNetBlocker`）：XDP 入站 + iptables FORWARD 出站
   （C2/反弹 shell）——`netblock_backend: mixed`（默认）
+- **场景化测试套件**（`tests/integration/scenarios/`）：6 个逃逸场景，
+  预制 Docker 镜像 + 自动化断言（v0.3.9）
+- **测试文档**（`tests/test-guide.md` / `tests/test-guide_CN.md`）：中英双语，
+  包含测试方法、预期结果和实测验证记录
+
+### 修复
+- **build_image.sh**：路径解析重构为从镜像 tag 自动推导 Dockerfile；
+  构建增加 `--network host` 解决容器 DNS
+- **test_mount_escape.sh**：统一通过 `build_image.sh` 构建而非直接 `docker build`
+- **docker_socket_mount 规则**：内核将 `/var/run/docker.sock` 解析为 `/run/docker.sock`
+  （符号链接）——规则增加 `/run/docker.sock`
 
 ### 设计说明
 - XDP 仅处理入站（进入接口的包）。容器出站流量（反弹 shell / C2）
@@ -35,7 +46,10 @@
 ### 验证
 - XDP 程序加载、挂载 docker0、map 阻断/解除正常
 - 混合端到端：基线 CONNECTED → 阻断 FAILED → 解除 CONNECTED
-- 测试套件：15/15 通过
+- 烟雾测试套件：15/15 通过
+- 场景测试（2026-08-11）：**6/6 全部通过**——所有逃逸场景端到端验证
+  （procfs 挂载、socket 挂载、ptrace、敏感文件、反弹 shell、nsenter），
+  Tier 1/2/3 检测、响应动作、iptables 网络阻断均正常工作
 
 ## [0.3.8] - 2026-08-09
 

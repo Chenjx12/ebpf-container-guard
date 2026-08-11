@@ -24,7 +24,7 @@ print_result "敏感文件访问 (sensitive_file_access)"
 
 # 1. 构建镜像
 print_test "构建测试镜像 $IMAGE"
-bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"
+bash ./build_image.sh "$IMAGE"
 print_pass
 
 # 2. 重置环境 + 启动 guard

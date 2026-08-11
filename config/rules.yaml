@@ -36,6 +36,7 @@ rules:
       event_type: "mount"
       target_path:
         - "/var/run/docker.sock"
+        - "/run/docker.sock"
     cve_refs:
       - "CVE-2019-5736"
     action: "alert_and_log"

@@ -24,13 +24,8 @@ print_result "procfs 挂载逃逸 (procfs_mount_escape)"
 
 # 1. 构建镜像
 print_test "构建测试镜像 $IMAGE"
-if docker build -q -t "$IMAGE" -f ../images/Dockerfile.mount ../.. \
-    > /dev/null 2>&1; then
-    print_pass
-else
-    print_fail "镜像构建失败"
-    exit 1
-fi
+bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"
+print_pass
 
 # 2. 重置环境 + 启动 guard
 reset_environment

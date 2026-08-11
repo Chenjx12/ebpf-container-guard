@@ -29,7 +29,7 @@ print_result "反弹 shell / C2 出站 (reverse_shell)"
 
 # 1. 构建镜像
 print_test "构建测试镜像 $IMAGE"
-bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"
+bash ./build_image.sh "$IMAGE"
 print_pass
 
 # 2. 重置环境 + 启动 guard

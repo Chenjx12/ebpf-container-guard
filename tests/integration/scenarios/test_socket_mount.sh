@@ -22,7 +22,7 @@ print_result "Docker socket 挂载 (docker_socket_mount)"
 
 # 1. 构建镜像（若已存在则跳过）
 print_test "准备测试镜像 $IMAGE"
-if bash ./build_image.sh "$IMAGE" "../images/Dockerfile.${IMAGE##*:}"; then
+if bash ./build_image.sh "$IMAGE"; then
     print_pass
 else
     print_fail "镜像不可用"

@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
-## [0.3.9] - 2026-08-09
+## [0.3.9] - 2026-08-11
 
 ### Added
 - **XDP network blocking** (`src/ebpf/xdp-block.bpf.c` + `src/core/netblock_xdp.py`):
@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Two block maps: whole-IP and IP:port (TCP/UDP)
 - **Mixed backend** (`CompositeNetBlocker`): XDP for inbound + iptables FORWARD
   for outbound (C2 / reverse shell) — `netblock_backend: mixed` (default)
+- **Scenario-based test suite** (`tests/integration/scenarios/`): 6 escape scenarios
+  with pre-built Docker images, automated assertions (v0.3.9)
+- **Test guide** (`tests/test-guide.md` / `tests/test-guide_CN.md`): bilingual
+  documentation with test methods, expected results, and verified results
+
+### Fixed
+- **build_image.sh**: path resolution refactored to auto-derive Dockerfile from
+  image tag; added `--network host` for container DNS during build
+- **test_mount_escape.sh**: unified build via `build_image.sh` instead of inline
+  `docker build`
+- **docker_socket_mount rule**: kernel resolves `/var/run/docker.sock` to
+  `/run/docker.sock` (symlink) — added `/run/docker.sock` to rule targets
 
 ### Design note
 - XDP is ingress-only (packets entering an interface). Outbound container
@@ -32,7 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Verified
 - XDP program loads, attaches to docker0, map block/unblock works
 - Mixed E2E: baseline CONNECTED → blocked FAILED → unblocked CONNECTED
-- Test suite: 15/15 PASS
+- Smoke test suite: 15/15 PASS
+- Scenario tests (2026-08-11): **6/6 ALL PASS** — all escape scenarios verified
+  end-to-end (procfs mount, socket mount, ptrace, sensitive file, reverse shell,
+  nsenter) with correct Tier 1/2/3 detection, response actions, and iptables
+  network blocking
 
 ## [0.3.8] - 2026-08-09
 
