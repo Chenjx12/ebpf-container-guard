@@ -88,7 +88,8 @@ class AuthManager:
             'sha256', password.encode(), salt, PBKDF2_ITERATIONS)
         return secrets.compare_digest(computed, stored)
 
-    def create_user(self, username: str, password: str, role: str) -> bool:
+    def create_user(self, username: str, password: str, role: str,
+                     is_initial: bool = True) -> bool:
         """Create user. Password is required (enforced by caller + check)."""
         if not username or len(password) < 6:
             return False
@@ -102,6 +103,7 @@ class AuthManager:
             'salt': salt.hex(),
             'hash': pwd_hash.hex(),
             'created': time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'initial': is_initial,  # v0.3.10: force password change on first login
         }
         self._save()
         return True
@@ -114,6 +116,7 @@ class AuthManager:
             'sha256', new_password.encode(), salt, PBKDF2_ITERATIONS)
         self.users[username]['salt'] = salt.hex()
         self.users[username]['hash'] = pwd_hash.hex()
+        self.users[username]['initial'] = False  # v0.3.10: clear initial flag
         self._save()
         return True
 
@@ -128,6 +131,19 @@ class AuthManager:
 
     def has_role(self, username: str, role: str) -> bool:
         return ROLE_RANK.get(self.get_role(username), 0) >= ROLE_RANK[role]
+
+    # ---- initial password detection (v0.3.10) ----
+
+    def is_initial_password(self, username: str) -> bool:
+        """Check if user still has the initial (un-changed) password."""
+        user = self.users.get(username)
+        return bool(user.get('initial', False)) if user else False
+
+    def clear_initial_flag(self, username: str):
+        """Mark password as changed (remove initial flag)."""
+        if username in self.users:
+            self.users[username]['initial'] = False
+            self._save()
 
 
 # ================================================================

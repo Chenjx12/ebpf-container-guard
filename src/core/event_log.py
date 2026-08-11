@@ -104,3 +104,4 @@ class EventLogger:
 
         with open(self.log_path, 'a') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+

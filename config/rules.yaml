@@ -69,6 +69,8 @@ rules:
       event_type: "execve"
       comm:
         - "nsenter"
+      target_path:
+        - "/usr/bin/nsenter"
     cve_refs:
       - "CVE-2019-5736"
       - "CVE-2022-0492"
@@ -146,6 +148,7 @@ rules:
         - "/host_etc/shadow"
         - "/host_etc/passwd"
         - "/host_proc/kcore"
+        - "/host_sys/block"
     cve_refs:
       - "CVE-2019-5736"
       - "CVE-2020-15257"

@@ -29,8 +29,11 @@ def run():
                 st.session_state['username'] = username
                 st.session_state['role'] = role
                 st.session_state['logged_in'] = True
-                st.toast(f"✅ 欢迎, {username} ({ROLE_LABELS.get(role, role)}) — "
-                         f"建议立即修改初始密码")
+                # v0.3.10: force password change for initial passwords
+                if AUTH.is_initial_password(username):
+                    st.session_state['must_change_pw'] = True
+                    st.rerun()
+                st.toast(f"✅ 欢迎, {username} ({ROLE_LABELS.get(role, role)})")
                 st.rerun()
             else:
                 st.error("❌ 用户名或密码错误")

@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.9-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.10-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -16,6 +16,8 @@
 
 - **3-Tier Detection Pipeline**: Rule engine (8 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
 - **5 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
+- **Behavior Logger**: ALL syscall events recorded to `behaviors.log` with configurable toggle — full behavioral timeline for post-incident analysis and audit
+- **Dashboard**: 7-page Streamlit UI: Overview, Behavior Log, Review Queue, AI Rules, Rule Mgmt, Alerts, Settings — role-based access (admin/operator/analyst), temporary token delegation
 - **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) with background refresh
 - **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — verified with real API calls, correctly distinguishes true positives from false positives
 - **Graded Automation** (human-in-the-loop): reversible actions auto-execute (pause/isolate/network block); irreversible verdicts (kill/image blocklist) queue for human review — AI suggestions execute with confidence guardrails

@@ -35,6 +35,7 @@ SCRIPT_DIR = Path(__file__).parent.parent.resolve()
 EVENTS_LOG = SCRIPT_DIR / "events.log"
 DECISIONS_LOG = SCRIPT_DIR / "decisions.log"
 AI_RESULTS_LOG = SCRIPT_DIR / "ai_results.log"
+BEHAVIORS_LOG = SCRIPT_DIR / "behaviors.log"  # v0.3.10
 
 REFRESH_SECONDS = 3
 
@@ -96,6 +97,27 @@ def load_ai_results() -> pd.DataFrame:
         return pd.DataFrame(rows)
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def load_behavior_log() -> pd.DataFrame:
+    """Load behaviors.log (v0.3.10 — ALL syscall events)."""
+    if not BEHAVIORS_LOG.exists():
+        return pd.DataFrame()
+    try:
+        rows = []
+        with open(BEHAVIORS_LOG, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+        df = pd.DataFrame(rows)
+        if not df.empty and 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+        return df
+    except Exception:
+        return pd.DataFrame()
+
 
 RULES_PATH = SCRIPT_DIR / "config" / "rules.yaml"
 RULES_AUDIT_LOG = SCRIPT_DIR / "rules_audit.log"

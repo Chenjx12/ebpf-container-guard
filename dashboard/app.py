@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard — 安全监控面板 (v0.3.8, RBAC)
+eBPF Container Guard — 安全监控面板 (v0.3.10, RBAC)
 
 Multi-page dashboard with role-based access control:
   - Login required (admin / operator / analyst)
   - Navigation filtered by role
   - Temporary tokens for privileged ops (v0.3.8)
+  - First-login forced password change (v0.3.10)
 
 Run:  streamlit run dashboard/app.py
 """
@@ -44,7 +45,7 @@ if initial_pw:
 # Sidebar (user info / logout)
 # ================================================================
 st.sidebar.title("🛡️ eBPF Container Guard")
-st.sidebar.caption("v0.3.8 · 实时检测 · AI 研判 · 人机协同")
+st.sidebar.caption("v0.3.10 · 实时检测 · AI 研判 · 人机协同")
 
 logged_in = st.session_state.get('logged_in', False)
 if logged_in:
@@ -53,22 +54,7 @@ if logged_in:
     st.sidebar.markdown(f"👤 **{username}** · "
                         f"{ROLE_LABELS.get(role, role)}")
 
-    # 修改密码（所有角色，侧边栏直达）
-    with st.sidebar.expander("🔑 修改密码", expanded=False):
-        with st.form("sidebar_change_pw"):
-            old_pw = st.text_input("当前密码", type="password",
-                                   key="sb_old")
-            new_pw = st.text_input("新密码（≥6位）", type="password",
-                                   key="sb_new")
-            if st.form_submit_button("修改密码"):
-                if not AUTH.verify(username, old_pw):
-                    st.error("❌ 当前密码错误")
-                elif len(new_pw) < 6:
-                    st.error("新密码至少 6 位")
-                elif AUTH.change_password(username, new_pw):
-                    st.toast("✅ 密码已修改")
-                    st.rerun()
-
+    # v0.3.10: logout only — password change moved to forced page
     if st.sidebar.button("🚪 退出登录"):
         for k in ['username', 'role', 'logged_in']:
             st.session_state.pop(k, None)
@@ -79,12 +65,46 @@ else:
 st.sidebar.divider()
 
 # ================================================================
+# First-login: forced password change (v0.3.10)
+# ================================================================
+if logged_in and st.session_state.get('must_change_pw', False):
+    st.title("🔄 首次登录 — 请修改初始密码")
+    st.warning("您正在使用初始密码登录，为安全起见请立即修改密码。")
+
+    with st.form("force_change_pw", clear_on_submit=True):
+        new_pw = st.text_input("新密码（≥6位）", type="password",
+                               key="fc_new")
+        confirm_pw = st.text_input("确认新密码", type="password",
+                                   key="fc_confirm")
+        submitted = st.form_submit_button("修改密码并重新登录",
+                                          use_container_width=True)
+
+        if submitted:
+            if not new_pw or not confirm_pw:
+                st.error("请填写两个密码字段")
+            elif len(new_pw) < 6:
+                st.error("密码至少 6 位")
+            elif new_pw != confirm_pw:
+                st.error("两次输入的密码不一致")
+            elif AUTH.change_password(username, new_pw):
+                # Clear session to force re-login
+                for k in ['username', 'role', 'logged_in', 'must_change_pw']:
+                    st.session_state.pop(k, None)
+                st.success("✅ 密码修改成功，请使用新密码重新登录")
+                st.rerun()
+            else:
+                st.error("修改密码失败")
+
+    st.stop()  # Don't render navigation below
+
+# ================================================================
 # Navigation (role-filtered)
 # ================================================================
 
 # Pages visible to all roles
 common_pages = [
     st.Page("pages/overview.py", title="概览", icon="📊", default=True),
+    st.Page("pages/behavior_log.py", title="行为日志", icon="📋"),
     st.Page("pages/review_queue.py", title="判决队列", icon="⏳"),
     st.Page("pages/ai_rules.py", title="AI 建议规则", icon="🧠"),
     st.Page("pages/rules.py", title="规则管理", icon="📜"),

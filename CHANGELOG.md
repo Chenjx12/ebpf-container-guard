@@ -14,6 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
+## [0.3.10] - 2026-08-11
+
+### Added
+- **BehaviorLogger** (`src/core/behavior_logger.py`): records ALL syscall events (mount, ptrace, execve, connect, openat) to `behaviors.log` as JSONL — configurable toggle `behavior_log: true|false` in `monitor.yaml`
+- **Behavior Log Dashboard Page** (`dashboard/pages/behavior_log.py`): read-only analyzer with filtering by event_type, container ID, process name, time range (1min/5min/30min/custom), and host/container scope — paginated table, 5s auto-refresh
+- **Forced password change on first login** (v0.3.10 RBAC enhancement): users with `initial` password flag are redirected to a mandatory change-password form before accessing the dashboard — password sidebar entry removed
+- **Rule expansion**:
+  - `nsenter_escape`: added `target_path: [/usr/bin/nsenter]` — nsenter may not always appear with `comm=nsenter`
+  - `host_directory_access`: added `/host_sys/block` (host block devices)
+
+### Changed
+- `dashboard/common.py`: added `BEHAVIORS_LOG` constant and `load_behavior_log()` function
+- `dashboard/app.py`: navigation includes behavior_log page; sidebar password change removed; forced password change interceptor on initial login
+- `dashboard/auth.py`: `create_user` stores `initial: true` flag; `change_password` clears it; `is_initial_password()` / `clear_initial_flag()` methods added
+
+### Verified
+- BehaviorLogger: guard starts with `[Behavior] enabled: true`; mount attack → events.log has 1 alert, behaviors.log has 22+ mount records among 1200+ total records (includes normal dockerd/runc events)
+- Behavior log page renders with 5s fragment refresh, all filters work
+- Forced password change: initial user redirected to change-password form, re-login required after change
+- Existing `users.yaml` users auto-backfilled with `initial: true` on next load
+
 ## [0.3.9] - 2026-08-11
 
 ### Added

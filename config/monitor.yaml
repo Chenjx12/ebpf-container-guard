@@ -15,3 +15,7 @@ match_by: "name"
 
 # 网络阻断后端: iptables（用户态，可逆） | xdp（内核态，微秒级，v0.3.9）
 netblock_backend: "mixed"  # xdp(入站) + iptables(出站)
+
+# 全量行为日志（v0.3.10）：记录所有 syscall 事件到 behaviors.log
+# behavior_log (v0.3.10): record ALL syscall events to behaviors.log
+behavior_log: true

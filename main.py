@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.3.9)
+eBPF Container Guard - Main Entry Point (v0.3.10)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -28,11 +28,13 @@ from detector.ai_analyzer import AsyncAIAnalyzer
 from responder.docker_responder import ResponseEngine
 from core.identity import ContainerIdentity
 from core.event_log import EventLogger
+from core.behavior_logger import BehaviorLogger
 from core.scope import ContainerScope
 from core.escalation import EscalationManager
 from core.netblock import NetBlocker, ip_int_to_str
 from core.netblock_xdp import XDPNetBlocker, CompositeNetBlocker
 from core.decision_executor import DecisionExecutor
+from core.behavior_logger import BehaviorLogger
 
 
 # ============================================================
@@ -165,8 +167,14 @@ class ContainerEscapeMonitor:
             target=self._ai_cfg_watch_loop, daemon=True)
         self._ai_cfg_watcher.start()
 
+        # 13. Initialize BehaviorLogger (v0.3.10)
+        self.behavior_logger = BehaviorLogger(
+            log_path=str(script_dir / "behaviors.log"),
+            enabled=self._get_behavior_log_enabled())
+        print(f"  [Behavior] enabled: {self.behavior_logger.enabled}")
+
         print("\n========================================")
-        print("  eBPF Container Guard v0.3.9")
+        print("  eBPF Container Guard v0.3.10")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -231,6 +239,9 @@ class ContainerEscapeMonitor:
             elif event.event_type == 5:  # CONNECT
                 event_dict['daddr'] = event.daddr
                 event_dict['dport'] = event.dport
+
+            # === Behavior Log (v0.3.10): ALL syscall events recorded ===
+            self.behavior_logger.write(event_dict)
 
             # === Tier 1: Rule Engine ===
             matched_rules = self.detector.check_event(event_dict)
@@ -435,6 +446,17 @@ class ContainerEscapeMonitor:
                 else 'iptables'
         except Exception:
             return 'iptables'
+
+    def _get_behavior_log_enabled(self) -> bool:
+        """Read behavior_log toggle from monitor.yaml (v0.3.10)."""
+        try:
+            import yaml
+            with open(Path(__file__).parent / "config" / "monitor.yaml",
+                      'r') as f:
+                cfg = yaml.safe_load(f) or {}
+            return cfg.get('behavior_log', True)
+        except Exception:
+            return True
 
     def _get_xdp_iface(self) -> str:
         """XDP attach interface — docker0 (container traffic) or eth0."""

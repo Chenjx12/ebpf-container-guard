@@ -18,6 +18,27 @@
 
 ---
 
+## [0.3.10] - 2026-08-11
+
+### 新增
+- **BehaviorLogger**（`src/core/behavior_logger.py`）：所有 syscall 事件（mount、ptrace、execve、connect、openat）记录到 `behaviors.log`（JSONL）——通过 `monitor.yaml` 的 `behavior_log: true|false` 开关
+- **行为日志面板**（`dashboard/pages/behavior_log.py`）：只读分析页面，支持行为类型、容器 ID、进程名、时间范围（1 分钟/5 分钟/30 分钟/自定义）、容器/宿主机范围筛选——分页表格，5 秒 fragment 自动刷新
+- **首次登录强制改密**（v0.3.10 RBAC 增强）：标记为 `initial` 密码的用户登录后强制跳转改密页面（两步确认），改密成功需重新登录——侧边栏改密入口移除
+- **规则扩充**：
+  - `nsenter_escape`：增加 `target_path: [/usr/bin/nsenter]`——nsenter 可能不以 `comm=nsenter` 出现
+  - `host_directory_access`：增加 `/host_sys/block`（宿主机块设备）
+
+### 变更
+- `dashboard/common.py`：新增 `BEHAVIORS_LOG` 常量和 `load_behavior_log()` 函数
+- `dashboard/app.py`：导航栏新增行为日志页面；移除侧边栏改密入口；首次登录强制改密拦截
+- `dashboard/auth.py`：`create_user` 增加 `initial: true` 标记；`change_password` 清除标记；新增 `is_initial_password()` / `clear_initial_flag()` 方法
+
+### 验证
+- BehaviorLogger 启动打印 `[Behavior] enabled: true`；mount 攻击 → events.log 1 条告警，behaviors.log 22+ 条 mount 记录（共 1200+ 行，含正常 dockerd/runc 事件）
+- 行为日志面板渲染正常，5s fragment 自动刷新，所有筛选条件可用
+- 首次登录强制改密：初始用户跳转改密页 → 改密 → 重新登录
+- 已有 `users.yaml` 用户自动标记 `initial: true`（下次加载时回填）
+
 ## [0.3.9] - 2026-08-11
 
 ### 新增
