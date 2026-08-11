@@ -278,30 +278,59 @@ ebpf-container-guard/
 ├── src/
 │   ├── core/                        # 基础设施
 │   │   ├── identity.py              # 容器身份管理（三级回退 + 后台刷新）
-│   │   └── event_log.py             # 结构化 JSON 事件日志
+│   │   ├── event_log.py             # 结构化 JSON 事件日志
+│   │   ├── behavior_logger.py       # 全量 syscall → behaviors.log (v0.3.10)
+│   │   ├── scope.py                 # 监控范围（include/exclude 容器）
+│   │   ├── escalation.py            # 响应升级（暂停 → kill → 镜像拉黑）
+│   │   ├── netblock.py              # iptables FORWARD DROP（可逆）
+│   │   ├── netblock_xdp.py          # XDP 入站阻断 + 混合后端
+│   │   └── decision_executor.py     # 执行人工裁决（来自 decisions.log）
 │   ├── ebpf/
-│   │   └── escape-detect.bpf.c      # eBPF 内核探针（5 个 tracepoint）
+│   │   ├── escape-detect.bpf.c      # eBPF 内核探针（5 个 tracepoint）
+│   │   └── xdp-block.bpf.c          # XDP 包过滤程序 (v0.3.9)
 │   ├── detector/
 │   │   ├── __init__.py
-│   │   ├── engine.py                # Tier 1: YAML 规则引擎
-│   │   ├── attack_matrix.py         # Tier 2: 行为→CVE 矩阵
-│   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI 研判
+│   │   ├── engine.py                # Tier 1: YAML 规则引擎（热加载）
+│   │   ├── attack_matrix.py         # Tier 2: 行为→CVE 矩阵（8 向量）
+│   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI 研判（异步）
 │   └── responder/
 │       ├── __init__.py
-│       └── docker_responder.py      # Docker 响应引擎
+│       └── docker_responder.py      # Docker 响应引擎（分级自动化）
 ├── config/
 │   ├── rules.yaml                   # 8 条检测规则
 │   ├── responses.yaml               # 4 级响应策略
-│   └── ai_config.yaml.example       # DeepSeek API 密钥模板
-├── deploy/
-│   └── Dockerfile.test              # 预制 strace 测试镜像
+│   ├── monitor.yaml                 # 监控范围 + netblock 后端 + behavior_log 开关
+│   ├── ai_config.yaml.example       # DeepSeek API 密钥模板
+│   ├── users.yaml.example           # RBAC 用户配置模板
+│   └── blocklist.yaml               # 已拉黑镜像列表
+├── dashboard/                       # Streamlit 安全面板
+│   ├── app.py                       # 入口 + 导航 + 强制改密
+│   ├── common.py                    # 共享数据加载工具
+│   ├── auth.py                      # AuthManager + TokenManager（RBAC）
+│   └── pages/                       # 7 个页面
+│       ├── login.py                 # 登录页
+│       ├── overview.py              # 概览指标 + 容器筛选
+│       ├── behavior_log.py          # 全量 syscall 行为日志（v0.3.10）
+│       ├── review_queue.py          # 人工判决队列（容器级）
+│       ├── ai_rules.py              # AI 建议规则审核
+│       ├── rules.py                 # 规则管理 + 审计轨迹
+│       ├── alerts.py                # 实时告警流 + 阻断记录
+│       ├── members.py               # 成员管理（admin）
+│       └── settings.py              # AI 配置 + 临时 token 发放
 ├── tests/
-│   └── integration/
-│       └── test_escape_scenarios.sh # 集成测试（烟雾测试）
-├── demos/
-│   └── demo-basic.sh                # 演示脚本
-└── docs/
-    └── MVP-运行验证报告.md            # 验证报告（中英双语）
+│   ├── integration/
+│   │   ├── test_escape_scenarios.sh # 烟雾测试（15 项检查）
+│   │   └── scenarios/               # 6 个 E2E 场景测试
+│   │       ├── lib.sh               # 共享生命周期函数
+│   │       ├── build_image.sh       # 代理感知的 Docker 镜像构建
+│   │       ├── run_all_scenarios.sh # 一键运行全部场景
+│   │       ├── test_mount_escape.sh
+│   │       ├── test_socket_mount.sh
+│   │       ├── test_ptrace_escape.sh
+│   │       ├── test_sensitive_file.sh
+│   │       ├── test_reverse_shell.sh
+│   │       └── test_nsenter.sh
+│   └── images/                      # 各场景的测试 Dockerfile
 ```
 
 ---
@@ -396,8 +425,8 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |------|------|------|
 | v0.1 | MVP：基础检测 + Docker 响应 | ✅ 稳定版 |
 | v0.2 | 三层检测 + 分级自动化（流量阻断、响应升级） | ✅ 稳定版 |
-| v0.3 | 面板 + 人机协同（多页面、RBAC、XDP+iptables 阻断、异步 AI） | ✅ 当前版本 |
-|       | ↳ v0.3.9 — 当前版本 | |
+| v0.3 | 面板 + 人机协同（多页面、RBAC、XDP+iptables 阻断、异步 AI、全量行为日志） | ✅ 当前版本 |
+|       | ↳ v0.3.10 — 当前版本 | |
 | v0.4 | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 

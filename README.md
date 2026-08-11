@@ -251,30 +251,59 @@ ebpf-container-guard/
 ├── src/
 │   ├── core/                        # Infrastructure
 │   │   ├── identity.py              # Container identity (3-tier fallback + refresh)
-│   │   └── event_log.py             # Structured JSON event logger
+│   │   ├── event_log.py             # Structured JSON event logger
+│   │   ├── behavior_logger.py       # ALL syscall events → behaviors.log (v0.3.10)
+│   │   ├── scope.py                 # Monitoring scope (include/exclude containers)
+│   │   ├── escalation.py            # Response escalation (pause → kill → blocklist)
+│   │   ├── netblock.py              # iptables FORWARD DROP (reversible)
+│   │   ├── netblock_xdp.py          # XDP ingress block + CompositeNetBlocker
+│   │   └── decision_executor.py     # Execute human verdicts from decisions.log
 │   ├── ebpf/
-│   │   └── escape-detect.bpf.c      # eBPF kernel probes (5 tracepoints)
+│   │   ├── escape-detect.bpf.c      # eBPF kernel probes (5 tracepoints)
+│   │   └── xdp-block.bpf.c          # XDP packet filter program (v0.3.9)
 │   ├── detector/
 │   │   ├── __init__.py
-│   │   ├── engine.py                # Tier 1: YAML rule engine
-│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix
-│   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI judge
+│   │   ├── engine.py                # Tier 1: YAML rule engine (hot-reload)
+│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix (8 vectors)
+│   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI judge (async)
 │   └── responder/
 │       ├── __init__.py
-│       └── docker_responder.py      # Docker response engine
+│       └── docker_responder.py      # Docker response engine (graded automation)
 ├── config/
 │   ├── rules.yaml                   # 8 detection rules
 │   ├── responses.yaml               # 4-tier response strategies
-│   └── ai_config.yaml.example       # DeepSeek API key template
-├── deploy/
-│   └── Dockerfile.test              # Pre-built strace test image
+│   ├── monitor.yaml                 # Monitoring scope + netblock backend + behavior_log toggle
+│   ├── ai_config.yaml.example       # DeepSeek API key template
+│   ├── users.yaml.example           # RBAC user configuration template
+│   └── blocklist.yaml               # Blocked images list
+├── dashboard/                       # Streamlit security dashboard
+│   ├── app.py                       # Entry point + navigation + forced password change
+│   ├── common.py                    # Shared data loading utilities
+│   ├── auth.py                      # AuthManager + TokenManager (RBAC)
+│   └── pages/                       # 7 pages
+│       ├── login.py                 # Login page
+│       ├── overview.py              # Overview metrics + container filter
+│       ├── behavior_log.py          # ALL syscall events browser (v0.3.10)
+│       ├── review_queue.py          # Human review queue (container-level)
+│       ├── ai_rules.py              # AI suggested-rule review
+│       ├── rules.py                 # Rule management + audit trail
+│       ├── alerts.py                # Live alert stream + netblock records
+│       ├── members.py               # Member management (admin)
+│       └── settings.py              # AI config + temp token grant
 ├── tests/
-│   └── integration/
-│       └── test_escape_scenarios.sh # Smoke tests
-├── demos/
-│   └── demo-basic.sh                # Demo script
-└── docs/
-    └── MVP-运行验证报告.md            # Verification report (bilingual)
+│   ├── integration/
+│   │   ├── test_escape_scenarios.sh # Smoke tests (15 checks)
+│   │   └── scenarios/               # 6 E2E scenario tests
+│   │       ├── lib.sh               # Shared lifecycle helpers
+│   │       ├── build_image.sh       # Proxy-aware Docker image builder
+│   │       ├── run_all_scenarios.sh # One-click scenario runner
+│   │       ├── test_mount_escape.sh
+│   │       ├── test_socket_mount.sh
+│   │       ├── test_ptrace_escape.sh
+│   │       ├── test_sensitive_file.sh
+│   │       ├── test_reverse_shell.sh
+│   │       └── test_nsenter.sh
+│   └── images/                      # Test Dockerfiles for each scenario
 ```
 
 ---
@@ -369,8 +398,8 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |---------|----------|--------|
 | v0.1 | MVP: Basic detection + Docker response | ✅ Stable |
 | v0.2 | 3-tier detection + graded automation (netblock, escalation) | ✅ Stable |
-| v0.3 | Dashboard + human-in-the-loop (multi-page, RBAC, XDP+iptables blocking, async AI) | ✅ Current |
-|       | ↳ v0.3.9 — current | |
+| v0.3 | Dashboard + human-in-the-loop (multi-page, RBAC, XDP+iptables blocking, async AI, behavior logger) | ✅ Current |
+|       | ↳ v0.3.10 — current | |
 | v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 
