@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard — 安全监控面板 (v0.3.11, RBAC)
+eBPF Container Guard — 安全监控面板 (v0.3.12, RBAC)
 
 Multi-page dashboard with role-based access control:
   - Login required (admin / operator / analyst)
   - Navigation filtered by role
   - Temporary tokens for privileged ops (v0.3.8)
-  - First-login forced password change (v0.3.11)
+  - First-login forced password change (v0.3.12)
 
 Run:  streamlit run dashboard/app.py
 """
@@ -45,7 +45,7 @@ if initial_pw:
 # Sidebar (user info / logout)
 # ================================================================
 st.sidebar.title("🛡️ eBPF Container Guard")
-st.sidebar.caption("v0.3.11 · 实时检测 · AI 研判 · 人机协同")
+st.sidebar.caption("v0.3.12 · 实时检测 · AI 研判 · 人机协同")
 
 logged_in = st.session_state.get('logged_in', False)
 if logged_in:
@@ -54,7 +54,7 @@ if logged_in:
     st.sidebar.markdown(f"👤 **{username}** · "
                         f"{ROLE_LABELS.get(role, role)}")
 
-    # v0.3.11: logout only — password change moved to forced page
+    # v0.3.12: logout only — password change moved to forced page
     if st.sidebar.button("🚪 退出登录"):
         for k in ['username', 'role', 'logged_in']:
             st.session_state.pop(k, None)
@@ -65,7 +65,7 @@ else:
 st.sidebar.divider()
 
 # ================================================================
-# First-login: forced password change (v0.3.11)
+# First-login: forced password change (v0.3.12)
 # ================================================================
 if logged_in and st.session_state.get('must_change_pw', False):
     st.title("🔄 首次登录 — 请修改初始密码")

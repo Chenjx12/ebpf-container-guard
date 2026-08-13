@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.3.12] - 2026-08-13
+
+### Added
+- **run.sh** — one-click launcher (guard background + dashboard foreground); `--guard` / `--ui` / `--stop` subcommands; UI_CMD variable centralizes frontend startup (easy to swap to custom frontend later)
+- **setup.sh** — idempotent environment setup: system deps (BCC/clang/docker), pip deps, config init (ai_config.yaml from .example, never overwrites); `--check` mode for inspection
+
+### Changed
+- README/CHANGELOG: version badges and roadmap updated to v0.3.12
+
 ## [0.3.11] - 2026-08-13
 
 ### Added
@@ -17,8 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `privileged_exec`: added `/bin/busybox` target path
   - `sensitive_file_access`: added `/proc/self/exe`, `/proc/self/mem`, `/proc/self/cmdline`, `/run/docker.sock` paths; added `runc:[2:INIT]` exclude to reduce false positives
 - **eBPF kernel probe expansion** (`escape-detect.bpf.c`): opened `/proc/self/exe`, `/proc/self/mem`, `/proc/self/cmdline`, `/run/docker.sock` in the kernel-space path filter
-- **run.sh** — one-click launcher (guard background + dashboard foreground); `--guard` / `--ui` / `--stop` subcommands; UI_CMD variable centralizes frontend startup (easy to swap to custom frontend later)
-- **setup.sh** — idempotent environment setup: system deps (BCC/clang/docker), pip deps, config init (ai_config.yaml from .example, never overwrites); `--check` mode for inspection
 
 ### Fixed
 - **comm field null bytes**: `event.comm` now stripped of trailing `\x00` bytes — fixes exclude matching for `runc:[2:INIT]` and other kernel comm values
