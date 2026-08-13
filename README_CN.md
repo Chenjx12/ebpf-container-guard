@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.12-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -150,7 +150,7 @@ docker exec test strace -p 1
 ```
 🚨 安全告警 - HIGH 级别
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-规则: dangerous_ptrace
+规则: ptrace_host_init
 描述: 检测容器内尝试ptrace宿主机1号进程(systemd/init)
 容器: 504a01109cca
 进程: 27901 (strace)
@@ -345,37 +345,41 @@ ebpf-container-guard/
 
 ### 检测规则（`config/rules.yaml`）
 
+规则为 **Falco 风格条件树**（v0.4.0）：`all`（AND）/ `any`（OR）/ `not`（取反）任意嵌套，叶子操作符支持 `neq` / `startswith` / `endswith` / `contains` / `glob` / `exists`。`event_type` 为顶层键（做索引），不在 condition 内。
+
 ```yaml
 rules:
   - name: "procfs_mount_escape"
     description: "检测容器内挂载宿主机procfs文件系统"
     severity: "CRITICAL"
+    event_type: "mount"
     condition:
-      event_type: "mount"
-      fstype: "proc"
-    exclude:
-      comm:
-        - "dockerd"          # 排除 Docker 守护进程的正常挂载
-        - "containerd"
-        - "runc:[2:INIT]"
-        - "runc"
-      target_path:
-        - "/proc/thread-self/fd/*"
+      all:
+        - fstype: "proc"
+        - not:
+            any:
+              - comm:                    # 排除基础设施进程的正常挂载
+                  - "dockerd"
+                  - "containerd"
+                  - "runc:[2:INIT]"
+                  - "runc"
+              - target_path:             # glob 通配排除
+                  - {glob: "/proc/thread-self/fd/*"}
     action: "alert_and_log"
 
-  - name: "dangerous_ptrace"
+  - name: "ptrace_host_init"
     description: "检测容器内尝试ptrace宿主机1号进程(systemd/init)"
     severity: "HIGH"
+    event_type: "ptrace"
     condition:
-      event_type: "ptrace"
       target_pid: 1         # 核心：匹配行为方向，而非具体 ptrace 参数
     action: "alert_and_log"
 
-  - name: "sensitive_file_read"
+  - name: "sensitive_file_access"
     description: "检测容器内读取宿主机敏感文件(如shadow)"
     severity: "HIGH"
+    event_type: "openat"
     condition:
-      event_type: "openat"
       target_path:
         - "/host_etc/shadow"
     action: "alert_and_log"
@@ -464,8 +468,8 @@ docker rm -f test_esc
 
 - **需要 root 权限** — eBPF 程序加载和 Docker socket 访问均需要 root 权限
 - **生产部署** — 部署前请充分测试，根据实际环境调整规则和阈值
-- **误报处理** — 通过 `exclude` 配置白名单排除正常基础设施进程（dockerd, containerd, runc 等）
-- **性能开销** — 两个 eBPF 探针（mount + ptrace）CPU 开销 < 2%，Ring Buffer 256 条目约 100KB 内存
+- **误报处理** — 规则内用 `not` 条件树白名单排除正常基础设施进程（dockerd, containerd, runc 等），支持 glob 通配
+- **性能开销** — 五个 eBPF 探针（mount + ptrace + execve + connect + openat）CPU 开销 < 2%，Ring Buffer 4096 条目约 1MB 内存
 - **冷却机制** — 同一容器 10 分钟内不重复响应，避免响应风暴
 
 ---

@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.12-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -138,7 +138,7 @@ docker exec test strace -p 1
 ```
 🚨 安全告警 - HIGH 级别
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-规则: dangerous_ptrace
+规则: ptrace_host_init
 描述: 检测容器内尝试ptrace宿主机1号进程(systemd/init)
 容器: 504a01109cca
 进程: 27901 (strace)
@@ -322,37 +322,41 @@ ebpf-container-guard/
 
 ### Detection Rules (`config/rules.yaml`)
 
+Rules use a **Falco-style condition tree** (v0.4.0): `all` (AND) / `any` (OR) / `not` (negation) nested arbitrarily; leaf operators include `neq` / `startswith` / `endswith` / `contains` / `glob` / `exists`. `event_type` is a top-level key (indexing), never inside condition.
+
 ```yaml
 rules:
   - name: "procfs_mount_escape"
     description: "Detect procfs mount from container"
     severity: "CRITICAL"
+    event_type: "mount"
     condition:
-      event_type: "mount"
-      fstype: "proc"
-    exclude:
-      comm:
-        - "dockerd"          # Exclude Docker daemon's normal mounts
-        - "containerd"
-        - "runc:[2:INIT]"
-        - "runc"
-      target_path:
-        - "/proc/thread-self/fd/*"
+      all:
+        - fstype: "proc"
+        - not:
+            any:
+              - comm:                  # Exclude infrastructure processes
+                  - "dockerd"
+                  - "containerd"
+                  - "runc:[2:INIT]"
+                  - "runc"
+              - target_path:           # glob wildcard exclusion
+                  - {glob: "/proc/thread-self/fd/*"}
     action: "alert_and_log"
 
-  - name: "dangerous_ptrace"
+  - name: "ptrace_host_init"
     description: "Detect ptrace on host PID 1 (systemd/init) from container"
     severity: "HIGH"
+    event_type: "ptrace"
     condition:
-      event_type: "ptrace"
       target_pid: 1         # Match behavior direction, not specific request codes
     action: "alert_and_log"
 
-  - name: "sensitive_file_read"
+  - name: "sensitive_file_access"
     description: "Detect reading host sensitive files from container"
     severity: "HIGH"
+    event_type: "openat"
     condition:
-      event_type: "openat"
       target_path:
         - "/host_etc/shadow"
     action: "alert_and_log"

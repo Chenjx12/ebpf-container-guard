@@ -9,6 +9,36 @@
 
 ---
 
+## [0.4.0] - 2026-08-13
+
+### 新增
+- **规则引擎重构 — Falco 风格条件树**（`src/detector/engine.py`）：
+  - condition 升级为嵌套条件树：`all`（AND）/ `any`（OR）/ `not`（单节点取反），支持 `(A or B) and not C` 任意组合
+  - 叶子操作符：`==`（标量精确 / 列表 OR，保持原语义）、`neq`、`startswith`、`endswith`、`contains`、`glob`（fnmatch，保留精确匹配优先）、`exists`
+  - `event_type` 提为规则顶层键（做索引 + 隐式 AND），不再出现在 condition 内
+- **规则 schema 校验模块**（`src/detector/rule_schema.py`）：
+  - 字段注册表防拼写错误、单键节点不变量、嵌套深度 ≤5、操作符值类型检查
+  - 首次加载失败即报错；热加载失败**保留现有规则集**（不再被坏规则清空）
+  - `normalize_ai_rule()`：AI 建议规则自动归一化（旧式扁平 condition → 新树）
+- **一次性迁移脚本**（`scripts/migrate_rules_v04.py`）：旧 rules.yaml 自动迁移，严格保语义（多字段→all、exclude→not/any、通配模式→glob 操作符）
+- **pytest 单测层**（`tests/unit/`，92 用例）：操作符矩阵、组合求值、迁移等价性（10 条规则 × 合成事件池，旧实现对照逐条一致）、schema 校验、热加载保护、表单解析
+
+### 变更
+- `config/rules.yaml`：10 条规则全部迁移到新 schema（语义不变）
+- 规则管理面板：条件表单改为多行（字段 + 操作符 + 值，逗号分隔 = OR 列表），event_type 独立下拉
+- 规则入库门：`append_rule_to_yaml` 入库前归一化 + 校验，非法规则拒绝写入并提示
+- AI 建议规则面板：整规则 YAML 展示；`ai_analyzer` prompt 附新 schema 示例（LLM 输出可控）
+- `exclude` 字段移除（v0.4 破坏性变更，由 condition 内 `not` 表达）
+
+### 验证
+- 迁移等价性测试通过（新旧匹配器对全部规则 × 事件池结果一致）
+- `runc:[2:INIT]` 方括号回归通过（精确匹配优先保留）
+- 集成测试 15/15 通过（含热加载 Test 13 新 schema）
+- E2E 逃逸场景全量通过（mount/socket/ptrace/sensitive/reverse_shell/nsenter）
+- 面板 AppTest 冒烟通过（规则页新表单渲染正常）
+
+---
+
 ## [0.3.12] - 2026-08-13
 
 ### 新增
@@ -42,8 +72,8 @@
 ## [未发布]
 
 ### 计划中
-- Kubernetes 原生支持（v0.4）
-- 规则引擎重构（AND/OR 组合条件，v0.4）
+- Kubernetes 原生支持（v0.4，DaemonSet + NetworkPolicy）
+- 新探针/规则（cgroup 文件写入补 CVE-2022-0492 检测、cap_sys_admin 覆盖）
 - 定制前端面板（CSAI 风格，决策记录 #17）
 - 性能压测 & systemd 部署
 

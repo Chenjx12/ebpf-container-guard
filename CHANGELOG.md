@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.4.0] - 2026-08-13
+
+### Added
+- **Rule engine rewrite — Falco-style condition trees** (`src/detector/engine.py`):
+  - Nested conditions: `all` (AND) / `any` (OR) / `not` (single node negation) — arbitrary `(A or B) and not C` combinations
+  - Leaf operators: `==` (scalar exact / list OR, original semantics preserved), `neq`, `startswith`, `endswith`, `contains`, `glob` (fnmatch with exact-match-first), `exists`
+  - `event_type` promoted to rule top-level key (index + implicit AND), banned inside condition
+- **Rule schema validation** (`src/detector/rule_schema.py`):
+  - Known-field registry (typo guard), single-key node invariant, max depth 5, operator value type checks
+  - First load fails fast; hot-reload failure **keeps the existing rule set** (no more silent wipe)
+  - `normalize_ai_rule()`: auto-normalizes AI-suggested rules (legacy flat condition → new tree)
+- **One-shot migration script** (`scripts/migrate_rules_v04.py`): legacy rules.yaml → v0.4 schema, semantics preserved (multi-field → all, exclude → not/any, wildcards → glob operator)
+- **pytest unit-test layer** (`tests/unit/`, 92 cases): operator matrix, combinator evaluation, migration equivalence (10 rules × synthetic event pool vs legacy implementation), schema validation, hot-reload protection, form parsing
+
+### Changed
+- `config/rules.yaml`: all 10 rules migrated to the new schema (semantics unchanged)
+- Rules management page: multi-row condition form (field + operator + value, comma-separated = OR list); event_type as separate dropdown
+- Rule ingestion gate: `append_rule_to_yaml` normalizes + validates before write; invalid rules rejected with a message
+- AI suggested-rules page: full-rule YAML display; `ai_analyzer` prompt now includes the v0.4 schema example (controllable LLM output)
+- `exclude` field removed (v0.4 breaking change; express via `not` inside condition)
+
+### Verified
+- Migration equivalence tests pass (new vs legacy matcher identical across all rules × event pool)
+- `runc:[2:INIT]` bracket regression passes (exact-match-first preserved)
+- Integration suite 15/15 (hot-reload Test 13 uses new schema)
+- All 6 E2E escape scenarios pass
+- Dashboard AppTest smoke passes (new rule form renders)
+
 ## [0.3.12] - 2026-08-13
 
 ### Added
@@ -40,8 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Kubernetes native support (v0.4)
-- Rule engine overhaul (AND/OR composite conditions, v0.4)
+- Kubernetes native support (v0.4, DaemonSet + NetworkPolicy)
+- New probes/rules (cgroup file-write for CVE-2022-0492, cap_sys_admin coverage)
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 
