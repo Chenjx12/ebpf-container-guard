@@ -230,8 +230,8 @@ with open('config/rules.yaml', 'a') as f:
   - name: \"test_hotload\"
     description: \"hotload test\"
     severity: \"LOW\"
+    event_type: \"execve\"
     condition:
-      event_type: \"execve\"
       comm: \"hotload_test\"
     action: \"alert_and_log\"
 ''')

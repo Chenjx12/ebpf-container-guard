@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
-import yaml
-from datetime import datetime
 import fnmatch
+from datetime import datetime
+
+import yaml
+
+from detector.rule_schema import (
+    RuleValidationError,
+    validate_rules,
+)
+
+
+def _op_glob(actual, pattern):
+    # 精确匹配优先——fnmatch 把 [2:INIT] 当字符集 (v0.3.11 修复)
+    if actual == pattern:
+        return True
+    return fnmatch.fnmatch(actual, pattern)
+
+
+# 叶子操作符 (v0.4.0): 入参为 str(actual) 与校验过的操作符值
+_LEAF_OPS = {
+    "neq": lambda a, v: a not in v if isinstance(v, list) else a != v,
+    "startswith": lambda a, v: a.startswith(v),
+    "endswith": lambda a, v: a.endswith(v),
+    "contains": lambda a, v: v in a,
+    "glob": _op_glob,
+}
 
 
 class EscapeDetector:
@@ -13,16 +36,28 @@ class EscapeDetector:
         print(f"[Detector] 已加载 {len(self.rules)} 条规则")
 
     def reload(self):
-        """热加载规则文件（v0.3.3）— 修改 rules.yaml 后无需重启"""
+        """热加载规则文件（v0.3.3）— 修改 rules.yaml 后无需重启
+
+        v0.4.0: 加载前先 schema 校验; 校验失败保留现有规则集, 避免热加载清空规则
+        """
         with open(self.rules_file, 'r') as f:
-            self.rules = yaml.safe_load(f).get('rules', [])
-        self.rule_index = self._build_rule_index()
+            new_rules = yaml.safe_load(f).get('rules', [])
+        errors = validate_rules(new_rules)
+        if errors:
+            idx, msg = errors[0]
+            if not self.rules:
+                raise RuleValidationError(f"规则校验失败 (第 {idx} 条): {msg}")
+            print(f"[Detector] ⚠️ 规则校验失败，保留现有 {len(self.rules)} 条规则: "
+                  f"{len(errors)} 处错误, 例: 第 {idx} 条 {msg}")
+            return
+        self.rules = new_rules
+        self.rule_index = self._build_rule_index(new_rules)
         print(f"[Detector] 规则已重载: {len(self.rules)} 条")
 
-    def _build_rule_index(self):
+    def _build_rule_index(self, rules):
         index = {}
-        for rule in self.rules:
-            event_type = rule.get('condition', {}).get('event_type')
+        for rule in rules:
+            event_type = rule.get('event_type')
             if event_type not in index:
                 index[event_type] = []
             index[event_type].append(rule)
@@ -34,39 +69,46 @@ class EscapeDetector:
             return []
         matched = []
         for rule in self.rule_index[event_type]:
-            if self._match(event_dict, rule['condition']):
-                if not self._is_excluded(event_dict, rule.get('exclude', {})):
-                    matched.append(rule)
+            if self._eval_node(rule['condition'], event_dict):
+                matched.append(rule)
         return matched
 
-    def _match(self, event, condition):
-        """精确匹配 + 列表OR匹配"""
-        for key, expected in condition.items():
-            if key not in event:
-                return False
-            actual = event[key]
-            if isinstance(expected, list):
-                if actual not in expected:
-                    return False
-            elif actual != expected:
-                return False
-        return True
+    def _eval_node(self, node, event):
+        """递归求值条件树。节点为单键 dict (由 rule_schema 保证)。"""
+        (key, val), = node.items()
+        if key == 'all':
+            return all(self._eval_node(n, event) for n in val)
+        if key == 'any':
+            return any(self._eval_node(n, event) for n in val)
+        if key == 'not':
+            return not self._eval_node(val, event)
+        return self._match_leaf(key, val, event)
 
-    def _is_excluded(self, event, exclude):
-        """检查事件是否匹配排除条件（支持通配符，v0.3.10: 精确匹配优先避免 fnmatch 方括号冲突）"""
-        for key, patterns in exclude.items():
-            if key not in event:
-                continue
-            actual = str(event[key])
-            if isinstance(patterns, str):
-                patterns = [patterns]
-            for pattern in patterns:
-                # 精确匹配优先——fnmatch 把 [2:INIT] 当字符集
-                if actual == pattern:
+    def _match_leaf(self, field, spec, event):
+        """叶子匹配: 标量精确 | 列表 OR (元素可为标量或操作符) | 单键操作符"""
+        if isinstance(spec, dict):
+            (op, v), = spec.items()
+            if op == 'exists':
+                return (field in event) == v
+            if field not in event:
+                return False
+            return _LEAF_OPS[op](str(event[field]), v)
+        if field not in event:
+            return False
+        if isinstance(spec, list):
+            actual = event[field]
+            for item in spec:
+                if isinstance(item, dict):
+                    (op, v), = item.items()
+                    if op == 'exists':
+                        if (field in event) == v:
+                            return True
+                    elif _LEAF_OPS[op](str(actual), v):
+                        return True
+                elif actual == item:
                     return True
-                if fnmatch.fnmatch(actual, pattern):
-                    return True  # 命中排除规则，跳过
-        return False
+            return False
+        return event[field] == spec
 
     def generate_alert(self, rule, event):
         return {
@@ -98,9 +140,8 @@ def print_alert(alert):
     # 🚀 留给读者的作业扩展：在告警中显示 openat 的路径
     if evt.get('event_type') == 'openat' and 'target_path' in evt:
         print(f"{RED}访问路径: {evt['target_path']}{RESET}")
-        
-    print(f"{color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}\n")
 
+    print(f"{color}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}\n")
 
 
 def log_alert(alert, log_file="detection.log"):

@@ -1,10 +1,5 @@
-# eBPF Container Guard — Detection Rules (v0.4.0)
-# 10 rules covering mount / ptrace / execve / connect / openat
-#
-# condition 为嵌套条件树 (Falco 风格 AND/OR/not):
-#   all / any: 条件节点列表; not: 单个条件节点
-#   叶子: 标量(精确) | 列表(OR 精确) | 操作符 {neq, startswith, endswith, contains, glob, exists}
-# event_type 为顶层键 (做索引 + 隐式 AND), 不可出现在 condition 内
+# eBPF Container Guard — Detection Rules (v0.2.0)
+# 8 rules covering mount / ptrace / execve / connect / openat
 
 rules:
   # ============================================================
@@ -15,20 +10,18 @@ rules:
     description: "检测容器内挂载宿主机 procfs 文件系统"
     attack_vector: "procfs_mount"
     severity: "CRITICAL"
-    event_type: "mount"
     condition:
-      all:
-        - fstype: "proc"
-        - not:
-            any:
-              - comm:
-                  - "dockerd"
-                  - "containerd"
-                  - "runc:[2:INIT]"
-                  - "runc"
-                  - "docker-proxy"
-              - target_path:
-                  - {glob: "/proc/thread-self/fd/*"}
+      event_type: "mount"
+      fstype: "proc"
+    exclude:
+      comm:
+        - "dockerd"
+        - "containerd"
+        - "runc:[2:INIT]"
+        - "runc"
+        - "docker-proxy"
+      target_path:
+        - "/proc/thread-self/fd/*"
     cve_refs:
       - "CVE-2019-5736"
       - "CVE-2019-16884"
@@ -39,8 +32,8 @@ rules:
     description: "检测容器内挂载 Docker socket（容器逃逸前置步骤）"
     attack_vector: "docker_socket_mount"
     severity: "CRITICAL"
-    event_type: "mount"
     condition:
+      event_type: "mount"
       target_path:
         - "/var/run/docker.sock"
         - "/run/docker.sock"
@@ -56,8 +49,8 @@ rules:
     description: "检测容器内 ptrace 宿主机 1 号进程(systemd/init)"
     attack_vector: "ptrace_host_init"
     severity: "HIGH"
-    event_type: "ptrace"
     condition:
+      event_type: "ptrace"
       target_pid: 1
     cve_refs:
       - "CVE-2019-16884"
@@ -72,13 +65,12 @@ rules:
     description: "检测容器内执行 nsenter 尝试逃逸到宿主机命名空间"
     attack_vector: "nsenter_escape"
     severity: "CRITICAL"
-    event_type: "execve"
     condition:
-      all:
-        - comm:
-            - "nsenter"
-        - target_path:
-            - "/usr/bin/nsenter"
+      event_type: "execve"
+      comm:
+        - "nsenter"
+      target_path:
+        - "/usr/bin/nsenter"
     cve_refs:
       - "CVE-2019-5736"
       - "CVE-2022-0492"
@@ -88,21 +80,19 @@ rules:
     description: "检测低权限容器进程执行 shell（疑似提权后操作）"
     attack_vector: "privileged_exec"
     severity: "CRITICAL"
-    event_type: "execve"
     condition:
-      all:
-        - target_path:
-            - "/bin/sh"
-            - "/bin/bash"
-            - "/bin/dash"
-            - "/bin/busybox"
-        - not:
-            any:
-              - comm:
-                  - "bash"
-                  - "dash"
-                  - "runc:[2:INIT]"
-                  - "runc"
+      event_type: "execve"
+      target_path:
+        - "/bin/sh"
+        - "/bin/bash"
+        - "/bin/dash"
+        - "/bin/busybox"
+    exclude:
+      comm:
+        - "bash"
+        - "dash"
+        - "runc:[2:INIT]"
+        - "runc"
     cve_refs:
       - "CVE-2019-5736"
     action: "alert_and_log"
@@ -115,14 +105,13 @@ rules:
     description: "检测容器内反向 Shell 连接（非标端口对外连接）"
     attack_vector: "reverse_shell"
     severity: "HIGH"
-    event_type: "connect"
     condition:
-      not:
-        any:
-          - comm:
-              - "dockerd"
-              - "containerd"
-              - "docker-proxy"
+      event_type: "connect"
+    exclude:
+      comm:
+        - "dockerd"
+        - "containerd"
+        - "docker-proxy"
     cve_refs:
       - "T1059"
       - "T1071"
@@ -136,8 +125,8 @@ rules:
     description: "检测容器内执行网络工具（curl/wget/nc）疑似下载恶意载荷或反弹连接"
     attack_vector: "network_tool_exec"
     severity: "MEDIUM"
-    event_type: "execve"
     condition:
+      event_type: "execve"
       comm:
         - "curl"
         - "wget"
@@ -155,17 +144,15 @@ rules:
     description: "检测容器内挂载 cgroup 文件系统（cgroup release_agent 逃逸前置）"
     attack_vector: "cgroup_mount"
     severity: "HIGH"
-    event_type: "mount"
     condition:
-      all:
-        - fstype: "cgroup"
-        - not:
-            any:
-              - comm:
-                  - "dockerd"
-                  - "containerd"
-                  - "runc:[2:INIT]"
-                  - "runc"
+      event_type: "mount"
+      fstype: "cgroup"
+    exclude:
+      comm:
+        - "dockerd"
+        - "containerd"
+        - "runc:[2:INIT]"
+        - "runc"
     cve_refs:
       - "CVE-2022-0492"
     action: "alert_and_log"
@@ -178,26 +165,24 @@ rules:
     description: "检测容器内读取宿主机敏感文件（shadow/kcore/docker.sock）"
     attack_vector: "sensitive_file_access"
     severity: "HIGH"
-    event_type: "openat"
     condition:
-      all:
-        - target_path:
-            - "/etc/shadow"
-            - "/etc/passwd"
-            - "/proc/kcore"
-            - "/proc/kallsyms"
-            - "/proc/self/exe"
-            - "/proc/self/mem"
-            - "/proc/self/cmdline"
-            - "/var/run/docker.sock"
-            - "/run/docker.sock"
-            - "/host_etc/shadow"
-            - "/host_proc/kcore"
-            - "/host_sys/block"
-        - not:
-            any:
-              - comm:
-                  - "runc:[2:INIT]"
+      event_type: "openat"
+      target_path:
+        - "/etc/shadow"
+        - "/etc/passwd"
+        - "/proc/kcore"
+        - "/proc/kallsyms"
+        - "/proc/self/exe"
+        - "/proc/self/mem"
+        - "/proc/self/cmdline"
+        - "/var/run/docker.sock"
+        - "/run/docker.sock"
+        - "/host_etc/shadow"
+        - "/host_proc/kcore"
+        - "/host_sys/block"
+    exclude:
+      comm:
+        - "runc:[2:INIT]"
     cve_refs:
       - "CVE-2019-5736"
     action: "alert_and_log"
@@ -206,8 +191,8 @@ rules:
     description: "检测容器内访问宿主机挂载目录（/host_*）"
     attack_vector: "host_directory_access"
     severity: "HIGH"
-    event_type: "openat"
     condition:
+      event_type: "openat"
       target_path:
         - "/host_etc/shadow"
         - "/host_etc/passwd"
