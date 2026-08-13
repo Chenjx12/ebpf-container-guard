@@ -24,7 +24,7 @@
 - **Network Traffic Blocking**: iptables DROP for confirmed malicious IP:port (reversible, TTL cleanup, business traffic preserved)
 - **Response Escalation**: repeated attacks from the same image escalate pause → kill (queued) → image blocklist (queued), stopping attack loops
 - **Event State Machine**: every event tracked as new → quarantine → pending_review → resolved (foundation for the v0.3 review dashboard)
-- **Configurable**: 8 detection rules + response strategies + monitoring scope (include/exclude containers) via YAML, hot-reload support
+- **Configurable**: 10 detection rules + response strategies + monitoring scope (include/exclude containers) via YAML, hot-reload support
 
 ---
 
@@ -37,16 +37,27 @@
 - **Docker**: Installed and running
 - **Permissions**: Root or sudo access required for eBPF
 
-### Option 1: Local Run (30 seconds)
+### Option 1: One-Click Run (recommended)
 
 ```bash
 git clone https://github.com/chenjx12/ebpf-container-guard.git
 cd ebpf-container-guard
-pip install -r requirements.txt
-sudo python3 main.py
+./setup.sh                  # 环境初始化（幂等，新机器用）
+./run.sh                    # guard (background) + dashboard (foreground)
 ```
 
-### Option 2: Custom Configuration
+### Option 2: Separate Terminals
+
+```bash
+# Terminal 1: start guard
+sudo python3 main.py
+
+# Terminal 2: start dashboard
+./run.sh --ui
+# or: streamlit run dashboard/app.py --server.headless true --server.port 8501
+```
+
+### Option 3: Custom Configuration
 
 ```bash
 sudo python3 main.py \
@@ -55,7 +66,7 @@ sudo python3 main.py \
   --verbose
 ```
 
-### Option 3: Test with pre-built strace image (ptrace escape)
+### Option 4: Test with pre-built strace image (ptrace escape)
 
 ```bash
 docker build -f deploy/Dockerfile.test -t ebpf-test:latest .
@@ -63,8 +74,7 @@ docker run -d --privileged --pid=host --cap-add=SYS_PTRACE --name test ebpf-test
 docker exec test strace -p 1  # triggers HIGH alert
 ```
 
-
-### Option 4: Dashboard with Login (RBAC)
+### Option 5: Dashboard with Login (RBAC)
 
 ```bash
 # Terminal 1: start guard
@@ -80,8 +90,6 @@ streamlit run dashboard/app.py
 Roles: admin > operator > analyst. Admin manages members; operator adds rules;
 analyst handles verdicts / AI review. Low-role users can request temporary
 tokens from higher roles for privileged operations (settings page).
-
-### Option 3: Test with pre-built strace image (ptrace escape)
 
 ---
 
@@ -197,7 +205,7 @@ The AI correctly identified this as a false positive — the rule engine matched
 ┌─────────────────────────────────────────────┐
 │   User Space (Python)                        │
 │   ┌───────────────────────────────────────┐  │
-│   │  Tier 1: Rule Engine (8 YAML rules)    │  │
+│   │  Tier 1: Rule Engine (10 YAML rules)    │  │
 │   │  ├─ mount, ptrace, execve, connect,    │  │
 │   │  │   openat — 4 attack surfaces        │  │
 │   │  ├─ Whitelist exclusion + fnmatch      │  │
@@ -240,6 +248,8 @@ The AI correctly identified this as a false positive — the rule engine matched
 
 ```
 ebpf-container-guard/
+├── run.sh                           # One-click start script (v0.3.11)
+├── setup.sh                         # Environment setup (idempotent, v0.3.11)
 ├── main.py                          # Entry point
 ├── requirements.txt                 # Python dependencies
 ├── LICENSE                          # MIT License
@@ -270,7 +280,7 @@ ebpf-container-guard/
 │       ├── __init__.py
 │       └── docker_responder.py      # Docker response engine (graded automation)
 ├── config/
-│   ├── rules.yaml                   # 8 detection rules
+│   ├── rules.yaml                   # 10 detection rules
 │   ├── responses.yaml               # 4-tier response strategies
 │   ├── monitor.yaml                 # Monitoring scope + netblock backend + behavior_log toggle
 │   ├── ai_config.yaml.example       # DeepSeek API key template
@@ -475,4 +485,4 @@ If you want to learn eBPF from scratch, check out my learning notes:
 
 ---
 
-**Last Updated**: 2026-08-07
+**Last Updated**: 2026-08-13

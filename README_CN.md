@@ -26,7 +26,7 @@
 - **网络流量阻断** — iptables DROP 已确认的恶意 IP:port（可逆，TTL 自动清理，业务流量保留）
 - **响应升级** — 同镜像重复攻击逐级升级：暂停 → kill（队列）→ 镜像拉黑（队列），阻止攻击循环
 - **事件状态机** — 每个事件追踪 new → quarantine → pending_review → resolved（v0.3 判决面板的数据基础）
-- **可配置** — 8 条检测规则 + 响应策略 + 监控范围（include/exclude 容器），YAML 定义，支持热加载
+- **可配置** — 10 条检测规则 + 响应策略 + 监控范围（include/exclude 容器），YAML 定义，支持热加载
 
 ---
 
@@ -42,23 +42,26 @@
 | Docker | 已安装并运行 |
 | 权限 | root / sudo（eBPF 程序加载需要） |
 
-### 一键启动
+### 一键启动（推荐）
 
 ```bash
 git clone https://github.com/Chenjx12/ebpf-container-guard.git
 cd ebpf-container-guard
-pip install -r requirements.txt
-sudo python3 main.py
+./setup.sh                    # 环境初始化（幂等，新机器用）
+./run.sh                      # guard（后台）+ 面板（前台）
 ```
 
-### 启动选项
+### 单独启动
 
 ```bash
-# 静默模式（仅输出告警，推荐生产环境）
-sudo python3 main.py
+# 仅启动检测引擎（后台）
+./run.sh --guard
 
-# 详细模式（输出所有系统调用事件，调试用）
-sudo python3 main.py --verbose
+# 仅启动面板（前台）
+./run.sh --ui
+
+# 停止所有服务
+./run.sh --stop
 
 # 自定义规则和策略
 sudo python3 main.py --rules my_rules.yaml --responses my_responses.yaml
@@ -77,10 +80,11 @@ docker exec test strace -p 1  # 触发 HIGH 级别告警
 
 ```bash
 # 终端 1：启动检测
-sudo python3 main.py
+./run.sh --guard
 
 # 终端 2：前台启动面板
-streamlit run dashboard/app.py
+./run.sh --ui
+# 或: streamlit run dashboard/app.py
 # → 浏览器打开 http://localhost:8501
 # → 首次启动：初始 admin 密码打印在【面板终端】中（用户名 admin）
 #   登录后请立即修改密码
@@ -267,6 +271,8 @@ AI 正确识别了这条误报——规则引擎匹配了模式，但 AI 理解�
 
 ```
 ebpf-container-guard/
+├── run.sh                          # 一键启动脚本（v0.3.11）
+├── setup.sh                        # 环境初始化（幂等，v0.3.11）
 ├── main.py                          # 主入口
 ├── requirements.txt                 # Python 依赖
 ├── LICENSE                          # MIT 许可证
@@ -297,7 +303,7 @@ ebpf-container-guard/
 │       ├── __init__.py
 │       └── docker_responder.py      # Docker 响应引擎（分级自动化）
 ├── config/
-│   ├── rules.yaml                   # 8 条检测规则
+│   ├── rules.yaml                   # 10 条检测规则
 │   ├── responses.yaml               # 4 级响应策略
 │   ├── monitor.yaml                 # 监控范围 + netblock 后端 + behavior_log 开关
 │   ├── ai_config.yaml.example       # DeepSeek API 密钥模板

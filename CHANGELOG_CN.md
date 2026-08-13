@@ -19,6 +19,8 @@
   - `privileged_exec`：增加 `/bin/busybox` 目标路径
   - `sensitive_file_access`：增加 `/proc/self/exe`、`/proc/self/mem`、`/proc/self/cmdline`、`/run/docker.sock` 路径；增加 `runc:[2:INIT]` 排除规则减少误报
 - **eBPF 内核探针扩展开**（`escape-detect.bpf.c`）：开放 `/proc/self/exe`、`/proc/self/mem`、`/proc/self/cmdline`、`/run/docker.sock` 路径过滤
+- **run.sh** — 一键启动脚本（guard 后台 + 面板前台）；`--guard` / `--ui` / `--stop` 子命令；UI_CMD 变量集中管理前端启动命令（后续换自定义前端只需改一处）
+- **setup.sh** — 幂等环境初始化：系统依赖（BCC/clang/docker）、pip 依赖、配置初始化（ai_config.yaml 从 .example 复制，不覆盖已有）；`--check` 模式仅检查
 
 ### 修复
 - **comm 字段 null 字节**：`event.comm` 现在去除尾部 `\x00` 字节——修复 `runc:[2:INIT]` 等内核 comm 值的排除匹配
