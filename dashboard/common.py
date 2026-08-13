@@ -21,6 +21,7 @@ Run:  streamlit run dashboard/app.py
 """
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -123,14 +124,54 @@ RULES_PATH = SCRIPT_DIR / "config" / "rules.yaml"
 RULES_AUDIT_LOG = SCRIPT_DIR / "rules_audit.log"
 AI_CONFIG_PATH = SCRIPT_DIR / "config" / "ai_config.yaml"
 
+# 规则表单操作符 (v0.4.0), 与 rule_schema.OPS 对应
+CONDITION_OPS = ["==", "neq", "startswith", "endswith", "contains", "glob"]
+
+
+def parse_condition_rows(rows) -> list:
+    """表单条件行 → condition 节点列表 (v0.4.0)。
+
+    每行 (field, op, value): 空行跳过; 值含逗号 = OR 列表; == 为精确匹配。
+    """
+    nodes = []
+    for field, op, value in rows:
+        if not field or not value:
+            continue
+        values = ([v.strip() for v in value.split(",")]
+                  if "," in value else value.strip())
+        if op == "==":
+            nodes.append({field: values})
+        else:
+            nodes.append({field: {op: values}})
+    return nodes
+
 
 def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
     """Append a rule to rules.yaml (v0.3.4/0.3.5).
 
     Guard's hot-reload watcher (v0.3.3) picks it up within 3s.
     Every change is recorded to rules_audit.log (audit trail).
+
+    v0.4.0: 入库前 normalize (兼容旧式扁平 condition) + schema 校验,
+    非法规则拒绝入库, 避免坏规则杀掉整个热加载。
     """
     try:
+        src_dir = str(SCRIPT_DIR / "src")
+        if src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+        from detector.rule_schema import normalize_ai_rule, validate_rule
+
+        norm, err = normalize_ai_rule(rule)
+        if err is not None:
+            st.error(f"规则 schema 非法: {err}")
+            return False
+        try:
+            validate_rule(norm)
+        except ValueError as e:
+            st.error(f"规则校验失败: {e}")
+            return False
+        rule = norm
+
         import yaml
         block = yaml.safe_dump(rule, allow_unicode=True,
                                sort_keys=False, default_flow_style=False)

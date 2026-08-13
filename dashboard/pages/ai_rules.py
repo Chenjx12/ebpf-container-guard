@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import yaml
 import streamlit as st
 
 from common import (load_ai_results, load_decisions, load_rules,
@@ -44,8 +45,10 @@ def run():
             st.markdown(f"**🤖 AI 建议新规则**: "
                         f"`{rule.get('name', 'unnamed')}`")
             st.markdown(f"描述: {rule.get('description', '-')} · "
-                        f"严重度: {rule.get('severity', '-')}")
-            st.code(str(rule.get('condition', {})), language="yaml")
+                        f"严重度: {rule.get('severity', '-')} · "
+                        f"事件类型: `{rule.get('event_type', '?')}`")
+            st.code(yaml.dump(rule, allow_unicode=True,
+                              sort_keys=False), language="yaml")
             st.caption(f"来源事件: {key} · 攻击向量: "
                        f"{ar.get('attack_vector', '?')}")
             b1, b2 = st.columns(2)

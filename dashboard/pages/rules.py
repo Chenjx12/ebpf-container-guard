@@ -1,12 +1,17 @@
-"""📜 规则管理 — 查看（所有角色）/ 添加（admin+运维，安全员需token）/ 审计 (v0.3.8)"""
+"""📜 规则管理 — 查看（所有角色）/ 添加（admin+运维，安全员需token）/ 审计 (v0.3.8)
+
+v0.4.0: 条件表单改为多行（字段 + 操作符 + 值），event_type 为顶层键。
+"""
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import yaml
 import streamlit as st
 
-from common import load_rules, load_rule_audit, append_rule_to_yaml, TOKENS
+from common import (load_rules, load_rule_audit, append_rule_to_yaml, TOKENS,
+                    CONDITION_OPS, parse_condition_rows)
 
 
 def run():
@@ -22,9 +27,16 @@ def run():
     rules_df = load_rules()
     if not rules_df.empty:
         show_cols = [c for c in ['name', 'severity', 'description',
-                                 'attack_vector'] if c in rules_df.columns]
+                                 'attack_vector', 'event_type']
+                     if c in rules_df.columns]
         st.dataframe(rules_df[show_cols], use_container_width=True,
                      hide_index=True)
+        with st.expander("🔍 规则条件详情 (YAML)"):
+            for _, r in rules_df.iterrows():
+                st.markdown(f"**{r.get('name')}** "
+                            f"`{r.get('event_type', '?')}`")
+                st.code(yaml.dump(r.get('condition', {}), allow_unicode=True),
+                        language="yaml")
 
     # ---- 添加规则：admin/operator 直接; analyst 需 token ----
     can_add = role in ('admin', 'operator')
@@ -59,34 +71,47 @@ def run():
                                                   "connect"])
             attack_vector = c4.text_input("攻击向量 (可选)",
                                           placeholder="my_vector")
-            condition_key = st.text_input("条件字段名",
-                                          placeholder="如 fstype / comm / target_path")
-            condition_value = st.text_input("条件值",
-                                            placeholder="如 proc / nsenter / /etc/shadow")
+            st.caption("条件行: 字段 + 操作符 + 值。"
+                       "多行之间为 AND；值用逗号分隔 = OR 列表；"
+                       "操作符支持 neq/startswith/endswith/contains/glob")
+            cond_rows = []
+            for i in range(3):
+                fc1, fc2, fc3 = st.columns([2, 2, 3])
+                field = fc1.text_input(
+                    "字段", key=f"cond_f{i}",
+                    placeholder="如 fstype / comm / target_path")
+                op = fc2.selectbox("操作符", CONDITION_OPS, key=f"cond_o{i}")
+                value = fc3.text_input(
+                    "值", key=f"cond_v{i}",
+                    placeholder="如 proc / nsenter / /etc/shadow, /tmp/x")
+                cond_rows.append((field, op, value))
             submitted = st.form_submit_button("✅ 添加规则")
 
             if submitted:
                 if not can_add:
                     st.error("⛔ 无权限添加规则")
-                elif not rule_name or not condition_key or not condition_value:
-                    st.error("规则名和条件必填")
+                elif not rule_name:
+                    st.error("规则名必填")
                 else:
-                    rule = {
-                        'name': rule_name,
-                        'description': description or f"手动添加: {rule_name}",
-                        'severity': severity,
-                        'condition': {
+                    nodes = parse_condition_rows(cond_rows)
+                    if not nodes:
+                        st.error("至少填写一行条件（字段 + 值）")
+                    else:
+                        rule = {
+                            'name': rule_name,
+                            'description': description or f"手动添加: {rule_name}",
+                            'severity': severity,
                             'event_type': event_type,
-                            condition_key: condition_value,
-                        },
-                        'action': 'alert_and_log',
-                    }
-                    if attack_vector:
-                        rule['attack_vector'] = attack_vector
-                    if append_rule_to_yaml(rule, source='manual'):
-                        load_rules.clear()
-                        st.toast(f"✅ 规则 {rule_name} 已添加并生效")
-                        st.rerun()
+                            'condition': (nodes[0] if len(nodes) == 1
+                                          else {"all": nodes}),
+                            'action': 'alert_and_log',
+                        }
+                        if attack_vector:
+                            rule['attack_vector'] = attack_vector
+                        if append_rule_to_yaml(rule, source='manual'):
+                            load_rules.clear()
+                            st.toast(f"✅ 规则 {rule_name} 已添加并生效")
+                            st.rerun()
 
     # 规则变更审计历史
     audit_df = load_rule_audit()

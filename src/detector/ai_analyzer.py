@@ -51,6 +51,28 @@ For each alert, provide a structured JSON response with these fields:
   "suggested_rule": null (or a new detection rule object if you discover an unknown attack pattern)
 }
 
+When you suggest a new rule, use the v0.4 condition-tree schema (Falco-style
+AND/OR/not). event_type must be at the TOP LEVEL, never inside condition.
+Each condition node is a map with exactly one key: a field name, or
+"all" (list of nodes, AND), "any" (list of nodes, OR), "not" (single node).
+Leaf values: scalar or list = exact match (list is OR), or an operator map:
+{"neq": v} {"startswith": v} {"endswith": v} {"contains": v} {"glob": v} {"exists": true/false}.
+Example:
+{
+  "name": "suspicious_download_and_exec",
+  "description": "detects exec of network tools inside container",
+  "attack_vector": "network_tool_exec",
+  "severity": "MEDIUM",
+  "event_type": "execve",
+  "condition": {
+    "all": [
+      {"comm": ["curl", "wget", "nc"]},
+      {"not": {"any": [{"comm": ["dockerd", "containerd"]}]}}
+    ]
+  },
+  "action": "alert_and_log"
+}
+
 Response format: valid JSON only, no markdown, no extra text."""
 
 EVENT_CONTEXT_TEMPLATE = """Alert from container {container_id}:
