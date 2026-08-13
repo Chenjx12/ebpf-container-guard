@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.10-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.11-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -14,7 +14,7 @@
 
 ## 🎯 Key Features
 
-- **3-Tier Detection Pipeline**: Rule engine (8 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
+- **3-Tier Detection Pipeline**: Rule engine (10 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
 - **5 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
 - **Behavior Logger**: ALL syscall events recorded to `behaviors.log` with configurable toggle — full behavioral timeline for post-incident analysis and audit
 - **Dashboard**: 7-page Streamlit UI: Overview, Behavior Log, Review Queue, AI Rules, Rule Mgmt, Alerts, Settings — role-based access (admin/operator/analyst), temporary token delegation
@@ -399,7 +399,7 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 | v0.1 | MVP: Basic detection + Docker response | ✅ Stable |
 | v0.2 | 3-tier detection + graded automation (netblock, escalation) | ✅ Stable |
 | v0.3 | Dashboard + human-in-the-loop (multi-page, RBAC, XDP+iptables blocking, async AI, behavior logger) | ✅ Current |
-|       | ↳ v0.3.10 — current | |
+|       | ↳ v0.3.11 — current | |
 | v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 

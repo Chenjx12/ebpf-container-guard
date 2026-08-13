@@ -86,6 +86,7 @@ rules:
         - "/bin/sh"
         - "/bin/bash"
         - "/bin/dash"
+        - "/bin/busybox"
     exclude:
       comm:
         - "bash"
@@ -117,6 +118,46 @@ rules:
     action: "alert_and_log"
 
   # ============================================================
+  # execve 探针 — 可疑网络工具执行（v0.3.11）
+  # ============================================================
+
+  - name: "execve_network_tools"
+    description: "检测容器内执行网络工具（curl/wget/nc）疑似下载恶意载荷或反弹连接"
+    attack_vector: "network_tool_exec"
+    severity: "MEDIUM"
+    condition:
+      event_type: "execve"
+      comm:
+        - "curl"
+        - "wget"
+        - "nc"
+        - "ncat"
+    cve_refs:
+      - "T1105"
+    action: "alert_and_log"
+
+  # ============================================================
+  # mount 探针 — cgroup 挂载（v0.3.11）
+  # ============================================================
+
+  - name: "mount_cgroup"
+    description: "检测容器内挂载 cgroup 文件系统（cgroup release_agent 逃逸前置）"
+    attack_vector: "cgroup_mount"
+    severity: "HIGH"
+    condition:
+      event_type: "mount"
+      fstype: "cgroup"
+    exclude:
+      comm:
+        - "dockerd"
+        - "containerd"
+        - "runc:[2:INIT]"
+        - "runc"
+    cve_refs:
+      - "CVE-2022-0492"
+    action: "alert_and_log"
+
+  # ============================================================
   # openat 探针 — 敏感文件访问
   # ============================================================
 
@@ -131,9 +172,17 @@ rules:
         - "/etc/passwd"
         - "/proc/kcore"
         - "/proc/kallsyms"
+        - "/proc/self/exe"
+        - "/proc/self/mem"
+        - "/proc/self/cmdline"
         - "/var/run/docker.sock"
+        - "/run/docker.sock"
         - "/host_etc/shadow"
         - "/host_proc/kcore"
+        - "/host_sys/block"
+    exclude:
+      comm:
+        - "runc:[2:INIT]"
     cve_refs:
       - "CVE-2019-5736"
     action: "alert_and_log"

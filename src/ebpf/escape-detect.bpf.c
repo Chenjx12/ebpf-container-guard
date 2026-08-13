@@ -171,6 +171,25 @@ TRACEPOINT_PROBE(syscalls, sys_enter_openat) {
         path[4] == '/' && path[5] == 'r' && path[6] == 'u' && path[7] == 'n' &&
         path[8] == '/' && path[9] == 'd') match = 1;
 
+    // /run/docker.sock — Docker socket 访问（符号链接）
+    if (path[0] == '/' && path[1] == 'r' && path[2] == 'u' && path[3] == 'n' &&
+        path[4] == '/' && path[5] == 'd') match = 1;
+
+    // /proc/self/exe — 进程自身可执行文件（runc 逃逸探测）
+    if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' && path[3] == 'o' &&
+        path[4] == 'c' && path[5] == '/' && path[6] == 's' && path[7] == 'e' &&
+        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'e') match = 1;
+
+    // /proc/self/mem — 进程自身内存（进程注入/修改）
+    if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' && path[3] == 'o' &&
+        path[4] == 'c' && path[5] == '/' && path[6] == 's' && path[7] == 'e' &&
+        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'm') match = 1;
+
+    // /proc/self/cmdline — 进程命令行（侦查/踩点）
+    if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' && path[3] == 'o' &&
+        path[4] == 'c' && path[5] == '/' && path[6] == 's' && path[7] == 'e' &&
+        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'c') match = 1;
+
     // /host_* — 宿主机目录挂载点
     if (path[0] == '/' && path[1] == 'h' && path[2] == 'o' && path[3] == 's' &&
         path[4] == 't' && path[5] == '_') match = 1;

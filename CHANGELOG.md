@@ -7,10 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.3.11] - 2026-08-13
+
+### Added
+- **2 new detection rules** (total 10 rules):
+  - `execve_network_tools`: detects curl/wget/nc/ncat execution — suspicious payload download or reverse connect (MITRE T1105)
+  - `mount_cgroup`: detects cgroup filesystem mount — CVE-2022-0492 (cgroup release_agent escape) precursor
+- **Rule expansion**:
+  - `privileged_exec`: added `/bin/busybox` target path
+  - `sensitive_file_access`: added `/proc/self/exe`, `/proc/self/mem`, `/proc/self/cmdline`, `/run/docker.sock` paths; added `runc:[2:INIT]` exclude to reduce false positives
+- **eBPF kernel probe expansion** (`escape-detect.bpf.c`): opened `/proc/self/exe`, `/proc/self/mem`, `/proc/self/cmdline`, `/run/docker.sock` in the kernel-space path filter
+
+### Fixed
+- **comm field null bytes**: `event.comm` now stripped of trailing `\x00` bytes — fixes exclude matching for `runc:[2:INIT]` and other kernel comm values
+- **_is_excluded fnmatch charset collision**: `fnmatch("runc:[2:INIT]", "runc:[2:INIT]")` returns False because `[2:INIT]` is parsed as a character set. Added exact match before fnmatch fallback.
+
+### Verified
+- All Python modules compile clean
+- 10 rules loaded correctly (8 original + 2 new)
+- Exclude `runc:[2:INIT]` now correctly matches (both null-strip and fnmatch fix)
+- CVE-2019-5736 PoC testing: `privileged_exec` and `sensitive_file_access` rules trigger correctly
+
 ## [Unreleased]
 
 ### Planned
 - Kubernetes native support (v0.4)
+- Rule engine overhaul (AND/OR composite conditions, v0.4)
 - Custom frontend dashboard (CSAI-style, decision record #17)
 - Performance benchmarking & systemd deployment
 

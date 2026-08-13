@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.3.10)
+eBPF Container Guard - Main Entry Point (v0.3.11)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -167,14 +167,14 @@ class ContainerEscapeMonitor:
             target=self._ai_cfg_watch_loop, daemon=True)
         self._ai_cfg_watcher.start()
 
-        # 13. Initialize BehaviorLogger (v0.3.10)
+        # 13. Initialize BehaviorLogger (v0.3.11)
         self.behavior_logger = BehaviorLogger(
             log_path=str(script_dir / "behaviors.log"),
             enabled=self._get_behavior_log_enabled())
         print(f"  [Behavior] enabled: {self.behavior_logger.enabled}")
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.3.10")
+        print("  eBPF Container Guard v0.3.11")
         print("  5 probes | 8 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -208,7 +208,7 @@ class ContainerEscapeMonitor:
                 'event_type': event_type_map.get(event.event_type, 'unknown'),
                 'pid': event.pid,
                 'uid': event.uid,
-                'comm': event.comm.decode('utf-8', errors='replace'),
+                'comm': event.comm.decode('utf-8', errors='replace').strip('\x00'),
                 'container_id': raw_cid,
                 'timestamp': time.time()
             }
@@ -240,7 +240,7 @@ class ContainerEscapeMonitor:
                 event_dict['daddr'] = event.daddr
                 event_dict['dport'] = event.dport
 
-            # === Behavior Log (v0.3.10): ALL syscall events recorded ===
+            # === Behavior Log (v0.3.11): ALL syscall events recorded ===
             self.behavior_logger.write(event_dict)
 
             # === Tier 1: Rule Engine ===
@@ -448,7 +448,7 @@ class ContainerEscapeMonitor:
             return 'iptables'
 
     def _get_behavior_log_enabled(self) -> bool:
-        """Read behavior_log toggle from monitor.yaml (v0.3.10)."""
+        """Read behavior_log toggle from monitor.yaml (v0.3.11)."""
         try:
             import yaml
             with open(Path(__file__).parent / "config" / "monitor.yaml",

@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.10-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.11-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -16,7 +16,7 @@
 
 ## 🎯 核心特性
 
-- **三层检测管线** — 规则引擎（8 条规则，毫秒级）→ 行为矩阵（行为→CVE 映射，组合评分）→ AI 研判（DeepSeek，置信度分级响应）
+- **三层检测管线** — 规则引擎（10 条规则，毫秒级）→ 行为矩阵（行为→CVE 映射，组合评分）→ AI 研判（DeepSeek，置信度分级响应）
 - **5 个 eBPF 探针** — mount、ptrace、execve、connect、openat（内核态路径过滤）
 - **全量行为日志** — 所有 syscall 事件记录到 `behaviors.log`，可开关——事后回溯取证、攻击链分析
 - **7 页面 Streamlit 面板** — 概览、行为日志、判决队列、AI 建议规则、规则管理、实时告警流、设置——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派
@@ -426,7 +426,7 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 | v0.1 | MVP：基础检测 + Docker 响应 | ✅ 稳定版 |
 | v0.2 | 三层检测 + 分级自动化（流量阻断、响应升级） | ✅ 稳定版 |
 | v0.3 | 面板 + 人机协同（多页面、RBAC、XDP+iptables 阻断、异步 AI、全量行为日志） | ✅ 当前版本 |
-|       | ↳ v0.3.10 — 当前版本 | |
+|       | ↳ v0.3.11 — 当前版本 | |
 | v0.4 | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 

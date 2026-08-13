@@ -53,15 +53,18 @@ class EscapeDetector:
         return True
 
     def _is_excluded(self, event, exclude):
-        """检查事件是否匹配排除条件（支持通配符）"""
+        """检查事件是否匹配排除条件（支持通配符，v0.3.10: 精确匹配优先避免 fnmatch 方括号冲突）"""
         for key, patterns in exclude.items():
             if key not in event:
                 continue
-            actual = event[key]
+            actual = str(event[key])
             if isinstance(patterns, str):
                 patterns = [patterns]
             for pattern in patterns:
-                if fnmatch.fnmatch(str(actual), pattern):
+                # 精确匹配优先——fnmatch 把 [2:INIT] 当字符集
+                if actual == pattern:
+                    return True
+                if fnmatch.fnmatch(actual, pattern):
                     return True  # 命中排除规则，跳过
         return False
 

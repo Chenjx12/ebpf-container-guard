@@ -9,10 +9,32 @@
 
 ---
 
+## [0.3.11] - 2026-08-13
+
+### 新增
+- **2 条新检测规则**（共 10 条）：
+  - `execve_network_tools`：检测 curl/wget/nc/ncat 执行——可疑下载载荷或反弹连接（MITRE T1105）
+  - `mount_cgroup`：检测 cgroup 文件系统挂载——CVE-2022-0492（cgroup release_agent 逃逸前置步骤）
+- **规则扩充**：
+  - `privileged_exec`：增加 `/bin/busybox` 目标路径
+  - `sensitive_file_access`：增加 `/proc/self/exe`、`/proc/self/mem`、`/proc/self/cmdline`、`/run/docker.sock` 路径；增加 `runc:[2:INIT]` 排除规则减少误报
+- **eBPF 内核探针扩展开**（`escape-detect.bpf.c`）：开放 `/proc/self/exe`、`/proc/self/mem`、`/proc/self/cmdline`、`/run/docker.sock` 路径过滤
+
+### 修复
+- **comm 字段 null 字节**：`event.comm` 现在去除尾部 `\x00` 字节——修复 `runc:[2:INIT]` 等内核 comm 值的排除匹配
+- **_is_excluded fnmatch 字符集冲突**：`fnmatch("runc:[2:INIT]", "runc:[2:INIT]")` 因 `[2:INIT]` 被解析为字符集返回 False。增加精确匹配作为 fnmatch 回退前的优先匹配
+
+### 验证
+- 所有 Python 模块编译通过
+- 10 条规则正确加载（原始 8 条 + 新增 2 条）
+- `runc:[2:INIT]` 排除现在正确匹配（null 去除 + fnmatch 修复）
+- CVE-2019-5736 PoC 测试：`privileged_exec` 和 `sensitive_file_access` 规则正确触发
+
 ## [未发布]
 
 ### 计划中
 - Kubernetes 原生支持（v0.4）
+- 规则引擎重构（AND/OR 组合条件，v0.4）
 - 定制前端面板（CSAI 风格，决策记录 #17）
 - 性能压测 & systemd 部署
 
