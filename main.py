@@ -10,6 +10,7 @@ Licensed under the MIT License. See LICENSE for details.
 
 import argparse
 import os
+import shutil
 import sys
 import time
 import threading
@@ -71,6 +72,32 @@ PTRACE_MAP = {
 }
 
 
+class _NoopNetBlocker:
+    """K8s 容器化降级 netblocker (v0.5.3): 容器内无 iptables 时 no-op。"""
+
+    def block(self, ip, port):
+        print(f"  [NetBlock] (no-op) 容器内无 iptables, 跳过 DROP {ip}:{port}")
+        return False
+
+    def unblock(self, ip, port):
+        return False
+
+    def cleanup_expired(self):
+        return 0
+
+    def is_blocked(self, ip, port):
+        return False
+
+    def list_blocks(self):
+        return []
+
+    def list_iptables(self):
+        return []
+
+    def detach(self):
+        pass
+
+
 class ContainerEscapeMonitor:
     """Container escape detection and active defense system"""
 
@@ -94,7 +121,9 @@ class ContainerEscapeMonitor:
 
         # 3. Load response strategies
         print("[3/8] Loading response strategies...")
-        self.responder = ResponseEngine(responses_file)
+        # v0.5.3: runtime 未探测前不初始化 Docker responder (容器内无 docker.sock
+        # 会 sys.exit); 步骤 10 按 runtime 分支初始化对应引擎
+        self.responder = None
         # 4. Initialize attack matrix (Tier 2: behavior → CVE)
         print("[4/8] Initializing attack matrix...")
         self.matrix = AttackMatrix()
@@ -106,7 +135,7 @@ class ContainerEscapeMonitor:
         print("[5/8] Initializing AI analyzer...")
         self.ai = AsyncAIAnalyzer(
             config_path=str(script_dir / "config" / "ai_config.yaml"),
-            results_path=str(script_dir / "ai_results.log"))
+            results_path=str(script_dir / "logs" / "ai_results.log"))
         self.ai.start()
 
         # 6. Detect container runtime (v0.5.1: Docker/K8s 双轨)
@@ -127,7 +156,7 @@ class ContainerEscapeMonitor:
         print("[7/8] Initializing container identity + event log...")
         self.identity = ContainerIdentity(self.bpf, self.backend)
         self.identity.start()
-        self.logger = EventLogger(str(script_dir / "events.log"))
+        self.logger = EventLogger(str(script_dir / "logs" / "events.log"))
 
         # 8. Initialize monitoring scope (include/exclude filters)
         print("[8/8] Initializing monitoring scope...")
@@ -142,11 +171,16 @@ class ContainerEscapeMonitor:
         #   xdp      — inbound blocking (NIC ingress, kernel-level)
         #   mixed    — both: XDP inbound + iptables outbound (recommended)
         # v0.5.2: K8s 模式禁 XDP (docker0 不存在, 且 -s Pod IP 语义不符) → 强制 iptables
+        # v0.5.3: K8s 容器化无 iptables (netns 隔离) → 降级 no-op (annotation 由 responder 处理)
         backend = self._get_netblock_backend()
         if self.k8s_mode:
             backend = 'iptables'
         self.netblock_backend = backend
-        if backend == 'mixed':
+        if self.k8s_mode and not shutil.which('iptables'):
+            print("  [NetBlock] K8s 容器内无 iptables — 降级 no-op "
+                  "(C2 阻断由部署者处理)")
+            self.netblocker = _NoopNetBlocker()
+        elif backend == 'mixed':
             xdp = XDPNetBlocker(iface=self._get_xdp_iface())
             self.netblocker = CompositeNetBlocker(
                 xdp, NetBlocker())
@@ -166,11 +200,13 @@ class ContainerEscapeMonitor:
             from core.k8s_decision_executor import K8sDecisionExecutor
             self.responder = K8sResponseEngine(responses_file)
             self.executor = K8sDecisionExecutor(
-                str(script_dir / "decisions.log"))
+                str(script_dir / "logs" / "decisions.log"))
             self.executor.start()
         else:
+            self.responder = ResponseEngine(responses_file)
             self.executor = DecisionExecutor(
-                str(script_dir / "decisions.log"), self.docker_client)
+                str(script_dir / "logs" / "decisions.log"),
+                self.docker_client)
             self.executor.start()
 
         # 11. Start rules hot-reload watcher (v0.3.3)
@@ -191,7 +227,7 @@ class ContainerEscapeMonitor:
 
         # 13. Initialize BehaviorLogger (v0.3.12)
         self.behavior_logger = BehaviorLogger(
-            log_path=str(script_dir / "behaviors.log"),
+            log_path=str(script_dir / "logs" / "behaviors.log"),
             enabled=self._get_behavior_log_enabled())
         print(f"  [Behavior] enabled: {self.behavior_logger.enabled}")
 

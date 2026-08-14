@@ -109,8 +109,9 @@ class K8sBackend(RuntimeBackend):
     """
 
     def __init__(self, kubeconfig="/etc/rancher/k3s/k3s.yaml"):
-        from kubernetes import client, config
-        config.load_kube_config(config_file=kubeconfig)
+        from kubernetes import client
+        from core.kube_utils import load_kubeconfig
+        load_kubeconfig(kubeconfig)
         self._client = client.CoreV1Api()
         self._pod_by_uid = {}   # pod uid -> pod 对象缓存
         self._refresh_pods()

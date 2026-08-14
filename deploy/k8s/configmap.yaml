@@ -1,0 +1,345 @@
+# eBPF Container Guard — ConfigMap (v0.5.3)
+# 规则/响应/监控等配置; 挂载到 /app/config
+# 注意: ai_config.yaml (含 API key) 不入 ConfigMap — 用 Secret 或容器内省略
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ebpf-guard-config
+  namespace: kube-system
+data:
+  rules.yaml: |
+    # eBPF Container Guard — Detection Rules (v0.4.0)
+    # 10 rules covering mount / ptrace / execve / connect / openat
+    #
+    # condition 为嵌套条件树 (Falco 风格 AND/OR/not):
+    #   all / any: 条件节点列表; not: 单个条件节点
+    #   叶子: 标量(精确) | 列表(OR 精确) | 操作符 {neq, startswith, endswith, contains, glob, exists}
+    # event_type 为顶层键 (做索引 + 隐式 AND), 不可出现在 condition 内
+    
+    rules:
+      # ============================================================
+      # mount 探针 — 文件系统挂载攻击
+      # ============================================================
+    
+      - name: "procfs_mount_escape"
+        description: "检测容器内挂载宿主机 procfs 文件系统"
+        attack_vector: "procfs_mount"
+        severity: "CRITICAL"
+        event_type: "mount"
+        condition:
+          all:
+            - fstype: "proc"
+            - not:
+                any:
+                  - comm:
+                      - "dockerd"
+                      - "containerd"
+                      - "runc:[2:INIT]"
+                      - "runc"
+                      - "docker-proxy"
+                  - target_path:
+                      - {glob: "/proc/thread-self/fd/*"}
+        cve_refs:
+          - "CVE-2019-5736"
+          - "CVE-2019-16884"
+          - "CVE-2020-15257"
+        action: "alert_and_log"
+    
+      - name: "docker_socket_mount"
+        description: "检测容器内挂载 Docker socket（容器逃逸前置步骤）"
+        attack_vector: "docker_socket_mount"
+        severity: "CRITICAL"
+        event_type: "mount"
+        condition:
+          target_path:
+            - "/var/run/docker.sock"
+            - "/run/docker.sock"
+        cve_refs:
+          - "CVE-2019-5736"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # ptrace 探针 — 进程注入攻击
+      # ============================================================
+    
+      - name: "ptrace_host_init"
+        description: "检测容器内 ptrace 宿主机 1 号进程(systemd/init)"
+        attack_vector: "ptrace_host_init"
+        severity: "HIGH"
+        event_type: "ptrace"
+        condition:
+          target_pid: 1
+        cve_refs:
+          - "CVE-2019-16884"
+          - "CVE-2022-0492"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # execve 探针 — 程序执行攻击
+      # ============================================================
+    
+      - name: "nsenter_escape"
+        description: "检测容器内执行 nsenter 尝试逃逸到宿主机命名空间"
+        attack_vector: "nsenter_escape"
+        severity: "CRITICAL"
+        event_type: "execve"
+        condition:
+          all:
+            - comm:
+                - "nsenter"
+            - target_path:
+                - "/usr/bin/nsenter"
+        cve_refs:
+          - "CVE-2019-5736"
+          - "CVE-2022-0492"
+        action: "alert_and_log"
+    
+      - name: "privileged_exec"
+        description: "检测低权限容器进程执行 shell（疑似提权后操作）"
+        attack_vector: "privileged_exec"
+        severity: "CRITICAL"
+        event_type: "execve"
+        condition:
+          all:
+            - target_path:
+                - "/bin/sh"
+                - "/bin/bash"
+                - "/bin/dash"
+                - "/bin/busybox"
+            - not:
+                any:
+                  - comm:
+                      - "bash"
+                      - "dash"
+                      - "runc:[2:INIT]"
+                      - "runc"
+        cve_refs:
+          - "CVE-2019-5736"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # connect 探针 — 网络攻击
+      # ============================================================
+    
+      - name: "reverse_shell"
+        description: "检测容器内反向 Shell 连接（非标端口对外连接）"
+        attack_vector: "reverse_shell"
+        severity: "HIGH"
+        event_type: "connect"
+        condition:
+          not:
+            any:
+              - comm:
+                  - "dockerd"
+                  - "containerd"
+                  - "docker-proxy"
+        cve_refs:
+          - "T1059"
+          - "T1071"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # execve 探针 — 可疑网络工具执行（v0.3.11）
+      # ============================================================
+    
+      - name: "execve_network_tools"
+        description: "检测容器内执行网络工具（curl/wget/nc）疑似下载恶意载荷或反弹连接"
+        attack_vector: "network_tool_exec"
+        severity: "MEDIUM"
+        event_type: "execve"
+        condition:
+          comm:
+            - "curl"
+            - "wget"
+            - "nc"
+            - "ncat"
+        cve_refs:
+          - "T1105"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # mount 探针 — cgroup 挂载（v0.3.11）
+      # ============================================================
+    
+      - name: "mount_cgroup"
+        description: "检测容器内挂载 cgroup 文件系统（cgroup release_agent 逃逸前置）"
+        attack_vector: "cgroup_mount"
+        severity: "HIGH"
+        event_type: "mount"
+        condition:
+          all:
+            - fstype: "cgroup"
+            - not:
+                any:
+                  - comm:
+                      - "dockerd"
+                      - "containerd"
+                      - "runc:[2:INIT]"
+                      - "runc"
+        cve_refs:
+          - "CVE-2022-0492"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # openat 探针 — 敏感文件访问
+      # ============================================================
+    
+      - name: "sensitive_file_access"
+        description: "检测容器内读取宿主机敏感文件（shadow/kcore/docker.sock）"
+        attack_vector: "sensitive_file_access"
+        severity: "HIGH"
+        event_type: "openat"
+        condition:
+          all:
+            - target_path:
+                - "/etc/shadow"
+                - "/etc/passwd"
+                - "/proc/kcore"
+                - "/proc/kallsyms"
+                - "/proc/self/exe"
+                - "/proc/self/mem"
+                - "/proc/self/cmdline"
+                - "/var/run/docker.sock"
+                - "/run/docker.sock"
+                - "/host_etc/shadow"
+                - "/host_proc/kcore"
+                - "/host_sys/block"
+            - not:
+                any:
+                  - comm:
+                      - "runc:[2:INIT]"
+        cve_refs:
+          - "CVE-2019-5736"
+        action: "alert_and_log"
+    
+      - name: "host_directory_access"
+        description: "检测容器内访问宿主机挂载目录（/host_*）"
+        attack_vector: "host_directory_access"
+        severity: "HIGH"
+        event_type: "openat"
+        condition:
+          target_path:
+            - "/host_etc/shadow"
+            - "/host_etc/passwd"
+            - "/host_proc/kcore"
+            - "/host_sys/block"
+        cve_refs:
+          - "CVE-2019-5736"
+          - "CVE-2020-15257"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # v0.4.2 — cgroup release_agent 写入（CVE-2022-0492 逃逸链）
+      # 内核态已过滤写标志 (O_WRONLY/O_RDWR) 与 basename, 规则做路径匹配
+      # ============================================================
+    
+      - name: "cgroup_release_agent_write"
+        description: "写入 cgroup release_agent/notify_on_release（CVE-2022-0492 逃逸链）"
+        attack_vector: "cgroup_release_agent"
+        severity: "HIGH"
+        event_type: "openat"
+        condition:
+          all:
+            - target_path:      # basename 匹配: 绝对后缀 + 相对精确 + v2 前缀
+                - {endswith: "/release_agent"}
+                - "release_agent"
+                - {endswith: "/notify_on_release"}
+                - "notify_on_release"
+                - {endswith: "/cgroup.release_agent"}
+                - "cgroup.release_agent"
+            - not:
+                any:
+                  - comm:
+                      - "dockerd"
+                      - "containerd"
+                      - "runc:[2:INIT]"
+                      - "runc"
+        cve_refs:
+          - "CVE-2022-0492"
+        action: "alert_and_log"
+    
+      # ============================================================
+      # v0.4.2 — capset 能力设置（cap_sys_admin 覆盖）
+      # bitand 操作符: 位包含检查 (CAP_SYS_ADMIN = 0x200000 = 2097152)
+      # ============================================================
+    
+      - name: "capset_cap_sys_admin"
+        description: "容器进程 capset 设置 CAP_SYS_ADMIN（能力覆盖，逃逸前置信号）"
+        attack_vector: "capability_abuse"
+        severity: "MEDIUM"
+        event_type: "capset"
+        condition:
+          all:
+            - any:
+                - cap_effective: {bitand: 2097152}
+                - cap_permitted: {bitand: 2097152}
+            - not:
+                any:
+                  - comm:
+                      - "dockerd"
+                      - "containerd"
+                      - "runc:[2:INIT]"
+                      - "runc"
+        cve_refs:
+          - "CVE-2022-0492"
+        action: "alert_and_log"
+  responses.yaml: |
+    responses:
+      - threat_level: critical
+        action: pause_container        # 冻结容器,保留内存现场
+        description: "立即冻结高危容器,等待人工取证"
+        
+      - threat_level: high
+        action: isolate_network        # 断网隔离
+        description: "切断容器网络连接,防止横向移动"
+        
+      - threat_level: medium
+        action: kill_process           # 仅杀进程
+        description: "终止可疑进程,但不影响容器其他服务"
+        
+      - threat_level: low
+        action: log_only               # 仅记录
+        description: "写入审计日志,不执行自动处置"
+  monitor.yaml: |
+    # 监控范围配置 — 选择要监控的容器
+    # Monitoring scope — choose which containers to monitor
+    
+    # include: 只监控列表中的容器（支持通配符 fnmatch）；为空 = 监控所有
+    #   include: only monitor listed containers (wildcards supported); empty = all
+    include: []
+    
+    # exclude: 永不监控列表中的容器（支持通配符）；exclude 优先于 include
+    #   exclude: never monitor listed containers (wildcards supported); takes priority
+    exclude: []
+    
+    # 匹配依据: name = 容器名, id = 容器短 ID（12 位）
+    #   match target: name = container name, id = container short ID
+    match_by: "name"
+    
+    # 网络阻断后端: iptables（用户态，可逆） | xdp（内核态，微秒级，v0.3.9）
+    netblock_backend: "mixed"  # xdp(入站) + iptables(出站)
+    
+    # 全量行为日志（v0.3.10）：记录所有 syscall 事件到 behaviors.log
+    # behavior_log (v0.3.10): record ALL syscall events to behaviors.log
+    behavior_log: true
+  blocklist.yaml: |
+    blocked_images:
+    - ebpf-test:mount
+  ai_config.yaml.example: |
+    # AI Configuration — OpenAI-compatible API
+    # Copy this file to ai_config.yaml and fill in your API key
+    # ai_config.yaml is gitignored — never commit it to the repo
+    
+    api_key: "sk-your-api-key-here"
+    model: "deepseek-chat"
+    
+    # Any OpenAI-compatible endpoint (works with DeepSeek / OpenAI / vLLM / Ollama)
+    # DeepSeek:  https://api.deepseek.com/v1
+    # OpenAI:    https://api.openai.com/v1
+    # Local vLLM: http://localhost:8000/v1
+    base_url: "https://api.deepseek.com/v1"
+    
+    # Confidence thresholds for graded response
+    auto_response_threshold: 85    # Confidence > 85% → auto execute response
+    pending_review_threshold: 60   # Confidence 60-85% → queue for human review
+                                   # Confidence < 60% → log only

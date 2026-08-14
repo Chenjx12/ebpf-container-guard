@@ -65,3 +65,4 @@ config/tokens.yaml
 auth_audit.log
 behaviors.log
 tests/parity/.bcc_v040.c
+deploy/libbpf/

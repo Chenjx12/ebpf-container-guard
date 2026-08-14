@@ -9,6 +9,32 @@
 
 ---
 
+## [0.5.3] - 2026-08-14
+
+### 新增
+- **DaemonSet 部署（guard 容器化上 k3s）**：
+  - `deploy/Dockerfile.guard`：python:3.10-slim + 宿主 libbpf.so.1/libelf COPY（apt 网络受限）+ 预编译 .bpf.o + iptables 降级
+  - `deploy/k8s/`：daemonset.yaml（hostPID + /sys 挂载 + privileged + /app/logs hostPath 持久化）+ rbac.yaml（pods + deployments/statefulsets patch + replicasets get）+ configmap.yaml（规则/响应/监控，**不含 AI key**）
+  - **in_cluster kubeconfig**：`src/core/kube_utils.py`——容器内 serviceaccount 优先，宿主机回退 kubeconfig（3 处硬编码统一）
+  - **iptables 降级**：K8s 容器内无 iptables（netns 隔离）→ isolate/netblock 降级 annotation-only + no-op（C2 阻断由部署者处理）
+  - main.py 日志路径统一到 `logs/`（hostPath 持久化，宿主机可看）
+- k3s 部署流程：`docker build --network host` → `docker save | k3s ctr images import` → `kubectl apply -f deploy/k8s/`
+
+### 验证
+- DaemonSet pod Running；in_cluster 生效（K8sBackend k8s_mode=True）
+- 容器化 E2E：esc-deploy pod 挂 procfs → procfs_mount_escape → **FROZEN + `cannot exec in a paused container`（真冻结）** → 解冻恢复
+- 降级生效：`[NetBlock] (no-op) 容器内无 iptables`
+- 日志持久化：/var/lib/ebpf-guard/（宿主机可见）
+- 宿主机回归：Docker mount 场景 + pytest 105/105
+
+### 修复
+- 容器内 Docker responder 初始化崩溃（无 docker.sock）→ responder 延迟到 runtime 探测后初始化
+- K8s executor 缺 import sys
+- 日志挂载目录冲突（subPath 文件变目录）→ 统一 /app/logs 目录挂载
+- configmap 曾误含 AI key → 已移除（Secret 或省略）
+
+---
+
 ## [0.5.2] - 2026-08-14
 
 ### 新增

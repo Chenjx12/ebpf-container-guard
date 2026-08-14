@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.3] - 2026-08-14
+
+### Added
+- **DaemonSet deployment (guard containerized on k3s)**:
+  - `deploy/Dockerfile.guard`: python:3.10-slim + host libbpf.so.1/libelf COPY (apt network-restricted) + precompiled .bpf.o + iptables degradation
+  - `deploy/k8s/`: daemonset.yaml (hostPID + /sys mount + privileged + /app/logs hostPath persistence) + rbac.yaml (pods + deployments/statefulsets patch + replicasets get) + configmap.yaml (rules/responses/monitor, **no AI key**)
+  - **in_cluster kubeconfig**: `src/core/kube_utils.py` — serviceaccount in-container, kubeconfig fallback on host (3 hardcoded sites unified)
+  - **iptables degradation**: K8s container has no iptables (netns isolation) → isolate/netblock degrade to annotation-only + no-op
+  - main.py logs unified to `logs/` (hostPath persistent, host-visible)
+- k3s deploy flow: `docker build --network host` → `docker save | k3s ctr images import` → `kubectl apply -f deploy/k8s/`
+
+### Verified
+- DaemonSet pod Running; in_cluster active (K8sBackend k8s_mode=True)
+- Containerized E2E: esc-deploy pod mounts procfs → procfs_mount_escape → **FROZEN + `cannot exec in a paused container`** → unfreeze restored
+- Degradation: `[NetBlock] (no-op) container has no iptables`
+- Logs persistent: /var/lib/ebpf-guard/
+- Host regression: Docker mount scenario + pytest 105/105
+
+### Fixed
+- Containerized Docker responder init crash (no docker.sock) → responder deferred until runtime detection
+- K8s executor missing `import sys`
+- Log mount dir conflict (subPath file→dir) → unified /app/logs dir mount
+- configmap accidentally contained AI key → removed (Secret or omitted)
+
 ## [0.5.2] - 2026-08-14
 
 ### Added

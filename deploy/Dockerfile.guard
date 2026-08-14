@@ -1,0 +1,32 @@
+# eBPF Container Guard — DaemonSet 镜像 (v0.5.3)
+# K8s 模式: 容器内 in_cluster kubeconfig + 宿主 /sys + hostPID
+# 构建: docker build -f deploy/Dockerfile.guard -t ebpf-guard:v0.5.3 .
+# 部署: sudo k3s ctr images import <(docker save ebpf-guard:v0.5.3)
+#       kubectl apply -f deploy/k8s/
+FROM python:3.10-slim
+
+# libbpf.so.1 动态依赖: libz 自带, libelf 从宿主 COPY (apt 网络受限)
+COPY deploy/libbpf/libelf.so.1.0.0 /usr/lib/x86_64-linux-gnu/libelf.so.1.0.0
+RUN ln -sf /usr/lib/x86_64-linux-gnu/libelf.so.1.0.0 \
+    /usr/lib/x86_64-linux-gnu/libelf.so.1
+
+# pip 依赖 (guard 必需; streamlit 面板不打包)
+RUN pip install --no-cache-dir pyyaml docker kubernetes
+
+# libbpf.so.1 (1.8.0, 版本化符号 ctypes 自动解析; 从 deploy/libbpf/ COPY)
+COPY deploy/libbpf/libbpf.so.1.8.0 /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0
+RUN ln -sf /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0 \
+    /usr/lib/x86_64-linux-gnu/libbpf.so.1
+
+WORKDIR /app
+
+# guard 代码 + 预编译 CO-RE 探针
+COPY main.py requirements.txt ./
+COPY src/ src/
+COPY config/ config/
+COPY .build/escape-detect.bpf.o .build/xdp-block.bpf.o .build/
+
+# 单实例锁文件 (容器内可写) + 日志目录 (hostPath 挂载)
+RUN mkdir -p /var/run /app/logs
+
+CMD ["python3", "main.py", "--runtime", "k8s"]

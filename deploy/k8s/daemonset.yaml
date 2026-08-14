@@ -1,0 +1,71 @@
+# eBPF Container Guard — DaemonSet (v0.5.3)
+#
+# 集群部署形态 (与 deploy/systemd/ 单机形态互斥, 见 ADR-039 单实例锁)。
+# 部署:
+#   sudo k3s ctr images import <(docker save ebpf-guard:v0.5.3)
+#   kubectl apply -f deploy/k8s/
+#
+# 关键挂载:
+#   /sys   — 宿主全 sysfs (BTF + cgroup + tracefs 一次覆盖)
+#   /var/lib/ebpf-guard — 日志持久化 (events/decisions/behaviors)
+#   configMap — 规则/响应/监控配置
+# hostPID: true — guard 读 /proc/<pid>/cgroup 做身份解析 + 宿主 PID
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-guard
+  namespace: kube-system
+  labels:
+    app: ebpf-guard
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-guard
+  template:
+    metadata:
+      labels:
+        app: ebpf-guard
+    spec:
+      serviceAccountName: ebpf-guard
+      hostPID: true
+      hostNetwork: false
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: guard
+          image: ebpf-guard:v0.5.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - CAP_BPF
+                - CAP_SYS_ADMIN
+                - CAP_NET_ADMIN
+                - CAP_SYS_PTRACE
+          command: ["python3", "-u", "main.py", "--runtime", "k8s"]
+          volumeMounts:
+            - name: sysfs
+              mountPath: /sys
+            - name: guard-logs
+              mountPath: /app/logs
+            - name: guard-config
+              mountPath: /app/config
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: sysfs
+          hostPath:
+            path: /sys
+        - name: guard-logs
+          hostPath:
+            path: /var/lib/ebpf-guard
+            type: DirectoryOrCreate
+        - name: guard-config
+          configMap:
+            name: ebpf-guard-config

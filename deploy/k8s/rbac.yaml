@@ -1,0 +1,41 @@
+# eBPF Container Guard — RBAC (v0.5.3)
+# in_cluster kubeconfig 用 serviceaccount; 权限按 v0.5.2 responder 需求:
+#   pods get/list/watch/delete (容器发现 + kill)
+#   deployments/statefulsets patch (kill_container 先 scale 0 防重建)
+#   replicasets get (ownerRef 链解析)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ebpf-guard
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ebpf-guard
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ebpf-guard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ebpf-guard
+subjects:
+  - kind: ServiceAccount
+    name: ebpf-guard
+    namespace: kube-system

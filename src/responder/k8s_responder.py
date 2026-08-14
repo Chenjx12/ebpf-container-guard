@@ -39,7 +39,8 @@ class K8sResponseEngine:
         for rule in self.config:
             self.policy[rule['threat_level']] = rule['action']
 
-        config.load_kube_config(config_file=kubeconfig)
+        from core.kube_utils import load_kubeconfig
+        load_kubeconfig(kubeconfig)
         self._client = client.CoreV1Api()
         self._apps = client.AppsV1Api()
         print(f"[K8sResponseEngine] 已加载 {len(self.policy)} 条响应策略")
@@ -131,6 +132,11 @@ class K8sResponseEngine:
         except Exception:
             return False
 
+    def _iptables_available(self):
+        """容器内是否有 iptables (v0.5.3 容器化: 无则降级 annotation-only)"""
+        import shutil
+        return shutil.which('iptables') is not None
+
     def _iptables_block(self, pod_ip):
         """iptables FORWARD DROP 源=Pod IP (断出向 C2/横移)"""
         if not pod_ip:
@@ -217,13 +223,22 @@ class K8sResponseEngine:
                     print(f"✅ Pod {container_id} FROZEN (cgroup.freeze)")
             elif action == 'isolate_network':
                 pod_ip = self._pod_ip(ns, pod)
-                success = self._iptables_block(pod_ip)
-                if success:
+                if self._iptables_available():
+                    success = self._iptables_block(pod_ip)
+                    if success:
+                        self._patch_annotation(
+                            ns, pod, 'guard/isolated',
+                            datetime.now().isoformat())
+                        print(f"✅ Pod {container_id} ISOLATED "
+                              f"(iptables DROP {pod_ip})")
+                else:
+                    # 容器化 guard 无 iptables (netns 隔离) — 降级 annotation-only
                     self._patch_annotation(
                         ns, pod, 'guard/isolated',
                         datetime.now().isoformat())
-                    print(f"✅ Pod {container_id} ISOLATED "
-                          f"(iptables DROP {pod_ip})")
+                    print(f"⚠️ Pod {container_id} 降级 annotation-only "
+                          f"(容器内无 iptables, 实际阻断由部署者处理)")
+                    success = True
             elif action == 'kill_process':
                 self.kill_process(container_id, event_pid)
             elif action == 'kill_container':

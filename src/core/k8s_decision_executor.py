@@ -10,6 +10,7 @@ container_id 语义: 'ns/pod' (ADR-040 格式)。
 """
 import json
 import os
+import sys
 import threading
 
 from kubernetes import client, config
@@ -23,7 +24,8 @@ class K8sDecisionExecutor:
     def __init__(self, decisions_path="decisions.log",
                  kubeconfig="/etc/rancher/k3s/k3s.yaml"):
         self.decisions_path = decisions_path
-        config.load_kube_config(config_file=kubeconfig)
+        from core.kube_utils import load_kubeconfig
+        load_kubeconfig(kubeconfig)
         self._client = client.CoreV1Api()
         self._apps = client.AppsV1Api()
         self._processed = set()

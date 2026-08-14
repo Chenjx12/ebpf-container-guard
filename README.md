@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.2-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.3-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -437,7 +437,8 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 | v0.5 | Single-instance lock (deployment-mode exclusion) → K8s DaemonSet native | ✅ Current |
 |       | ↳ v0.5.0 — single-instance lock | ✅ Stable |
 |       | ↳ v0.5.1 — K8s container discovery + identity | ✅ Stable |
-|       | ↳ v0.5.2 — K8s responder (response loop) | ✅ Current |
+|       | ↳ v0.5.2 — K8s responder (response loop) | ✅ Stable |
+|       | ↳ v0.5.3 — DaemonSet deployment (guard containerized on k3s) | ✅ Current |
 | v0.4.x | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 

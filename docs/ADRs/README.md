@@ -21,6 +21,7 @@
 | [039](039-single-instance-lock.md) | 单实例锁（部署形态互斥基础） | Accepted | v0.5.0 |
 | [040](040-k8s-runtime-backend.md) | K8s 适配：RuntimeBackend 双轨抽象 | Accepted | v0.5.1 |
 | [041](041-k8s-responder.md) | K8s responder：动作映射与降级 | Accepted | v0.5.2 |
+| [042](042-daemonset-deployment.md) | DaemonSet 容器化部署（in_cluster + 降级） | Accepted | v0.5.3 |
 
 ## 格式
 
