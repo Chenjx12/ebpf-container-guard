@@ -76,6 +76,8 @@ INVALID_RULES = [
                    "condition": {"fstype": {"regex": "p.*"}}}),
     ("exists 值非 bool", {"name": "x", "event_type": "mount", "severity": "HIGH",
                           "condition": {"fstype": {"exists": "yes"}}}),
+    ("bitand 值非 int", {"name": "x", "event_type": "mount", "severity": "HIGH",
+                         "condition": {"fstype": {"bitand": "0x200000"}}}),
     ("空列表", {"name": "x", "event_type": "mount", "severity": "HIGH",
                "condition": {"all": []}}),
     ("嵌套列表", {"name": "x", "event_type": "mount", "severity": "HIGH",

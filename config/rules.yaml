@@ -217,3 +217,59 @@ rules:
       - "CVE-2019-5736"
       - "CVE-2020-15257"
     action: "alert_and_log"
+
+  # ============================================================
+  # v0.4.2 — cgroup release_agent 写入（CVE-2022-0492 逃逸链）
+  # 内核态已过滤写标志 (O_WRONLY/O_RDWR) 与 basename, 规则做路径匹配
+  # ============================================================
+
+  - name: "cgroup_release_agent_write"
+    description: "写入 cgroup release_agent/notify_on_release（CVE-2022-0492 逃逸链）"
+    attack_vector: "cgroup_release_agent"
+    severity: "HIGH"
+    event_type: "openat"
+    condition:
+      all:
+        - target_path:      # basename 匹配: 绝对后缀 + 相对精确 + v2 前缀
+            - {endswith: "/release_agent"}
+            - "release_agent"
+            - {endswith: "/notify_on_release"}
+            - "notify_on_release"
+            - {endswith: "/cgroup.release_agent"}
+            - "cgroup.release_agent"
+        - not:
+            any:
+              - comm:
+                  - "dockerd"
+                  - "containerd"
+                  - "runc:[2:INIT]"
+                  - "runc"
+    cve_refs:
+      - "CVE-2022-0492"
+    action: "alert_and_log"
+
+  # ============================================================
+  # v0.4.2 — capset 能力设置（cap_sys_admin 覆盖）
+  # bitand 操作符: 位包含检查 (CAP_SYS_ADMIN = 0x200000 = 2097152)
+  # ============================================================
+
+  - name: "capset_cap_sys_admin"
+    description: "容器进程 capset 设置 CAP_SYS_ADMIN（能力覆盖，逃逸前置信号）"
+    attack_vector: "capability_abuse"
+    severity: "MEDIUM"
+    event_type: "capset"
+    condition:
+      all:
+        - any:
+            - cap_effective: {bitand: 2097152}
+            - cap_permitted: {bitand: 2097152}
+        - not:
+            any:
+              - comm:
+                  - "dockerd"
+                  - "containerd"
+                  - "runc:[2:INIT]"
+                  - "runc"
+    cve_refs:
+      - "CVE-2022-0492"
+    action: "alert_and_log"

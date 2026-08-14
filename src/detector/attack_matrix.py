@@ -75,6 +75,20 @@ BEHAVIOR_MATRIX: Dict[str, dict] = {
         "techniques": ["host filesystem access", "data exfiltration"],
         "suggested_action": "pause_container",
     },
+    "cgroup_release_agent": {   # v0.4.2
+        "description": "Container wrote cgroup release_agent (CVE-2022-0492)",
+        "base_confidence": 80,
+        "cve_refs": ["CVE-2022-0492"],
+        "techniques": ["cgroup release_agent escape", "privilege escalation"],
+        "suggested_action": "pause_container",
+    },
+    "capability_abuse": {   # v0.4.2
+        "description": "Container set CAP_SYS_ADMIN via capset",
+        "base_confidence": 55,
+        "cve_refs": ["CVE-2022-0492"],
+        "techniques": ["capability abuse", "privilege escalation"],
+        "suggested_action": "log_only",
+    },
 }
 
 
@@ -115,6 +129,16 @@ COMBINATION_BOOSTS = {
         "cve": "CVE-2019-5736",
         "confidence": 88,
         "description": "Procfs mount + sensitive file access → data exfiltration attempt",
+    },
+    ("cgroup_mount", "cgroup_release_agent"): {   # v0.4.2
+        "cve": "CVE-2022-0492",
+        "confidence": 92,
+        "description": "cgroup mount + release_agent write → full cgroup escape",
+    },
+    ("capability_abuse", "cgroup_release_agent"): {   # v0.4.2
+        "cve": "CVE-2022-0492",
+        "confidence": 88,
+        "description": "CAP_SYS_ADMIN + release_agent write → privileged escape",
     },
 }
 

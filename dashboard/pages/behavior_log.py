@@ -35,7 +35,7 @@ if time_label == "自定义":
     custom_end = col2.date_input("结束日期", datetime.now().date())
 
 # --- Event type ---
-EVENT_TYPES = ["mount", "ptrace", "execve", "connect", "openat"]
+EVENT_TYPES = ["mount", "ptrace", "execve", "connect", "openat", "capset"]
 selected_types = st.sidebar.multiselect(
     "行为类型", EVENT_TYPES, default=EVENT_TYPES,
     help="空 = 不筛选"

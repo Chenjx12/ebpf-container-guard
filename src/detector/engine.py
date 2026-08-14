@@ -90,6 +90,10 @@ class EscapeDetector:
             (op, v), = spec.items()
             if op == 'exists':
                 return (field in event) == v
+            if op == 'bitand':
+                # 位包含检查 (v0.4.2): 值须为 int, 事件字段与掩码按位与非零
+                return isinstance(v, int) and isinstance(
+                    event.get(field), int) and (v & event[field]) != 0
             if field not in event:
                 return False
             return _LEAF_OPS[op](str(event[field]), v)
@@ -102,6 +106,10 @@ class EscapeDetector:
                     (op, v), = item.items()
                     if op == 'exists':
                         if (field in event) == v:
+                            return True
+                    elif op == 'bitand':
+                        if isinstance(v, int) and isinstance(
+                                actual, int) and (v & actual) != 0:
                             return True
                     elif _LEAF_OPS[op](str(actual), v):
                         return True

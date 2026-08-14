@@ -42,6 +42,10 @@ class Event(ctypes.Structure):
         ("request_raw", ctypes.c_uint64),
         ("daddr", ctypes.c_uint32),
         ("dport", ctypes.c_uint16),
+        # v0.4.2: 尾部追加 (capset/openat 专用)
+        ("cap_effective", ctypes.c_uint32),
+        ("cap_permitted", ctypes.c_uint32),
+        ("open_flags", ctypes.c_uint32),
     ]
 
 
@@ -73,6 +77,7 @@ _TRACEPOINTS = [
     ("tracepoint__syscalls__sys_enter_execve", "syscalls", "sys_enter_execve"),
     ("tracepoint__syscalls__sys_enter_connect", "syscalls", "sys_enter_connect"),
     ("tracepoint__syscalls__sys_enter_openat", "syscalls", "sys_enter_openat"),
+    ("tracepoint__syscalls__sys_enter_capset", "syscalls", "sys_enter_capset"),
 ]
 
 

@@ -1,0 +1,5 @@
+# capset 测试镜像 (v0.4.2) — ubuntu + python3 (ctypes syscall)
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]

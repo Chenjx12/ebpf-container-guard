@@ -160,6 +160,13 @@ class TestLeafMatch:
         ({"target_path": ["/etc/shadow", {"endswith": "docker.sock"}]}, {"target_path": "/run/docker.sock"}, True),
         ({"target_path": ["/etc/shadow", {"endswith": "docker.sock"}]}, {"target_path": "/etc/hosts"}, False),
         ({"comm": [{"glob": "runc:[2:INIT]"}, "bash"]}, {"comm": "runc:[2:INIT]"}, True),
+        # bitand (v0.4.2)
+        ({"cap_effective": {"bitand": 2097152}}, {"cap_effective": 2097152}, True),   # CAP_SYS_ADMIN
+        ({"cap_effective": {"bitand": 2097152}}, {"cap_effective": 1048576}, False),  # CAP_SYS_RAWIO
+        ({"cap_effective": {"bitand": 2097152}}, {"cap_effective": 2097152 | 1}, True),
+        ({"cap_effective": {"bitand": 2097152}}, {"comm": "x"}, False),  # 字段缺失
+        ({"cap_effective": {"bitand": "2097152"}}, {"cap_effective": 2097152}, False),  # 非 int 值
+        ({"cap_effective": [{"bitand": 2097152}, 0]}, {"cap_effective": 2097152}, True),  # list 内嵌
     ])
     def test_leaf(self, detector, cond, event, expected):
         (field, spec), = cond.items()
@@ -208,9 +215,14 @@ class TestLeafMatch:
 
 class TestMigrationEquivalence:
     def test_migration_output_matches_config(self, old_rules, new_rules):
-        """迁移脚本输出与 config/rules.yaml 逐条结构一致 (迁移忠实性)"""
-        assert len(old_rules) == len(new_rules)
-        for old, new in zip(old_rules, new_rules):
+        """迁移脚本输出与 config/rules.yaml 同名规则逐条一致 (迁移忠实性)
+
+        v0.4.2 起 config 含新增规则 (12 条), 只对比迁移覆盖的 10 条。
+        """
+        migrated = [r for r in new_rules if r["name"] in {o["name"]
+                                                          for o in old_rules}]
+        assert len(migrated) == len(old_rules)
+        for old, new in zip(old_rules, migrated):
             assert old["name"] == new["name"]
             assert migrate_rule(old) == new, f"规则 {old['name']} 迁移输出与 config 不一致"
 

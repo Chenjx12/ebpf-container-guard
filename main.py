@@ -192,7 +192,7 @@ class ContainerEscapeMonitor:
 
             # Map numeric event type to string
             event_type_map = {1: 'mount', 2: 'ptrace', 3: 'openat',
-                              4: 'execve', 5: 'connect'}
+                              4: 'execve', 5: 'connect', 6: 'capset'}
 
             # Resolve container identity (3-tier fallback)
             raw_cid = event.container_id.decode(
@@ -241,6 +241,9 @@ class ContainerEscapeMonitor:
             elif event.event_type == 5:  # CONNECT
                 event_dict['daddr'] = event.daddr
                 event_dict['dport'] = event.dport
+            elif event.event_type == 6:  # CAPSET (v0.4.2)
+                event_dict['cap_effective'] = event.cap_effective
+                event_dict['cap_permitted'] = event.cap_permitted
 
             # === Behavior Log (v0.3.12): ALL syscall events recorded ===
             self.behavior_logger.write(event_dict)

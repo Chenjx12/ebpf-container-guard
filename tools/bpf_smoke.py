@@ -39,7 +39,8 @@ class Event(ctypes.Structure):
     ]
 
 
-TYPE_NAMES = {1: "mount", 2: "ptrace", 3: "openat", 4: "execve", 5: "connect"}
+TYPE_NAMES = {1: "mount", 2: "ptrace", 3: "openat", 4: "execve", 5: "connect",
+              6: "capset"}
 
 
 def main():
@@ -57,6 +58,7 @@ def main():
         ("tracepoint__syscalls__sys_enter_execve", "syscalls", "sys_enter_execve"),
         ("tracepoint__syscalls__sys_enter_connect", "syscalls", "sys_enter_connect"),
         ("tracepoint__syscalls__sys_enter_openat", "syscalls", "sys_enter_openat"),
+        ("tracepoint__syscalls__sys_enter_capset", "syscalls", "sys_enter_capset"),
     ]
     for prog_name, cat, tp in traces:
         obj.attach_tracepoint(prog_name, cat, tp)
@@ -73,6 +75,11 @@ def main():
     # openat: 读 /etc/passwd (命中敏感路径过滤)
     subprocess.run(["python3", "-c", "open('/etc/passwd').read(10)"],
                    capture_output=True)
+    # openat: cgroup release_agent 写入 (v0.4.2 basename+flags 检测)
+    cg = "/home/chenjx12/ebpf/bpf_testdir"  # 已存在, 沙箱可写
+    os.makedirs(cg, exist_ok=True)
+    subprocess.run(["sh", "-c", f"cd {cg} && echo x > release_agent"],
+                   capture_output=True)
     # execve: 执行 /bin/ls
     subprocess.run(["/bin/ls", "/tmp"], capture_output=True)
     # mount: 挂载 tmpfs
@@ -86,6 +93,15 @@ def main():
                     "import socket; s=socket.socket(); "
                     "s.settimeout(0.2); "
                     "s.connect(('127.0.0.1', 1))"],
+                   capture_output=True)
+    # capset: 设置 CAP_SYS_ADMIN (v0.4.2; 触发即上报, 成败无关)
+    subprocess.run(["python3", "-c",
+                    "import ctypes, os; "
+                    "libc=ctypes.CDLL(None); "
+                    "SYS_capset=126; "
+                    "hdr=(ctypes.c_uint32*3)(0x20080522,0x20080522,0); "
+                    "data=(ctypes.c_uint32*3)(0x200000,0x200000,0x200000); "
+                    "libc.syscall(SYS_capset, hdr, data)"],
                    capture_output=True)
 
     # ---- poll 消费 ----
@@ -108,9 +124,9 @@ def main():
               f"path={path!r} fstype={fstype!r} target_pid={ev.target_pid} "
               f"dport={ev.dport}")
 
-    ok = got == {1, 3, 4, 5}  # mount/openat/execve/connect
-    print("\n✅ 冒烟通过 (mount+openat+execve+connect 事件齐全)" if ok
-          else f"\n❌ 冒烟失败: 收到类型 {sorted(got)}, 缺 {sorted({1,3,4,5}-got)}")
+    ok = got == {1, 3, 4, 5, 6}  # mount/openat/execve/connect/capset
+    print("\n✅ 冒烟通过 (mount+openat+execve+connect+capset 事件齐全)" if ok
+          else f"\n❌ 冒烟失败: 收到类型 {sorted(got)}, 缺 {sorted({1,3,4,5,6}-got)}")
     obj.close()
     sys.exit(0 if ok else 1)
 

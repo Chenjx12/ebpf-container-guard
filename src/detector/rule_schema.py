@@ -10,16 +10,17 @@ condition 为嵌套条件树:
 """
 
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
-EVENT_TYPES = ("mount", "ptrace", "execve", "connect", "openat")
+EVENT_TYPES = ("mount", "ptrace", "execve", "connect", "openat", "capset")
 
 # 与 main.py event_dict 构造同步; 新增探针字段时需更新此注册表
 KNOWN_FIELDS = {
     "event_type", "pid", "uid", "comm", "container_id", "timestamp",
     "fstype", "target_path", "target_pid", "request", "daddr", "dport",
+    "cap_effective", "cap_permitted", "open_flags",
 }
 
 CONDITION_KEYS = ("all", "any", "not")
-OPS = ("neq", "startswith", "endswith", "contains", "glob", "exists")
+OPS = ("neq", "startswith", "endswith", "contains", "glob", "exists", "bitand")
 MAX_DEPTH = 5
 
 
@@ -119,6 +120,10 @@ def _validate_op_value(op, v, path):
     if op == "exists":
         if not isinstance(v, bool):
             raise RuleValidationError(f"{path}.exists: 值必须是 true/false")
+        return
+    if op == "bitand":
+        if not isinstance(v, int) or isinstance(v, bool):
+            raise RuleValidationError(f"{path}.bitand: 值必须是整数 (位掩码)")
         return
     if isinstance(v, (str, int, bool)):
         return

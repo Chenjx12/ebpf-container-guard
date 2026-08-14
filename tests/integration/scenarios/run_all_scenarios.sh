@@ -12,6 +12,8 @@
 #   test_sensitive_file.sh    敏感文件访问 (HIGH)
 #   test_reverse_shell.sh     反弹 shell / C2 (HIGH)
 #   test_nsenter.sh           nsenter 命名空间逃逸 (CRITICAL)
+#   test_cgroup_escape.sh     cgroup release_agent 写入 (HIGH, v0.4.2)
+#   test_capset.sh            capset 能力设置 (MEDIUM, v0.4.2)
 
 set -e
 cd "$(dirname "$0")"
@@ -23,6 +25,8 @@ SCENARIOS=(
     test_sensitive_file.sh
     test_reverse_shell.sh
     test_nsenter.sh
+    test_cgroup_escape.sh
+    test_capset.sh
 )
 
 if [ $# -gt 0 ]; then

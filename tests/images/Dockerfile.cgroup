@@ -1,0 +1,3 @@
+# cgroup release_agent 写入测试镜像 (v0.4.2) — 基础 ubuntu + bash 内建重定向
+FROM ubuntu:22.04
+CMD ["sleep", "infinity"]

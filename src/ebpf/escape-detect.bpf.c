@@ -1,8 +1,9 @@
-// escape-detect.bpf.c — 容器逃逸检测 eBPF 探针 (v0.4.1, libbpf CO-RE)
-// Probes: mount + ptrace + execve + connect + openat(filtered)
+// escape-detect.bpf.c — 容器逃逸检测 eBPF 探针 (v0.4.2, libbpf CO-RE)
+// Probes: mount + ptrace + execve + connect + openat(filtered) + capset
 // Kernel 6.8 verified. 从 BCC 迁移: TRACEPOINT_PROBE → SEC("tracepoint/..."),
 // 参数从 struct trace_event_raw_sys_enter 的 args[6] 按下标读取,
 // 事件用 bpf_ringbuf_reserve/submit (绕开 512B 栈限制)。
+// v0.4.2: +capset 探针, openat +cgroup release_agent 写入检测 (CVE-2022-0492)
 // 编译: make build (clang -target bpf + vmlinux.h)
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
@@ -15,8 +16,10 @@
 #define EVENT_OPENAT   3
 #define EVENT_EXECVE   4
 #define EVENT_CONNECT  5
+#define EVENT_CAPSET   6   // v0.4.2: 能力设置检测
 
-// 通用事件结构 (字段序/类型与 BCC 版逐字节一致 — 用户态 ctypes 解析依赖)
+// 通用事件结构 (字段序/类型逐字节一致 — 用户态 ctypes 解析依赖;
+// v0.4.2 尾部追加 capset/open_flags 字段, 兼容已有解析)
 struct event {
     u32 event_type;
     u32 pid;
@@ -37,6 +40,12 @@ struct event {
     // connect 专用
     u32 daddr;
     u16 dport;
+
+    // v0.4.2: capset 专用 — 能力集 (data[0] 的 effective/permitted)
+    u32 cap_effective;
+    u32 cap_permitted;
+    // v0.4.2: openat 专用 — 打开标志 (取证用, 规则不依赖)
+    u32 open_flags;
 };
 
 // 容器ID结构体
@@ -179,7 +188,38 @@ int tracepoint__syscalls__sys_enter_connect(
 }
 
 // ==========================================
-// 5. openat 探针: 敏感文件访问 (内核态路径过滤)
+// ==========================================
+// 5. capset 探针: 能力设置检测 (v0.4.2)
+//    sys_enter_capset(data=args[1]) — data[0]: effective/permitted
+//    全量上报 (capset 低频); 位检查 (CAP_SYS_ADMIN) 留给用户态规则
+// ==========================================
+SEC("tracepoint/syscalls/sys_enter_capset")
+int tracepoint__syscalls__sys_enter_capset(
+    struct trace_event_raw_sys_enter *ctx)
+{
+    struct event *evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
+    if (!evt)
+        return 0;
+    evt->event_type = EVENT_CAPSET;
+    evt->pid = bpf_get_current_pid_tgid() >> 32;
+    evt->uid = bpf_get_current_uid_gid();
+    evt->cgroup_id = bpf_get_current_cgroup_id();
+    bpf_get_current_comm(evt->comm, sizeof(evt->comm));
+
+    // data[0]: effective(偏移0) / permitted(偏移4) — v1/v3 布局相同
+    // 必须 (char*) 强转再 +4, 否则按 struct 指针运算偏移 48 字节
+    bpf_probe_read_user(&evt->cap_effective, sizeof(evt->cap_effective),
+                        (void *)ctx->args[1]);
+    bpf_probe_read_user(&evt->cap_permitted, sizeof(evt->cap_permitted),
+                        (void *)((char *)ctx->args[1] + 4));
+
+    get_container_id(evt);
+    bpf_ringbuf_submit(evt, 0);
+    return 0;
+}
+
+// ==========================================
+// 6. openat 探针: 敏感文件访问 (内核态路径过滤)
 //    sys_enter_openat(filename=args[1], flags=args[2])
 // ==========================================
 SEC("tracepoint/syscalls/sys_enter_openat")
@@ -195,8 +235,11 @@ int tracepoint__syscalls__sys_enter_openat(
     evt->cgroup_id = bpf_get_current_cgroup_id();
     bpf_get_current_comm(evt->comm, sizeof(evt->comm));
 
-    bpf_probe_read_user_str(evt->target_path, sizeof(evt->target_path),
-                            (void *)ctx->args[1]);
+    // 返回值为读取长度(含 '\0'), v0.4.2 用于 cgroup 后缀匹配
+    int plen = bpf_probe_read_user_str(evt->target_path,
+                                       sizeof(evt->target_path),
+                                       (void *)ctx->args[1]);
+    evt->open_flags = (u32)ctx->args[2];
 
     // 内核态路径过滤: 只上报访问敏感路径的事件
     // 大幅降低 Ring Buffer 压力 (从 ~50K/s 到 < 10/s)
@@ -242,6 +285,44 @@ int tracepoint__syscalls__sys_enter_openat(
         path[4] == 't' && path[5] == '_') match = 1;
 
     if (match) {
+        get_container_id(evt);
+        bpf_ringbuf_submit(evt, 0);
+        return 0;
+    }
+
+    // v0.4.2: cgroup release_agent 写入检测 (CVE-2022-0492 逃逸链)
+    // 攻击者常 chdir 进 cgroup 目录后以相对路径打开 ("release_agent"),
+    // 绝对前缀匹配会漏报。用返回长度做"后缀匹配":
+    // 相对("release_agent") / 绝对(".../release_agent") / v2 前缀
+    // ("cgroup.release_agent" 以 "release_agent" 结尾, 自动覆盖) 统一命中。
+    // 零循环 (unroll 超 4096 指令); plen 先校验范围让 verifier 传播约束
+    // (数组索引 plen-14 会被判 unbounded memory access)。
+    if (plen <= 0 || plen > 256) {
+        bpf_ringbuf_discard(evt, 0);
+        return 0;
+    }
+    // plen ∈ [1,256] (含 '\0'); "release_agent"(13) 后缀起点 = plen-14,
+    // "notify_on_release"(17) = plen-18
+    int is_release = 0;
+    if (plen >= 14) {
+        char *t = evt->target_path + plen - 14;
+        is_release = t[0] == 'r' && t[1] == 'e' && t[2] == 'l'
+            && t[3] == 'e' && t[4] == 'a' && t[5] == 's' && t[6] == 'e'
+            && t[7] == '_' && t[8] == 'a' && t[9] == 'g' && t[10] == 'e'
+            && t[11] == 'n' && t[12] == 't';
+    }
+    int is_notify = 0;
+    if (plen >= 18) {
+        char *t = evt->target_path + plen - 18;
+        is_notify = t[0] == 'n' && t[1] == 'o' && t[2] == 't'
+            && t[3] == 'i' && t[4] == 'f' && t[5] == 'y' && t[6] == '_'
+            && t[7] == 'o' && t[8] == 'n' && t[9] == '_' && t[10] == 'r'
+            && t[11] == 'e' && t[12] == 'l' && t[13] == 'e'
+            && t[14] == 'a' && t[15] == 's' && t[16] == 'e';
+    }
+
+    // 写标志: O_WRONLY(1) | O_RDWR(2) — echo 重定向命中, 读访问不命中
+    if ((is_release || is_notify) && (ctx->args[2] & 3)) {
         get_container_id(evt);
         bpf_ringbuf_submit(evt, 0);
     } else {
