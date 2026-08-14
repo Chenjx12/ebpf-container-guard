@@ -9,6 +9,33 @@
 
 ---
 
+## [0.4.1] - 2026-08-14
+
+### 新增
+- **BCC → libbpf CO-RE 迁移**（决策记录 #33）：
+  - `escape-detect.bpf.c` / `xdp-block.bpf.c` 重写为 CO-RE 风格（`SEC("tracepoint/...")` + vmlinux.h + ringbuf reserve/submit），clang 预编译 `.bpf.o`，运行时零编译
+  - **自研 ctypes 加载层**（`src/core/libbpf.py`）：封装 libbpf.so.1 的 19 个 API（对象加载 / tracepoint attach / map / ringbuf / XDP）
+  - **BCC 兼容门面**（`src/core/bpf_runtime.py`）：`BpfRuntime` + `MapView` + `RingBufView`，main.py / identity.py 近乎零 diff 迁移
+- **Makefile 构建链**：`bpftool btf dump` 生成 vmlinux.h（不入库，`.build/` gitignored）+ 两个 `.bpf.o` + `.BTF` 段校验
+- **XDP 阻断迁移**：bpftool generic 模式 attach（libbpf 1.8 的 bpf_xdp_attach 只支持 native，bridge 网卡需 skb 模式），block/unblock/detach 全链路验证
+- **双后端字段对照**（`tests/parity/`）：BCC 与 CO-RE 同时加载，同一触发事件逐字段 diff（85 条事件全部一致）——兜住 E2E 测不到的字段级错位
+
+### 变更
+- Ring Buffer 从 BCC 的 4096 字节（≈9 条事件）升级到 1MB（`1<<20`），消除溢出风险
+- 移除 BCC 依赖：requirements.txt / setup.sh / README / test-guide / demo 全部改为 libbpf + clang + bpftool
+- 事件解析零改动（`struct event` 字段序逐字节保留，handle_event 复用）
+
+### 修复
+- BCC 时代的 tracepoint 内有界循环编译 bug（bpf2c 限制）——CO-RE 下不复存在，为 v0.4.2 复杂探针逻辑铺路
+
+### 验证
+- 迁移成功判据：6 个 E2E 逃逸场景全过（mount/socket/ptrace/sensitive/reverse_shell/nsenter）
+- pytest 92/92 + 集成测试 15/15
+- 双后端对照：85 条事件逐字段一致
+- eBPF 冒烟（tools/bpf_smoke.py）：CO-RE 加载 + 5 探针 attach + 事件解析
+
+---
+
 ## [0.4.0] - 2026-08-13
 
 ### 新增

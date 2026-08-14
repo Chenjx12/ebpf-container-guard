@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.1-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -36,11 +36,14 @@
 
 | 依赖 | 要求 |
 |------|------|
-| 操作系统 | Ubuntu 22.04 LTS（kernel ≥ 5.15） |
+| 操作系统 | Ubuntu 22.04 LTS（kernel ≥ 5.15，需 CONFIG_DEBUG_INFO_BTF） |
 | Python | 3.8+ |
-| BCC | `sudo apt install bpfcc-tools python3-bcc` |
+| 编译器 | clang（`-target bpf` 预编译 CO-RE 对象） |
+| libbpf | 1.x（源码编译 → /usr/lib64/libbpf.so.1）+ bpftool |
 | Docker | 已安装并运行 |
 | 权限 | root / sudo（eBPF 程序加载需要） |
+
+> v0.4.1 起从 BCC 迁移到 libbpf CO-RE：`make build` 预编译探针（vmlinux.h + clang），运行时零编译依赖。
 
 ### 一键启动（推荐）
 
@@ -219,7 +222,7 @@ AI 正确识别了这条误报——规则引擎匹配了模式，但 AI 理解�
 │  用户态 Python                                 │
 │  ┌────────────────────────────────────────┐   │
 │  │  main.py — 管线主控制器                  │   │
-│  │  ├─ BPF(src_file=...)   加载 eBPF 探针   │   │
+│  │  ├─ BpfRuntime()      CO-RE 加载探针     │   │
 │  │  ├─ open_ring_buffer()  事件流消费        │   │
 │  │  ├─ 3-tier ID 回退      容器身份识别       │   │
 │  │  └─ 后台线程 (5s 刷新)   动态刷新映射表     │   │

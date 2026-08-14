@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.4.1] - 2026-08-14
+
+### Added
+- **BCC → libbpf CO-RE migration** (decision record #33):
+  - `escape-detect.bpf.c` / `xdp-block.bpf.c` rewritten in CO-RE style (`SEC("tracepoint/...")` + vmlinux.h + ringbuf reserve/submit); clang precompiled `.bpf.o`, zero compile at runtime
+  - **Hand-rolled ctypes loader** (`src/core/libbpf.py`): wraps 19 exported libbpf.so.1 APIs (object load / tracepoint attach / map / ringbuf / XDP)
+  - **BCC-compatible facade** (`src/core/bpf_runtime.py`): `BpfRuntime` + `MapView` + `RingBufView` — main.py / identity.py migrated with near-zero diff
+- **Makefile build chain**: `bpftool btf dump` generates vmlinux.h (not committed; `.build/` gitignored) + both `.bpf.o` + `.BTF` section check
+- **XDP migration**: bpftool generic-mode attach (libbpf 1.8's bpf_xdp_attach only supports native XDP; bridge NICs need skb mode); block/unblock/detach verified end-to-end
+- **Dual-backend field parity** (`tests/parity/`): BCC and CO-RE loaded simultaneously, same triggers, field-by-field diff (85 events identical) — catches field-level misalignment E2E can't
+
+### Changed
+- Ring buffer upgraded from BCC's 4096 bytes (~9 events) to 1MB (`1<<20`), eliminating overflow risk
+- BCC dependency removed: requirements.txt / setup.sh / README / test-guide / demo now declare libbpf + clang + bpftool
+- Event parsing untouched (`struct event` field order preserved byte-for-byte; handle_event reused)
+
+### Fixed
+- BCC-era bounded-loop compile bug inside tracepoints (bpf2c limitation) — gone under CO-RE, unblocking complex probe logic for v0.4.2
+
+### Verified
+- Migration success criterion: all 6 E2E escape scenarios pass
+- pytest 92/92 + integration suite 15/15
+- Parity check: 85 events field-identical across backends
+- eBPF smoke (`tools/bpf_smoke.py`): CO-RE load + 5-probe attach + event parsing
+
 ## [0.4.0] - 2026-08-13
 
 ### Added
