@@ -1,6 +1,6 @@
 # eBPF Container Guard — 测试指南
 
-> **版本**: v0.3.9
+> **版本**: v0.4.2
 > **内核**: 6.8.0-136-generic (Ubuntu 22.04 LTS)
 > **更新**: 2026-08-11
 
@@ -89,7 +89,7 @@ bash tests/integration/test_escape_scenarios.sh
 | 6 | 检测管线模块存在 | engine.py / attack_matrix.py / ai_analyzer.py |
 | 7 | 核心基础设施模块存在 | identity.py / event_log.py / scope.py / escalation.py / netblock.py / decision_executor.py |
 | 8 | 响应引擎 + 面板存在 | docker_responder.py / app.py |
-| 9 | 规则引擎加载与匹配 | 加载 ≥8 条规则，procfs mount 命中，ext4 不命中 |
+| 9 | 规则引擎加载与匹配 | 加载 ≥12 条规则，procfs mount 命中，ext4 不命中 |
 | 10 | 行为矩阵组合评分 | 双向量命中触发 combo 提升（90→95） |
 | 11 | 升级链 | pause → kill → block_image 三级升级 |
 | 12 | 监控范围过滤 | include + exclude fnmatch 正确过滤 |
@@ -102,7 +102,7 @@ bash tests/integration/test_escape_scenarios.sh
 ```
 ==========================================
   eBPF Container Guard Test Suite
-  Version: v0.3.9 (5 probes | 8 rules | 3-tier + dashboard)
+  Version: v0.4.2 (6 probes | 12 rules | 3-tier + dashboard)
 ==========================================
 
 [TEST 1] Main entry point exists...
@@ -328,7 +328,7 @@ docker exec test_nsenter bash -c \
 | Python | 3.10 |
 | libbpf 1.x | 已安装 |
 | Docker | 已安装并运行 |
-| Guard 版本 | v0.3.9 |
+| Guard 版本 | v0.4.2 |
 
 ### 烟雾测试结果
 
@@ -337,7 +337,7 @@ $ bash tests/integration/test_escape_scenarios.sh
 
 ==========================================
   eBPF Container Guard Test Suite
-  Version: v0.3.3 (5 probes | 8 rules | 3-tier + dashboard)
+  Version: v0.4.2 (6 probes | 12 rules | 3-tier + dashboard)
 ==========================================
 
 [TEST 1]  Main entry point exists...            ✅ PASS
@@ -525,7 +525,7 @@ TEST 3: 检测到 nsenter_escape...                            ✅ PASS
 | 项目 | 状态 |
 |------|------|
 | 5 个 eBPF 探针全部正常工作 | ✅ |
-| 8 条检测规则全部可触发 | ✅ |
+| 12 条检测规则全部可触发 | ✅ |
 | 行为矩阵组合评分正确（单向量 70-75%，组合 88-95%） | ✅ |
 | 响应引擎动作正确（pause/isolate/queue block_image） | ✅ |
 | iptables 网络阻断生效（FORWARD DROP） | ✅ |

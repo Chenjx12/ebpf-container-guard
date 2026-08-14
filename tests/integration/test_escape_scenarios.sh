@@ -10,7 +10,7 @@ print_header() {
     echo ""
     echo "=========================================="
     echo "  eBPF Container Guard Test Suite"
-    echo "  Version: v0.3.3 (5 probes | 8 rules | 3-tier + dashboard)"
+    echo "  Version: v0.4.3 (6 probes | 12 rules | 3-tier + dashboard)"
     echo "=========================================="
     echo ""
 }
@@ -135,13 +135,13 @@ fi
 # Unit behaviors (no root needed)
 # ============================================================
 
-# Test 9: Rule engine loads 8 rules and matches
+# Test 9: Rule engine loads 12 rules and matches
 print_test "Rule engine loads rules and matches"
 if python3 -c "
 import sys; sys.path.insert(0, 'src')
 from detector.engine import EscapeDetector
 d = EscapeDetector('config/rules.yaml')
-assert len(d.rules) >= 8, f'expected >=8 rules, got {len(d.rules)}'
+assert len(d.rules) >= 12, f'expected >=8 rules, got {len(d.rules)}'
 # procfs mount escape should match
 m = d.check_event({'event_type': 'mount', 'fstype': 'proc',
                    'target_path': '/tmp/host_proc', 'comm': 'mount'})

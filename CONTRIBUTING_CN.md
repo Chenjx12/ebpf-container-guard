@@ -116,7 +116,7 @@ ebpf-container-guard/
 │   └── responder/                   # 响应引擎（分级自动化）
 │       └── docker_responder.py      # Docker 动作 + 人工判决队列
 ├── config/                          # YAML 配置文件
-│   ├── rules.yaml                   # 8 条检测规则
+│   ├── rules.yaml                   # 12 条检测规则
 │   ├── responses.yaml               # 严重度→动作策略
 │   ├── monitor.yaml                 # 监控范围（include/exclude）
 │   ├── blocklist.yaml               # 拉黑镜像（运行时状态，gitignored）

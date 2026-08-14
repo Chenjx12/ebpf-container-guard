@@ -109,7 +109,7 @@ ebpf-container-guard/
 │   └── responder/                   # Response engine (graded automation)
 │       └── docker_responder.py      # Docker actions + human review queue
 ├── config/                          # YAML configuration files
-│   ├── rules.yaml                   # 8 detection rules
+│   ├── rules.yaml                   # 12 detection rules
 │   ├── responses.yaml               # Severity→action policy
 │   ├── monitor.yaml                 # Monitoring scope (include/exclude)
 │   ├── blocklist.yaml               # Blocked images (runtime state, gitignored)

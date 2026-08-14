@@ -1,6 +1,6 @@
 # eBPF Container Guard — Test Guide
 
-> **Version**: v0.3.9
+> **Version**: v0.4.2
 > **Kernel**: 6.8.0-136-generic (Ubuntu 22.04 LTS)
 > **Updated**: 2026-08-11
 
@@ -89,7 +89,7 @@ No root needed. 15 checks covering:
 | 6 | Detection pipeline modules exist | engine.py / attack_matrix.py / ai_analyzer.py |
 | 7 | Core infrastructure modules exist | identity.py / event_log.py / scope.py / escalation.py / netblock.py / decision_executor.py |
 | 8 | Responder + dashboard exist | docker_responder.py / app.py |
-| 9 | Rule engine loads and matches | Loads ≥8 rules, procfs mount matches, ext4 does not |
+| 9 | Rule engine loads and matches | Loads ≥12 rules, procfs mount matches, ext4 does not |
 | 10 | Attack matrix combo scoring | Dual-vector hit triggers boost (90→95) |
 | 11 | Escalation chain | pause → kill → block_image progression |
 | 12 | Monitoring scope filtering | include + exclude fnmatch works correctly |
@@ -102,7 +102,7 @@ No root needed. 15 checks covering:
 ```
 ==========================================
   eBPF Container Guard Test Suite
-  Version: v0.3.9 (5 probes | 8 rules | 3-tier + dashboard)
+  Version: v0.4.2 (6 probes | 12 rules | 3-tier + dashboard)
 ==========================================
 
 [TEST 1] Main entry point exists...
@@ -319,7 +319,7 @@ docker exec test_nsenter bash -c \
 | Python | 3.10 |
 | libbpf 1.x | Installed |
 | Docker | Installed and running |
-| Guard version | v0.3.9 |
+| Guard version | v0.4.2 |
 
 ### Smoke Test Results
 
@@ -387,8 +387,8 @@ Total:  15    Passed: 15    Failed: 0
 
 | Item | Status |
 |------|--------|
-| All 5 eBPF probes working | ✅ |
-| All 8 detection rules triggerable | ✅ |
+| All 6 eBPF probes working | ✅ |
+| All 12 detection rules triggerable | ✅ |
 | Attack matrix combo scoring correct (single 70-75%, combo 88-95%) | ✅ |
 | Response actions correct (pause/isolate/queue block_image) | ✅ |
 | iptables network blocking active (FORWARD DROP) | ✅ |

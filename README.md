@@ -205,14 +205,14 @@ The AI correctly identified this as a false positive — the rule engine matched
 ┌─────────────────────────────────────────────┐
 │   User Space (Python)                        │
 │   ┌───────────────────────────────────────┐  │
-│   │  Tier 1: Rule Engine (10 YAML rules)    │  │
+│   │  Tier 1: Rule Engine (12 YAML rules)    │  │
 │   │  ├─ mount, ptrace, execve, connect,    │  │
-│   │  │   openat — 4 attack surfaces        │  │
+│   │  │   openat, capset — 5 attack surfaces        │  │
 │   │  ├─ Whitelist exclusion + fnmatch      │  │
 │   │  └─ Severity: CRITICAL / HIGH          │  │
 │   ├───────────────────────────────────────┤  │
 │   │  Tier 2: Attack Matrix                 │  │
-│   │  ├─ 8 vectors × 6 combo rules          │  │
+│   │  ├─ 10 vectors × 8 combo rules          │  │
 │   │  ├─ 10s window combination scoring     │  │
 │   │  └─ Behavior → CVE mapping             │  │
 │   ├───────────────────────────────────────┤  │
@@ -228,12 +228,13 @@ The AI correctly identified this as a false positive — the rule engine matched
 ├─────────────────────────────────────────────┤
 │   Kernel Space (eBPF) — 4096-entry Ring Buffer │
 │   ┌───────────────────────────────────────┐  │
-│   │  Tracepoint Probes (5)                │  │
+│   │  Tracepoint Probes (6)                │  │
 │   │  ├─ sys_enter_mount                   │  │
 │   │  ├─ sys_enter_ptrace                  │  │
 │   │  ├─ sys_enter_execve                  │  │
 │   │  ├─ sys_enter_connect                 │  │
-│   │  └─ sys_enter_openat (path-filtered)  │  │
+│   │  ├─ sys_enter_openat (path-filtered)  │  │
+│   │  └─ sys_enter_capset                 │  │
 │   └───────────────────────────────────────┘  │
 │   ┌───────────────────────────────────────┐  │
 │   │  Ring Buffer (Events)                 │  │
@@ -274,7 +275,7 @@ ebpf-container-guard/
 │   ├── detector/
 │   │   ├── __init__.py
 │   │   ├── engine.py                # Tier 1: YAML rule engine (hot-reload)
-│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix (8 vectors)
+│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix (10 vectors)
 │   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI judge (async)
 │   └── responder/
 │       ├── __init__.py
