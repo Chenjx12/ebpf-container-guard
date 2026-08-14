@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.3-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.4-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -18,7 +18,7 @@
 
 - **三层检测管线** — 规则引擎（12 条规则，毫秒级）→ 行为矩阵（行为→CVE 映射，组合评分）→ AI 研判（DeepSeek，置信度分级响应）
 - **6 个 eBPF 探针** — mount、ptrace、execve、connect、openat（内核态路径过滤）
-- **全量行为日志** — 所有 syscall 事件记录到 `behaviors.log`，可开关——事后回溯取证、攻击链分析
+- **全量行为日志** — 所有 syscall 事件记录到 `behaviors.log`（buffered + 按天轮转，保留 7 天），可开关——事后回溯取证、攻击链分析
 - **7 页面 Streamlit 面板** — 概览、行为日志、判决队列、AI 建议规则、规则管理、实时告警流、设置——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派
 - **容器身份识别** — PID Map → Cgroup Inode → /proc/cgroup 三级回退 + 后台动态刷新
 - **AI 威胁研判**（已实测）— DeepSeek API 集成，支持攻击确认、手法识别、未知攻击发现；真实 API 调用已验证，能正确区分真实攻击与误报
@@ -457,7 +457,8 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 | v0.2 | 三层检测 + 分级自动化（流量阻断、响应升级） | ✅ 稳定版 |
 | v0.3 | 面板 + 人机协同（多页面、RBAC、XDP+iptables 阻断、异步 AI、全量行为日志） | ✅ 稳定版 |
 | v0.4 | 规则引擎重构（Falco 风格条件树）+ BCC→libbpf CO-RE 迁移（自研 ctypes 加载层） | ✅ 稳定版 |
-|       | ↳ v0.4.3 — 生产化准备（systemd 部署 + 性能压测） | ✅ 当前版本 |
+|       | ↳ v0.4.3 — 生产化准备（systemd 部署 + 性能压测） | ✅ 稳定版 |
+|       | ↳ v0.4.4 — 行为日志 IO 优化（buffered + 轮转） | ✅ 当前版本 |
 | v0.4.x | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 

@@ -17,6 +17,7 @@
 | [033](033-libbpf-core.md) | BCC → libbpf CO-RE 迁移 | Accepted | v0.4.1 |
 | [036](036-systemd-deployment.md) | systemd 部署形态与干净退出 | Accepted | v0.4.3 |
 | [037](037-performance-benchmark.md) | 性能压测方法与 IO 瓶颈归因 | Accepted | v0.4.3 |
+| [038](038-behavior-logger-io.md) | BehaviorLogger buffered writer + 按天轮转 | Accepted | v0.4.4 |
 
 ## 格式
 

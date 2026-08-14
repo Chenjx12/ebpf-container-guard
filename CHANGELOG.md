@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.4.4] - 2026-08-14
+
+### Added
+- **BehaviorLogger IO optimization** (decision #37's optional optimization landed):
+  - **Buffered writer**: file kept open, flush every 0.5s — eliminates the per-event `open('a')+write+close` 2-syscall overhead
+  - **Daily + size rotation** (rename scheme): on date change / >50MB, `behaviors.log` → `behaviors.YYYY-MM-DD.log`; active file is always `behaviors.log` (dashboard/bench zero changes)
+  - **Retention**: auto-clean files older than 7 days (prevents disk growth)
+  - Guard flushes buffer on shutdown (`_shutdown`, prevents losing final events)
+  - **Debug finding**: 2s flush caused large synchronous writes to block ringbuf at 10K+ ev/s (27% loss at 20K) → tuned to 0.5s, 40K now 0 loss — flush-granularity/throughput tradeoff recorded in decision #38
+- **Bench tool adaptation** (tools/bench_openat.py): 15s drain matches buffered flush cycles; fixed guard-not-recreating-file-after-rm bug (`_maybe_rotate` checks file existence)
+
+### Verified
+- pytest 105/105 (6 new rotation/buffered unit tests)
+- Re-benchmarked: **40K ev/s 0 loss, latency p50 52ms** (on par with per-event open('a'), syscall overhead eliminated at normal load)
+- Guard live rotation verified (date/size/retention)
+
 ## [0.4.3] - 2026-08-14
 
 ### Added

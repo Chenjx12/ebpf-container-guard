@@ -541,6 +541,11 @@ class ContainerEscapeMonitor:
             self.bpf.close()
         except Exception:
             pass
+        # v0.4.4: flush 行为日志缓冲 (防止退出丢最后 2s 事件)
+        try:
+            self.behavior_logger.flush()
+        except Exception:
+            pass
 
     def run(self):
         """Start monitoring loop"""

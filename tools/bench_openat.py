@@ -129,14 +129,15 @@ def run_bench(count, rate, pid, save_path=None):
     inject_wall_ms = inject(count, rate)
     t_inj_end = time.time()
 
-    # 排空 (guard 10Hz poll; 高速率给足 5s)
-    time.sleep(5)
+    # 排空 (guard 10Hz poll + buffered flush 周期 2s + 消费滞后:
+    # v0.4.4 需 15s 让缓冲与消费全部落盘, 否则批次效应误报丢失)
+    time.sleep(15)
 
     # 分析: 逐事件配对 (behaviors 按序 = 注入按序, 同 comm 同路径)
     events = parse_behaviors()
-    # 只取注入窗口内的事件 (窗口: 注入前 0.5s ~ 注入后 6s)
+    # 只取注入窗口内的事件 (窗口: 注入前 0.5s ~ 注入后 15s)
     win_start_ms = int((t_inj_start - 0.5) * 1000)
-    win_end_ms = int((t_inj_end + 6) * 1000)
+    win_end_ms = int((t_inj_end + 15) * 1000)
     matched = [e for e in events if win_start_ms <= e[0] <= win_end_ms]
 
     lost = max(0, count - len(matched))

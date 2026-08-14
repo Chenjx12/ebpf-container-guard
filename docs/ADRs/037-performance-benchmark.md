@@ -28,7 +28,7 @@ Accepted (v0.4.3) · Amended (v0.4.3, 数据可信化)
 ## 后果
 - ✅ 毕设实验验证有可信数据（docs/performance-report.md 修正版）；K8s 多节点后可对比
 - ✅ 确认检测可靠性（零丢失至 40K）与资源占用（<1%）
-- ❌ 延迟受 behavior_log 每事件 `open('a')+write+close` IO 影响（极高速率 50K 时成瓶颈）——标注可选优化：buffered writer + final flush，不入本期
+- ✅ **behavior_log IO 优化已落地**（v0.4.4）：buffered writer + 按天轮转——40K ev/s 0 丢失、延迟 p50 52ms，与逐事件 open('a') 持平且消除每事件 syscall（详见 [ADR-038](038-behavior-logger-io.md)）
 - 📝 **度量方法会污染结果**：压测延迟必须逐事件配对，窗口起点近似会引入注入分布偏差；采样噪声大于信号时，结论只能说"<噪声上限"而非精确值
 - 📝 延迟下限由 poll(100ms) 粒度决定，p50≈50-100ms 属预期；ringbuf 溢出是丢包不是崩溃——极限测试不会崩 guard
 

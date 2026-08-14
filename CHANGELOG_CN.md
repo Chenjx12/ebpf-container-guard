@@ -9,6 +9,24 @@
 
 ---
 
+## [0.4.4] - 2026-08-14
+
+### 新增
+- **BehaviorLogger IO 优化**（压测决策 #37 的可选优化落地）：
+  - **buffered writer**：保持文件打开，每 0.5s flush——消除每事件 `open('a')+write+close` 的 2 次 syscall
+  - **按天 + 大小轮转**（rename 方案）：跨天/超 50MB 时 `behaviors.log` → `behaviors.YYYY-MM-DD.log`，活跃文件始终是 `behaviors.log`（面板/压测零改动）
+  - **保留策略**：自动清理 7 天前的历史文件（防磁盘膨胀）
+  - guard 退出 flush 缓冲（`_shutdown` 调用，防丢最后事件）
+  - **调试发现**：2s flush 在 10K+ ev/s 时大批量同步写阻塞 ringbuf（20K 丢 27%）→ 调 0.5s 后 40K 0 丢失——flush 粒度与吞吐的权衡写入决策 #38
+- **压测工具适配**（tools/bench_openat.py）：排空 15s 匹配 buffered flush 周期；修复 rm 后 guard 不重建文件 bug（`_maybe_rotate` 检查文件存在性）
+
+### 验证
+- pytest 105/105（新增 6 个轮转/buffered 单测）
+- 压测复测：**40K ev/s 0 丢失，延迟 p50 52ms**（与逐事件 open('a') 持平，正常负载消除 syscall 开销）
+- guard 实跑轮转验证（跨天/大小/保留清理）
+
+---
+
 ## [0.4.3] - 2026-08-14
 
 ### 新增
