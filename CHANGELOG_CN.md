@@ -9,6 +9,29 @@
 
 ---
 
+## [0.4.2] - 2026-08-14
+
+### 新增
+- **cgroup release_agent 写入检测**（CVE-2022-0492 逃逸链补全）：
+  - openat 探针内核态 basename 后缀匹配（release_agent / notify_on_release，v2 前缀 `cgroup.release_agent` 自动覆盖）+ 写标志校验（O_WRONLY/O_RDWR）
+  - 规则 `cgroup_release_agent_write`（HIGH）——与既有 `mount_cgroup` 组合成完整逃逸链检测（组合置信度 92%）
+- **capset 能力覆盖**（cap_sys_admin）：
+  - 新增 capset 探针（第 6 个 tracepoint，EVENT_CAPSET=6），读取 data[0] 的 effective/permitted
+  - 规则 `capset_cap_sys_admin`（MEDIUM）
+- **bitand 操作符**（第 7 个叶子操作符）：位包含检查（`{bitand: 2097152}` = CAP_SYS_ADMIN），规则层可表达能力位检测
+- **E2E +2 场景**（共 8 个）：cgroup 合成写入、capset ctypes 调用（含降权负向测试）
+
+### 变更
+- 事件 struct 尾部追加 cap_effective / cap_permitted / open_flags（ctypes 解析兼容）
+- attack_matrix +2 vector（cgroup_release_agent 80% / capability_abuse 55%）+2 组合
+- 修复 ring_buffer_poll 迭代崩溃（回调中首次访问 map 触发字典修改）
+
+### 验证
+- pytest 99/99；集成测试 15/15；E2E 8 场景全过（6 旧 + 2 新）
+- **CVE-2022-0492 PoC 真实验证**（PaloAltoNetworks 官方，cgroup v2 主机）：release_agent 写入 ×2 + mount_cgroup 全命中——检测与 cgroup 版本无关
+
+---
+
 ## [0.4.1] - 2026-08-14
 
 ### 新增

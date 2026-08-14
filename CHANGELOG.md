@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.4.2] - 2026-08-14
+
+### Added
+- **cgroup release_agent write detection** (CVE-2022-0492 escape chain completion):
+  - openat probe kernel-side basename suffix match (release_agent / notify_on_release, v2 prefix `cgroup.release_agent` auto-covered) + write-flag check (O_WRONLY/O_RDWR)
+  - Rule `cgroup_release_agent_write` (HIGH) — with existing `mount_cgroup` forms the full escape chain (combo confidence 92%)
+- **capset capability coverage** (cap_sys_admin):
+  - New capset probe (6th tracepoint, EVENT_CAPSET=6), reads data[0] effective/permitted
+  - Rule `capset_cap_sys_admin` (MEDIUM)
+- **bitand operator** (7th leaf operator): bit-inclusion check (`{bitand: 2097152}` = CAP_SYS_ADMIN), enables bit-level detection in the rule layer
+- **E2E +2 scenarios** (8 total): cgroup synthetic write, capset ctypes call (incl. de-escalation negative test)
+
+### Changed
+- Event struct extended at tail with cap_effective / cap_permitted / open_flags (ctypes-compatible)
+- attack_matrix +2 vectors (cgroup_release_agent 80% / capability_abuse 55%) +2 combos
+- Fixed ring_buffer_poll iteration crash (first map access inside callback mutated the dict)
+
+### Verified
+- pytest 99/99; integration suite 15/15; all 8 E2E scenarios pass (6 old + 2 new)
+- **Real CVE-2022-0492 PoC verification** (PaloAltoNetworks official, cgroup v2 host): release_agent writes ×2 + mount_cgroup all hit — detection is cgroup-version agnostic
+
 ## [0.4.1] - 2026-08-14
 
 ### Added
