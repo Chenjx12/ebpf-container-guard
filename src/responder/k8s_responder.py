@@ -95,25 +95,26 @@ class K8sResponseEngine:
             return False
 
     def _pod_cgroup_path_by_uid(self, ns, pod):
-        """按 pod uid 扫 /proc 找 cgroup (触发进程已退出时兜底)"""
+        """按 pod 主容器 ID 定位 cgroup (精确, 非扫 /proc 碰运气)。
+
+        之前扫 /proc 会匹配到 exec 辅助进程的 scope (短暂存在),
+        冻结错目标。改为从 k8s API 拿主容器 ID 直接定位。
+        """
         try:
             p = self._client.read_namespaced_pod(pod, ns)
-            pod_uid = p.metadata.uid.replace('-', '_')
-            for pid_dir in os.listdir('/proc'):
-                if not pid_dir.isdigit():
-                    continue
-                try:
-                    with open(f"/proc/{pid_dir}/cgroup") as f:
-                        content = f.read()
-                    if f'pod{pod_uid}' in content and \
-                            'cri-containerd-' in content:
-                        path = content.strip().split('::', 1)[-1]
-                        return f"/sys/fs/cgroup{path}"
-                except (FileNotFoundError, PermissionError):
-                    continue
+            cid = (p.status.container_statuses[0].container_id
+                   if p.status.container_statuses else '')
+            # containerID 格式: containerd://<64位ID>
+            full_id = cid.split('//')[-1]
+            if not full_id:
+                return None
+            import glob
+            matches = glob.glob(
+                f"/sys/fs/cgroup/kubepods.slice/**/cri-containerd-{full_id}.scope",
+                recursive=True)
+            return matches[0] if matches else None
         except Exception:
-            pass
-        return None
+            return None
 
     def _pod_ip(self, ns, pod):
         try:
