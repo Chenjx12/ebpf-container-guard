@@ -133,22 +133,41 @@ class K8sResponseEngine:
             return False
 
     def _iptables_available(self):
-        """容器内是否有 iptables (v0.5.3 容器化: 无则降级 annotation-only)"""
+        """iptables 是否可用。
+
+        容器化: nsenter 进宿主 netns 执行宿主 iptables (宿主 glibc 兼容);
+        宿主机: 直接 iptables (PATH)。
+        """
         import shutil
-        return shutil.which('iptables') is not None
+        return shutil.which('nsenter') is not None or \
+            shutil.which('iptables') is not None
+
+    def _iptables_cmd(self):
+        """返回 iptables 命令前缀。
+
+        K8s 容器化: nsenter -t 1 -n (进宿主 netns, 宿主 iptables);
+        宿主机: 直接 iptables。
+        """
+        if os.path.exists('/var/run/secrets/kubernetes.io/serviceaccount'):
+            # 容器内 (有 serviceaccount = in_cluster):
+            # nsenter -m -n 进宿主 mount+netns, 用宿主的 iptables (glibc 兼容)
+            return 'nsenter -t 1 -m -n iptables'
+        return 'iptables'
 
     def _iptables_block(self, pod_ip):
         """iptables FORWARD DROP 源=Pod IP (断出向 C2/横移)"""
         if not pod_ip:
             return False
-        os.system(f"iptables -C FORWARD -s {pod_ip} -j DROP 2>/dev/null "
-                  f"|| iptables -I FORWARD 1 -s {pod_ip} -j DROP")
+        ipt = self._iptables_cmd()
+        os.system(f"{ipt} -C FORWARD -s {pod_ip} -j DROP 2>/dev/null "
+                  f"|| {ipt} -I FORWARD 1 -s {pod_ip} -j DROP")
         return True
 
     def _iptables_unblock(self, pod_ip):
         if not pod_ip:
             return False
-        os.system(f"iptables -D FORWARD -s {pod_ip} -j DROP 2>/dev/null")
+        ipt = self._iptables_cmd()
+        os.system(f"{ipt} -D FORWARD -s {pod_ip} -j DROP 2>/dev/null")
         return True
 
     def _owner_controller(self, ns, pod):
@@ -232,12 +251,13 @@ class K8sResponseEngine:
                         print(f"✅ Pod {container_id} ISOLATED "
                               f"(iptables DROP {pod_ip})")
                 else:
-                    # 容器化 guard 无 iptables (netns 隔离) — 降级 annotation-only
+                    # 兜底 (v0.5.4 hostNetwork 下容器内 iptables 可用,
+                    # 此处仅在未来 kube-router 接管等异常时触发)
                     self._patch_annotation(
                         ns, pod, 'guard/isolated',
                         datetime.now().isoformat())
                     print(f"⚠️ Pod {container_id} 降级 annotation-only "
-                          f"(容器内无 iptables, 实际阻断由部署者处理)")
+                          f"(iptables 不可用)")
                     success = True
             elif action == 'kill_process':
                 self.kill_process(container_id, event_pid)

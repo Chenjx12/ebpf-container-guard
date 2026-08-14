@@ -28,7 +28,9 @@ spec:
     spec:
       serviceAccountName: ebpf-guard
       hostPID: true
-      hostNetwork: false
+      # v0.5.4: hostNetwork 共享宿主 netns — 容器内 iptables 直接操作宿主
+      # FORWARD 链断 Pod 流量 (isolate 真实生效, 非降级)
+      hostNetwork: true
       tolerations:
         - operator: Exists
       containers:
@@ -43,7 +45,11 @@ spec:
                 - CAP_SYS_ADMIN
                 - CAP_NET_ADMIN
                 - CAP_SYS_PTRACE
-          command: ["python3", "-u", "main.py", "--runtime", "k8s"]
+          command:
+            - /bin/sh
+            - -c
+            - >
+              exec python3 -u main.py --runtime k8s
           volumeMounts:
             - name: sysfs
               mountPath: /sys

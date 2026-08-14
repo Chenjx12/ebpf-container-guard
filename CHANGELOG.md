@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.4] - 2026-08-14
+
+### Added
+- **Network blocking completed (containerized guard real isolation)**:
+  - daemonset `hostNetwork: true` (shared host netns)
+  - **nsenter approach**: `nsenter -t 1 -m -n iptables` enters host mount+netns using host iptables (avoids container glibc incompatibility) — isolate and C2 blocking both take real effect
+  - k8s_responder + netblocker unified on nsenter (auto-switch in-container via serviceaccount; direct iptables on host)
+  - Verified: `ISOLATED (iptables DROP 10.42.x)` rules actually inserted into host FORWARD chain
+- **Network-mode adaptive blueprint** (`src/core/netpol_detect.py` design):
+  - Detect CNI type (flannel/kube-router/calico) → adapt isolation implementation (flannel→iptables / kube-router→NetworkPolicy)
+  - IsolationBackend interface (current NsenterIptablesBackend, future NetworkPolicyBackend)
+  - Decision #43: B deferred (k3s CNI swap cost high)
+
+### Fixed
+- Mounting host /lib overwrote container libc (python wouldn't start) → nsenter host env instead
+- Host iptables binary glibc-incompatible in container → nsenter -m
+
+### Verified
+- Containerized guard isolate really drops traffic (host FORWARD rules visible)
+- Host regression: Docker mount + pytest 105/105
+
 ## [0.5.3] - 2026-08-14
 
 ### Added

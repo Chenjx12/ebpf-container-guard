@@ -9,6 +9,29 @@
 
 ---
 
+## [0.5.4] - 2026-08-14
+
+### 新增
+- **网络阻断补全（容器化 guard 真实断网）**：
+  - daemonset `hostNetwork: true`（共享宿主 netns）
+  - **nsenter 方案**：`nsenter -t 1 -m -n iptables` 进宿主 mount+netns 用宿主 iptables（规避容器 glibc 不兼容坑）——isolate 与 C2 阻断都真实生效
+  - k8s_responder 与 netblocker 统一 nsenter（容器内检测 serviceaccount 自动切换，宿主机直接 iptables）
+  - 验证：`ISOLATED (iptables DROP 10.42.x)` 规则真插进宿主 FORWARD 链
+- **网络模式自主适配蓝图**（`src/core/netpol_detect.py` 设计）：
+  - 探测 CNI 类型（flannel/kube-router/calico）→ 自主选隔离实现（flannel→iptables / kube-router→NetworkPolicy）
+  - IsolationBackend 接口设计（当前 NsenterIptablesBackend，未来 NetworkPolicyBackend）
+  - 决策 #43：留待有条件环境实现 B（k3s 换 CNI 成本高）
+
+### 修复
+- 挂载宿主 /lib 覆盖容器 libc（python 起不来）→ 改用 nsenter 宿主环境
+- 宿主 iptables 二进制容器内跑 glibc 不兼容 → nsenter -m
+
+### 验证
+- 容器化 guard isolate 真实断网（iptables DROP 宿主链可见）
+- 宿主机回归：Docker mount + pytest 105/105
+
+---
+
 ## [0.5.3] - 2026-08-14
 
 ### 新增

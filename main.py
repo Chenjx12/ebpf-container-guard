@@ -72,6 +72,55 @@ PTRACE_MAP = {
 }
 
 
+class _NsenterNetBlocker:
+    """K8s 容器化 netblocker (v0.5.4): nsenter 进宿主 netns 执行宿主 iptables。
+
+    容器内无 iptables 且 netns 隔离 — nsenter -t 1 -m -n 用宿主的命令
+    操作宿主的 FORWARD 链, 真实阻断 C2。
+    """
+
+    _IPT = "nsenter -t 1 -m -n iptables"
+
+    def __init__(self):
+        self.blocked = {}  # "ip:port" -> ts (保持与 NetBlocker 兼容)
+
+    def block(self, ip, port):
+        if port <= 0:
+            return False
+        key = f"{ip}:{port}"
+        if key in self.blocked:
+            return False
+        os.system(f"{self._IPT} -C FORWARD -d {ip} -p tcp --dport {port} "
+                  f"-j DROP 2>/dev/null || {self._IPT} -I FORWARD 1 "
+                  f"-d {ip} -p tcp --dport {port} -j DROP")
+        self.blocked[key] = time.time()
+        print(f"  [NetBlock] nsenter DROP {ip}:{port}")
+        return True
+
+    def unblock(self, ip, port):
+        key = f"{ip}:{port}"
+        os.system(f"{self._IPT} -D FORWARD -d {ip} -p tcp --dport {port} "
+                  f"-j DROP 2>/dev/null")
+        self.blocked.pop(key, None)
+        return True
+
+    def cleanup_expired(self):
+        return 0
+
+    def is_blocked(self, ip, port):
+        return f"{ip}:{port}" in self.blocked
+
+    def list_blocks(self):
+        return [(k.rsplit(':', 1)[0], int(k.rsplit(':', 1)[1]), ts)
+                for k, ts in self.blocked.items()]
+
+    def list_iptables(self):
+        return []
+
+    def detach(self):
+        pass
+
+
 class _NoopNetBlocker:
     """K8s 容器化降级 netblocker (v0.5.3): 容器内无 iptables 时 no-op。"""
 
@@ -171,15 +220,14 @@ class ContainerEscapeMonitor:
         #   xdp      — inbound blocking (NIC ingress, kernel-level)
         #   mixed    — both: XDP inbound + iptables outbound (recommended)
         # v0.5.2: K8s 模式禁 XDP (docker0 不存在, 且 -s Pod IP 语义不符) → 强制 iptables
-        # v0.5.3: K8s 容器化无 iptables (netns 隔离) → 降级 no-op (annotation 由 responder 处理)
+        # v0.5.4: K8s 容器化用 nsenter 进宿主 netns 执行宿主 iptables (真实阻断)
         backend = self._get_netblock_backend()
         if self.k8s_mode:
             backend = 'iptables'
         self.netblock_backend = backend
-        if self.k8s_mode and not shutil.which('iptables'):
-            print("  [NetBlock] K8s 容器内无 iptables — 降级 no-op "
-                  "(C2 阻断由部署者处理)")
-            self.netblocker = _NoopNetBlocker()
+        if self.k8s_mode and shutil.which('nsenter'):
+            self.netblocker = _NsenterNetBlocker()
+            print("  [NetBlock] K8s 容器化 — nsenter 宿主 iptables (真实阻断)")
         elif backend == 'mixed':
             xdp = XDPNetBlocker(iface=self._get_xdp_iface())
             self.netblocker = CompositeNetBlocker(
