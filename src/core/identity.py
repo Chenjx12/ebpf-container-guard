@@ -229,9 +229,10 @@ class ContainerIdentity:
     def __init__(self, bpf, backend=None):
         self.bpf = bpf
         self.backend = backend or RuntimeDetector.detect()
-        self.cgroup_map = {}          # inode -> (short_id, name)
-        self._id_to_name = {}         # short_id -> container name
+        self.cgroup_map = {}          # inode -> (display_id, name)
+        self._id_to_name = {}         # short_id/display -> container name
         self._id_to_image = {}        # short_id -> image tag
+        self._short_to_display_map = {}  # short_id -> display (K8s: ns/pod)
 
         self._stop_refresh = threading.Event()
         self._refresh_thread = threading.Thread(
@@ -269,9 +270,31 @@ class ContainerIdentity:
 
         # Tier 2: /proc/<pid>/cgroup
         if pid > 0:
-            return self._resolve_via_proc(pid)
+            short_id = self._resolve_via_proc(pid)
+            # K8s: 短 ID → display (ns/pod); Docker: 短 ID 即最终值
+            return self._short_to_display(short_id)
 
         return 'host'
+
+    def _short_to_display(self, short_id):
+        """短 ID → display (K8s: ns/pod; Docker: 短 ID)。
+
+        map 未命中时查 backend 兜底 (新 pod 冷启动窗口)。
+        """
+        if short_id in ('host', 'unknown'):
+            return short_id
+        display = self._short_to_display_map.get(short_id)
+        if display:
+            return display
+        try:
+            meta = self.backend.get_meta(short_id)
+            display = meta.get('display')
+            if display:
+                self._short_to_display_map[short_id] = display
+                return display
+        except Exception:
+            pass
+        return short_id
 
     def get_name(self, container_id: str) -> str:
         """Look up container name by short ID ('' if unknown)."""
@@ -431,6 +454,7 @@ class ContainerIdentity:
         """
         self.cgroup_map = {}
         self._id_to_name = {}
+        self._short_to_display_map = {}
         try:
             for cid, meta in self.backend.list_containers():
                 cgroup_path = self.backend.cgroup_path(cid)
@@ -442,6 +466,7 @@ class ContainerIdentity:
                                               meta.get('name', short_id))
                     self._id_to_name[display] = meta.get('name', short_id)
                     self._id_to_name[short_id] = meta.get('name', short_id)
+                    self._short_to_display_map[short_id] = display
         except Exception as e:
             print(f"  [!] cgroup map build failed: {e}", file=sys.stderr)
 

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.2] - 2026-08-14
+
+### Added
+- **K8s responder (detection→response loop)**:
+  - `src/responder/k8s_responder.py` (K8sResponseEngine, same interface as docker_responder): pause→**cgroup.freeze** (kernel v2 freezer, same mechanism as docker pause) + annotation; isolate→**iptables FORWARD DROP Pod IP** + annotation; kill_process→unchanged (host os.kill); kill_container→**delete pod** (Deployment/RS scale 0 first to prevent controller rebuild); block_image logs + queues only (admission webhook in v0.5.3)
+  - `src/core/k8s_decision_executor.py`: confirmed→delete pod; dismissed→restore (unfreeze + iptables -D + clear annotation)
+  - **IRREVERSIBLE_ACTIONS kept** (ADR-014 graded automation)
+  - **XDP disabled in K8s** (docker0 absent + -s Pod IP semantics mismatch) → force iptables backend
+  - Degradation: if kube-router detected (clears our rules) → annotation-only + warning
+
+### Verified
+- k3s E2E: esc-test2 pod reads /etc/shadow → sensitive_file_access → isolate_network → **iptables DROP 10.42.0.41 + annotation guard/isolated active**
+- K8s identity cold-start fix: new pod short-ID → backend lookup display (`default/esc-test2`)
+- cgroup.freeze manual write verified (v2 freezer writable)
+- **Docker mount scenario regression passes** (dual-track intact); pytest 105/105
+
+### Fixed
+- K8s identity cold-start window: `_short_to_display` adds backend lookup fallback
+- freeze when trigger process exited: pod-uid /proc scan fallback
+- banner version → v0.5.2
+
 ## [0.5.1] - 2026-08-14
 
 ### Added

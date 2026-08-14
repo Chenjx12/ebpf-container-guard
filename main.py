@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.5.1)
+eBPF Container Guard - Main Entry Point (v0.5.2)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -141,7 +141,10 @@ class ContainerEscapeMonitor:
         #   iptables — outbound blocking (FORWARD, default, reliable)
         #   xdp      — inbound blocking (NIC ingress, kernel-level)
         #   mixed    — both: XDP inbound + iptables outbound (recommended)
+        # v0.5.2: K8s 模式禁 XDP (docker0 不存在, 且 -s Pod IP 语义不符) → 强制 iptables
         backend = self._get_netblock_backend()
+        if self.k8s_mode:
+            backend = 'iptables'
         self.netblock_backend = backend
         if backend == 'mixed':
             xdp = XDPNetBlocker(iface=self._get_xdp_iface())
@@ -156,15 +159,15 @@ class ContainerEscapeMonitor:
             self.netblocker = NetBlocker()
 
         # 10. Initialize decision executor (human verdicts → runtime actions)
-        # v0.5.1: K8s 模式响应留 v0.5.2 — 挂 no-op 避免启动崩
         if self.k8s_mode:
-            print("  [Executor] K8s 模式响应 v0.5.2 实现 — 当前 no-op")
-            self.executor = None
-            # K8s 模式 responder 也 no-op (Docker 动作不适用)
-            class _NoopResponder:
-                def handle_alert(self, *a, **k):
-                    return 'skipped_k8s'
-            self.responder = _NoopResponder()
+            # v0.5.2: K8s responder + executor (检测→响应闭环)
+            print("  [Executor] K8s 模式响应引擎启动 (v0.5.2)")
+            from responder.k8s_responder import K8sResponseEngine
+            from core.k8s_decision_executor import K8sDecisionExecutor
+            self.responder = K8sResponseEngine(responses_file)
+            self.executor = K8sDecisionExecutor(
+                str(script_dir / "decisions.log"))
+            self.executor.start()
         else:
             self.executor = DecisionExecutor(
                 str(script_dir / "decisions.log"), self.docker_client)
@@ -193,7 +196,7 @@ class ContainerEscapeMonitor:
         print(f"  [Behavior] enabled: {self.behavior_logger.enabled}")
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.5.1")
+        print("  eBPF Container Guard v0.5.2")
         print("  6 probes | 12 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")

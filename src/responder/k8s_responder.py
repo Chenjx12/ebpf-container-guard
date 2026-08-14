@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""
+K8s 主动防御响应引擎 (v0.5.2) — 与 docker_responder 同接口, 双轨并行。
+
+动作映射 (决策 #41):
+  pause_container  → cgroup.freeze (内核 v2 freezer, 与 docker pause 同机制)
+                     + patch annotation guard/frozen=true
+  isolate_network  → iptables FORWARD DROP Pod IP (断 C2/横移)
+                     + patch annotation guard/isolated=true
+  kill_process     → 原样保留 (宿主 PID os.kill, 与运行时无关)
+  kill_container   → delete pod (Deployment/RS 先 scale 0 防控制器重建)
+  log_only         → 保留
+  block_image      → 仅记录 + 人工队列 (admission webhook 留 v0.5.3)
+
+IRREVERSIBLE_ACTIONS 判定原样保留 (ADR-014 分级自动化)。
+"""
+import json
+import os
+import signal
+import sys
+import time
+from datetime import datetime
+
+import yaml
+from kubernetes import client, config
+
+
+class K8sResponseEngine:
+    """K8s 响应引擎 — 同 ResponseEngine 接口。"""
+
+    IRREVERSIBLE_ACTIONS = ('kill_container', 'block_image')
+
+    def __init__(self, responses_file='responses.yaml',
+                 kubeconfig="/etc/rancher/k3s/k3s.yaml"):
+        with open(responses_file, 'r') as f:
+            self.config = yaml.safe_load(f).get('responses', [])
+
+        self.policy = {}
+        for rule in self.config:
+            self.policy[rule['threat_level']] = rule['action']
+
+        config.load_kube_config(config_file=kubeconfig)
+        self._client = client.CoreV1Api()
+        self._apps = client.AppsV1Api()
+        print(f"[K8sResponseEngine] 已加载 {len(self.policy)} 条响应策略")
+
+        self.cooldown = {}
+        self.cooldown_period = 600
+
+    # -----------------------------------------------------------
+    # Helpers
+    # -----------------------------------------------------------
+
+    @staticmethod
+    def _parse_ns_pod(container_id):
+        """'ns/pod' → (ns, pod); 无法解析返回 (None, None)"""
+        if not container_id or container_id in ('host', 'unknown'):
+            return None, None
+        parts = container_id.split('/')
+        if len(parts) == 2 and parts[0] and parts[1]:
+            return parts[0], parts[1]
+        return None, None
+
+    @staticmethod
+    def _pod_cgroup_path(pid):
+        """event pid → 宿主 cgroup scope 路径 (v2, kubepods.slice)"""
+        try:
+            with open(f"/proc/{pid}/cgroup") as f:
+                for line in f:
+                    if 'cri-containerd-' in line and '.scope' in line:
+                        # 0::/kubepods.slice/.../cri-containerd-<id>.scope
+                        path = line.strip().split('::', 1)[-1]
+                        return f"/sys/fs/cgroup{path}"
+        except (FileNotFoundError, PermissionError):
+            pass
+        return None
+
+    def _set_freeze(self, pid, freeze, ns=None, pod=None):
+        """写 cgroup.freeze (1=冻结, 0=解冻)。
+
+        优先用 event pid 反查 cgroup; 失败时按 pod uid 扫 /proc 兜底
+        (触发进程可能已退出)。
+        """
+        path = self._pod_cgroup_path(pid)
+        if path is None and ns and pod:
+            path = self._pod_cgroup_path_by_uid(ns, pod)
+        if not path or not os.path.exists(path):
+            return False
+        freeze_file = os.path.join(path, 'cgroup.freeze')
+        try:
+            with open(freeze_file, 'w') as f:
+                f.write('1' if freeze else '0')
+            return True
+        except (PermissionError, FileNotFoundError):
+            return False
+
+    def _pod_cgroup_path_by_uid(self, ns, pod):
+        """按 pod uid 扫 /proc 找 cgroup (触发进程已退出时兜底)"""
+        try:
+            p = self._client.read_namespaced_pod(pod, ns)
+            pod_uid = p.metadata.uid.replace('-', '_')
+            for pid_dir in os.listdir('/proc'):
+                if not pid_dir.isdigit():
+                    continue
+                try:
+                    with open(f"/proc/{pid_dir}/cgroup") as f:
+                        content = f.read()
+                    if f'pod{pod_uid}' in content and \
+                            'cri-containerd-' in content:
+                        path = content.strip().split('::', 1)[-1]
+                        return f"/sys/fs/cgroup{path}"
+                except (FileNotFoundError, PermissionError):
+                    continue
+        except Exception:
+            pass
+        return None
+
+    def _pod_ip(self, ns, pod):
+        try:
+            p = self._client.read_namespaced_pod(pod, ns)
+            return p.status.pod_ip
+        except Exception:
+            return None
+
+    def _patch_annotation(self, ns, pod, key, value):
+        body = {"metadata": {"annotations": {key: value}}}
+        try:
+            self._client.patch_namespaced_pod(pod, ns, body)
+            return True
+        except Exception:
+            return False
+
+    def _iptables_block(self, pod_ip):
+        """iptables FORWARD DROP 源=Pod IP (断出向 C2/横移)"""
+        if not pod_ip:
+            return False
+        os.system(f"iptables -C FORWARD -s {pod_ip} -j DROP 2>/dev/null "
+                  f"|| iptables -I FORWARD 1 -s {pod_ip} -j DROP")
+        return True
+
+    def _iptables_unblock(self, pod_ip):
+        if not pod_ip:
+            return False
+        os.system(f"iptables -D FORWARD -s {pod_ip} -j DROP 2>/dev/null")
+        return True
+
+    def _owner_controller(self, ns, pod):
+        """pod → 控制器 (Deployment/StatefulSet/RS); 裸 pod 返回 None"""
+        try:
+            p = self._client.read_namespaced_pod(pod, ns)
+            for ref in (p.metadata.owner_references or []):
+                kind = ref.kind
+                name = ref.name
+                if kind == 'ReplicaSet':
+                    # RS → Deployment (ownerRef 链)
+                    try:
+                        rs = self._apps.read_namespaced_replica_set(name, ns)
+                        for rref in (rs.metadata.owner_references or []):
+                            if rref.kind == 'Deployment':
+                                return 'Deployment', rref.name
+                    except Exception:
+                        pass
+                    return 'ReplicaSet', name
+                if kind in ('Deployment', 'StatefulSet'):
+                    return kind, name
+            return None, None
+        except Exception:
+            return None, None
+
+    # -----------------------------------------------------------
+    # 主入口 (同 ResponseEngine 接口)
+    # -----------------------------------------------------------
+
+    def handle_alert(self, alert, forced_action=None, ai_confidence=None):
+        severity = alert.get('severity', 'LOW').lower()
+        container_id = alert['event'].get('container_id', '')
+        event_pid = alert['event'].get('pid', 0)
+
+        # 跳过宿主机进程
+        if container_id in ['', 'host', 'unknown']:
+            print(f"[INFO] 跳过宿主机事件(PID={event_pid}),不执行响应")
+            return 'skipped_host'
+
+        # 确定响应动作: forced_action 优先, 否则按 severity 查策略
+        if forced_action and forced_action != 'log_only':
+            action = forced_action
+        else:
+            action = self.policy.get(severity, 'log_only')
+
+        # ADR-014: 不可逆动作永远进人工队列
+        if action in self.IRREVERSIBLE_ACTIONS:
+            print(f"\n⏳ [QUEUE] {action} 需要人工确认 "
+                  f"(AI置信度={ai_confidence or 'N/A'})")
+            return 'queued_human'
+
+        # 冷却检查
+        now = time.time()
+        if container_id in self.cooldown:
+            if now - self.cooldown[container_id] < self.cooldown_period:
+                remaining = int(self.cooldown_period
+                                - (now - self.cooldown[container_id]))
+                print(f"[SKIP] {container_id} 在冷却期内 (剩余{remaining}秒)")
+                return 'skipped_cooldown'
+
+        print(f"\n🛡️  [RESPONSE] 触发自动防御: {severity.upper()} → {action}")
+        ns, pod = self._parse_ns_pod(container_id)
+
+        try:
+            success = True
+            if action == 'pause_container':
+                success = self._set_freeze(event_pid, True, ns, pod)
+                if success:
+                    self._patch_annotation(
+                        ns, pod, 'guard/frozen',
+                        datetime.now().isoformat())
+                    print(f"✅ Pod {container_id} FROZEN (cgroup.freeze)")
+            elif action == 'isolate_network':
+                pod_ip = self._pod_ip(ns, pod)
+                success = self._iptables_block(pod_ip)
+                if success:
+                    self._patch_annotation(
+                        ns, pod, 'guard/isolated',
+                        datetime.now().isoformat())
+                    print(f"✅ Pod {container_id} ISOLATED "
+                          f"(iptables DROP {pod_ip})")
+            elif action == 'kill_process':
+                self.kill_process(container_id, event_pid)
+            elif action == 'kill_container':
+                self.kill_container(container_id)
+            elif action == 'log_only':
+                self.log_only(alert)
+
+            self.cooldown[container_id] = now
+            return 'executed' if success else 'error'
+        except Exception as e:
+            print(f"[ERROR] 响应执行失败: {e}", file=sys.stderr)
+            return 'error'
+
+    # -----------------------------------------------------------
+    # 动作实现
+    # -----------------------------------------------------------
+
+    def kill_process(self, container_id, pid):
+        """终止可疑进程 (宿主 PID, 与 Docker 版一致)"""
+        try:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(0.5)
+            try:
+                os.kill(pid, 0)
+                os.kill(pid, signal.SIGKILL)
+                print(f"🔥 Process {pid} FORCE KILLED (SIGKILL)")
+            except ProcessLookupError:
+                print(f"✅ Process {pid} TERMINATED (SIGTERM)")
+            self._audit_log(container_id, "KILL_PROCESS",
+                            f"Process {pid} terminated")
+        except (ProcessLookupError, PermissionError) as e:
+            print(f"⚠️  Process {pid} 终止失败: {e}")
+
+    def kill_container(self, container_id):
+        """删除 Pod (裸 pod 直接删; Deployment/RS 先 scale 0)"""
+        ns, pod = self._parse_ns_pod(container_id)
+        if not ns or not pod:
+            return
+        kind, name = self._owner_controller(ns, pod)
+        if kind in ('Deployment', 'StatefulSet'):
+            # 先 scale 0 防控制器秒级重建 (恢复由人工处理)
+            body = {"spec": {"replicas": 0}}
+            try:
+                if kind == 'Deployment':
+                    self._apps.patch_namespaced_deployment(name, ns, body)
+                else:
+                    self._apps.patch_namespaced_stateful_set(name, ns, body)
+                print(f"⏸️  控制器 {kind} {name} scale 0 (防重建)")
+            except Exception as e:
+                print(f"⚠️  scale 失败: {e}", file=sys.stderr)
+        self._client.delete_namespaced_pod(pod, ns)
+        print(f"🔥 Pod {container_id} DELETED")
+        self._audit_log(container_id, "KILL_CONTAINER", "Pod deleted")
+
+    def log_only(self, alert):
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'severity': alert['severity'],
+            'rule': alert['rule_name'],
+            'description': alert['description'],
+            'container': alert['event'].get('container_id', 'unknown'),
+            'process': alert['event'].get('comm', 'unknown'),
+            'pid': alert['event'].get('pid', 'unknown')
+        }
+        with open('audit.log', 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')
+        print(f"📝 AUDIT LOG written to audit.log")
+
+    def _audit_log(self, container_id, action, details):
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'container_id': container_id,
+            'action': action,
+            'details': details
+        }
+        with open('response_audit.log', 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')

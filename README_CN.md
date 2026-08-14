@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.2-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -461,7 +461,8 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |       | ↳ v0.4.4 — 行为日志 IO 优化（buffered + 轮转） | ✅ 稳定版 |
 | v0.5 | 单实例锁（部署形态互斥）→ K8s DaemonSet 原生支持 | ✅ 当前版本 |
 |       | ↳ v0.5.0 — 单实例锁 | ✅ 稳定版 |
-|       | ↳ v0.5.1 — K8s 容器发现 + 身份识别 | ✅ 当前版本 |
+|       | ↳ v0.5.1 — K8s 容器发现 + 身份识别 | ✅ 稳定版 |
+|       | ↳ v0.5.2 — K8s responder（响应闭环） | ✅ 当前版本 |
 | v0.4.x | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 

@@ -9,6 +9,29 @@
 
 ---
 
+## [0.5.2] - 2026-08-14
+
+### 新增
+- **K8s responder（检测→响应闭环）**：
+  - `src/responder/k8s_responder.py`（K8sResponseEngine，同 docker_responder 接口）：pause→**cgroup.freeze**（内核 v2 freezer，与 docker pause 同机制）+ annotation 标记；isolate→**iptables FORWARD DROP Pod IP** + annotation；kill_process→原样保留（宿主 os.kill）；kill_container→**delete pod**（Deployment/RS 先 scale 0 防控制器重建）；block_image 仅记录+队列（admission webhook 留 v0.5.3）
+  - `src/core/k8s_decision_executor.py`：confirmed→delete pod；dismissed→恢复（解冻 + iptables -D + 清 annotation）
+  - **IRREVERSIBLE_ACTIONS 判定保留**（ADR-014 分级自动化：不可逆动作永远人工队列）
+  - **K8s 禁 XDP**（docker0 不存在 + -s Pod IP 语义不符）→ 强制 iptables backend
+  - 降级路径：检测到 kube-router 启用（清自加规则）→ 降级 annotation-only + 提示
+
+### 验证
+- k3s E2E：esc-test2 pod 读 /etc/shadow → sensitive_file_access → isolate_network → **iptables DROP 10.42.0.41 + annotation guard/isolated 生效**
+- K8s 身份冷启动修复：新 pod 短 ID → backend 反查 display（`default/esc-test2`）
+- cgroup.freeze 手动验证写入成功（v2 freezer 可写）
+- **Docker mount 场景回归通过**（双轨不破坏）；pytest 105/105
+
+### 修复
+- K8s 身份冷启动窗口：`_short_to_display` 增加 backend 兜底查询
+- freeze 触发进程已退出时按 pod uid 扫 /proc 兜底
+- banner 版本 v0.5.1 → v0.5.2（后续）
+
+---
+
 ## [0.5.1] - 2026-08-14
 
 ### 新增
