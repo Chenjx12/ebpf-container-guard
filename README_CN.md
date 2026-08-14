@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.2-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.3-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -456,8 +456,8 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 | v0.1 | MVP：基础检测 + Docker 响应 | ✅ 稳定版 |
 | v0.2 | 三层检测 + 分级自动化（流量阻断、响应升级） | ✅ 稳定版 |
 | v0.3 | 面板 + 人机协同（多页面、RBAC、XDP+iptables 阻断、异步 AI、全量行为日志） | ✅ 稳定版 |
-| v0.4 | 规则引擎重构（Falco 风格条件树）+ BCC→libbpf CO-RE 迁移（自研 ctypes 加载层） | ✅ 当前版本 |
-|       | ↳ v0.4.2 — 当前版本 | |
+| v0.4 | 规则引擎重构（Falco 风格条件树）+ BCC→libbpf CO-RE 迁移（自研 ctypes 加载层） | ✅ 稳定版 |
+|       | ↳ v0.4.3 — 生产化准备（systemd 部署 + 性能压测） | ✅ 当前版本 |
 | v0.4.x | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 

@@ -9,6 +9,28 @@
 
 ---
 
+## [0.4.3] - 2026-08-14
+
+### 新增
+- **systemd 部署**（单机/边缘/政企内网形态）：
+  - `deploy/systemd/ebpf-guard.service`——Type=simple / root / journald / on-failure 重启
+  - **SIGTERM 干净退出**：`signal.raise_signal(SIGINT)` 复用清理路径 + `_shutdown()`（XDP detach + iptables unblock + bpf.close，幂等）
+  - 关键修复：XDP pin 不随进程退出自动 detach（bpftool prog load + net attach pinned），systemd stop 必须显式清理；iptables 阻断无自愈调用方（cleanup_expired 无调用），停机主动 unblock
+  - 实测 systemctl start/stop×3 循环，stop 后 XDP/iptables 无残留
+- **性能压测工具 + 基准报告**：
+  - `tools/bench_openat.py`：注入 openat('/etc/shadow')，统计丢失率/延迟分位/CPU 占用，behavior_log 开关对照组
+  - `docs/performance-report.md`：3 组取中位——**丢失率 0%**（500 events/s，ringbuf 1MB 无溢出）、**CPU 增量 ≈0%**（空闲 0.5%→压测 0.3%，优于宣称 <2%）、延迟 p50≈1.67s 归因 behavior_log 每事件 open('a') IO（对照组验证，非探针问题）
+
+### 变更
+- **文档一致性清理**：README 双语 / test-guide 双语 / CONTRIBUTING 双语 / 集成测试 banner 全部同步到 v0.4.3（12 规则 / 6 探针 / 10 攻击向量 × 8 组合 / capset 探针列表）
+
+### 验证
+- systemd start/stop×3 循环通过；stop 后 journald 显示 Deactivated successfully
+- pytest 99/99 + 集成测试 15/15
+- 压测 3 组数据一致（0 丢失 / CPU 增量 ≈0）
+
+---
+
 ## [0.4.2] - 2026-08-14
 
 ### 新增

@@ -15,6 +15,8 @@
 | [024](024-xdp-ingress-limit.md) | XDP 网络阻断的 ingress 限制与混合后端 | Accepted | v0.3.9 |
 | [032](032-rule-engine-conditions.md) | 规则引擎重构：Falco 风格条件树 | Accepted | v0.4.0 |
 | [033](033-libbpf-core.md) | BCC → libbpf CO-RE 迁移 | Accepted | v0.4.1 |
+| [036](036-systemd-deployment.md) | systemd 部署形态与干净退出 | Accepted | v0.4.3 |
+| [037](037-performance-benchmark.md) | 性能压测方法与 IO 瓶颈归因 | Accepted | v0.4.3 |
 
 ## 格式
 
@@ -32,7 +34,7 @@
 
 - ADR-000：本目录的自举决策（关于决策的决策）
 - ADR-001~033：对应内部决策记录 #1~33
-- ADR-034~037：预留（文档双语 / GitHub Releases / OpenAI 兼容接口 / 隐私与工具痕迹）
+- ADR-034~037：预留（文档双语 / GitHub Releases / OpenAI 兼容接口 / 隐私与工具痕迹）——036/037 已被 systemd/压测决策占用
 - ADR-038+：将来新增决策
 
 其余决策（#1/#2/#4/#5/#7~#13/#15~#23/#25~#31）保留在**内部决策记录**

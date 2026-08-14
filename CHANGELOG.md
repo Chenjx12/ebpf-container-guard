@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.4.3] - 2026-08-14
+
+### Added
+- **systemd deployment** (single-host / edge / isolated-network form):
+  - `deploy/systemd/ebpf-guard.service` — Type=simple / root / journald / on-failure restart
+  - **Clean SIGTERM exit**: `signal.raise_signal(SIGINT)` reuses cleanup path + `_shutdown()` (XDP detach + iptables unblock + bpf.close, idempotent)
+  - Key fix: XDP pin does NOT auto-detach on process exit (bpftool prog load + net attach pinned) — systemd stop must clean explicitly; iptables blocks have no self-healing caller (cleanup_expired uncalled) — unblock on shutdown
+  - Verified: systemctl start/stop×3 loop, no XDP/iptables residue after stop
+- **Performance benchmark tool + baseline report**:
+  - `tools/bench_openat.py`: injects openat('/etc/shadow'), measures loss rate / latency percentiles / CPU usage, behavior_log on/off control group
+  - `docs/performance-report.md`: median of 3 runs — **0% loss** (500 events/s, 1MB ringbuf no overflow), **CPU delta ≈0%** (idle 0.5% → load 0.3%, better than claimed <2%), latency p50≈1.67s attributed to behavior_log per-event `open('a')` IO (control group verified, not a probe issue)
+
+### Changed
+- **Doc consistency sweep**: README ×2 / test-guide ×2 / CONTRIBUTING ×2 / integration banner synced to v0.4.3 (12 rules / 6 probes / 10 vectors × 8 combos / capset probe)
+
+### Verified
+- systemctl start/stop×3 loop; journald shows "Deactivated successfully" after stop
+- pytest 99/99 + integration suite 15/15
+- Benchmark 3 runs consistent (0 loss / CPU delta ≈0)
+
 ## [0.4.2] - 2026-08-14
 
 ### Added
