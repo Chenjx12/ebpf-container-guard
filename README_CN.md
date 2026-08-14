@@ -448,6 +448,16 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 
 ---
 
+## 🏗️ 架构决策 (ADRs)
+
+本项目用 **ADR（Architecture Decision Records）** 记录关键架构决策——"为什么代码长这样"。
+每个决策独立成篇，从内核探针选型（kprobe → tracepoint → CO-RE）到检测架构（行为矩阵）、
+响应策略（可逆优先）、网络阻断（XDP 混合后端）、规则引擎（Falco 风格条件树）。
+
+📄 [docs/ADRs/](docs/ADRs/) — 决策索引与全文
+
+---
+
 ## 🧪 测试
 
 ```bash

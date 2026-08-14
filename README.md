@@ -422,6 +422,18 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 
 ---
 
+## 🏗️ Architecture Decisions (ADRs)
+
+This project records key architecture decisions as **ADRs (Architecture Decision Records)** —
+"why the code looks like this". Each decision is a standalone document, covering
+probe selection (kprobe → tracepoint → CO-RE), detection architecture (behavior matrix),
+response strategy (reversible-first), network blocking (XDP hybrid backend),
+and the rule engine (Falco-style condition trees).
+
+📄 [docs/ADRs/](docs/ADRs/) — decision index and full texts
+
+---
+
 ## 🧪 Testing
 
 ```bash

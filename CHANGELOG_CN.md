@@ -12,7 +12,7 @@
 ## [0.4.1] - 2026-08-14
 
 ### 新增
-- **BCC → libbpf CO-RE 迁移**（决策记录 #33）：
+- **BCC → libbpf CO-RE 迁移**（[ADR-033](docs/ADRs/033-libbpf-core.md)）：
   - `escape-detect.bpf.c` / `xdp-block.bpf.c` 重写为 CO-RE 风格（`SEC("tracepoint/...")` + vmlinux.h + ringbuf reserve/submit），clang 预编译 `.bpf.o`，运行时零编译
   - **自研 ctypes 加载层**（`src/core/libbpf.py`）：封装 libbpf.so.1 的 19 个 API（对象加载 / tracepoint attach / map / ringbuf / XDP）
   - **BCC 兼容门面**（`src/core/bpf_runtime.py`）：`BpfRuntime` + `MapView` + `RingBufView`，main.py / identity.py 近乎零 diff 迁移
@@ -242,7 +242,7 @@
 - `log_rule_audit()`、`load_rules()`、`load_rule_audit()` 面板辅助函数
 
 ### 目的
-- 规则是知识资产：变更需要审批 + 审计轨迹（决策记录 #14 原则——影响越大越需人工）
+- 规则是知识资产：变更需要审批 + 审计轨迹（[ADR-014](docs/ADRs/014-graded-automation.md) 原则——影响越大越需人工）
 - AI 可以离线；规则库独立运行（学习需要 AI，执行不需要）
 
 ### 验证
@@ -322,7 +322,7 @@
 ### 修复
 - **面板空白页**：自动刷新循环（sleep→rerun）导致永不渲染——改用 `st.fragment(run_every=3)`
 - **判决后消息不消失**：`load_decisions` 缓存未清除——判决后调用 `load_decisions.clear()`
-- **重复攻击时 kill 被自动执行**（v0.2.5 修复）：不可逆动作永远进人工队列（决策记录 #14）
+- **重复攻击时 kill 被自动执行**（v0.2.5 修复）：不可逆动作永远进人工队列（[ADR-014](docs/ADRs/014-graded-automation.md)）
 
 ### 已知问题
 - AI 同步调用在 API 延迟期间阻塞 Ring Buffer 回调——计划改为异步 AI / 后台队列
@@ -335,7 +335,7 @@
 ## [0.2.5] - 2026-08-09
 
 ### 新增
-- **分级自动化**（决策记录 #14）：可逆动作自动执行（暂停/隔离/流量阻断）；不可逆动作（kill/拉黑）进人工判决队列——即使 AI 置信度 ≥ 85% 也不自动执行
+- **分级自动化**（[ADR-014](docs/ADRs/014-graded-automation.md)）：可逆动作自动执行（暂停/隔离/流量阻断）；不可逆动作（kill/拉黑）进人工判决队列——即使 AI 置信度 ≥ 85% 也不自动执行
 - **AI 建议真正生效**：`handle_alert(forced_action, ai_confidence)` —— AI 建议的动作会执行，带护栏：kill/拉黑要求 AI 置信度 ≥ 85%，否则进队列
 - **网络流量阻断**（`src/core/netblock.py`）：iptables FORWARD DROP 恶意 IP:port（可逆，TTL 1 小时自动清理，业务流量保留）
 - **响应升级**（`src/core/escalation.py`）：同镜像重复攻击 → 第 1 次暂停 / 第 2 次 kill（进队列）/ 第 3 次镜像拉黑（进队列，持久化到 config/blocklist.yaml）
