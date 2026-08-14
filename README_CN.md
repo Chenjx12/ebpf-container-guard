@@ -438,9 +438,10 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |------|------|------|
 | v0.1 | MVP：基础检测 + Docker 响应 | ✅ 稳定版 |
 | v0.2 | 三层检测 + 分级自动化（流量阻断、响应升级） | ✅ 稳定版 |
-| v0.3 | 面板 + 人机协同（多页面、RBAC、XDP+iptables 阻断、异步 AI、全量行为日志） | ✅ 当前版本 |
-|       | ↳ v0.3.12 — 当前版本 | |
-| v0.4 | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
+| v0.3 | 面板 + 人机协同（多页面、RBAC、XDP+iptables 阻断、异步 AI、全量行为日志） | ✅ 稳定版 |
+| v0.4 | 规则引擎重构（Falco 风格条件树）+ BCC→libbpf CO-RE 迁移（自研 ctypes 加载层） | ✅ 当前版本 |
+|       | ↳ v0.4.1 — 当前版本 | |
+| v0.4.x | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 
 详见 [CHANGELOG.md](CHANGELOG.md)。
@@ -490,4 +491,4 @@ docker rm -f test_esc
 
 ---
 
-**最后更新**: 2026-08-08
+**最后更新**: 2026-08-14

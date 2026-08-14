@@ -412,9 +412,10 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |---------|----------|--------|
 | v0.1 | MVP: Basic detection + Docker response | ✅ Stable |
 | v0.2 | 3-tier detection + graded automation (netblock, escalation) | ✅ Stable |
-| v0.3 | Dashboard + human-in-the-loop (multi-page, RBAC, XDP+iptables blocking, async AI, behavior logger) | ✅ Current |
-|       | ↳ v0.3.12 — current | |
-| v0.4 | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
+| v0.3 | Dashboard + human-in-the-loop (multi-page, RBAC, XDP+iptables blocking, async AI, behavior logger) | ✅ Stable |
+| v0.4 | Rule engine rewrite (Falco-style condition trees) + BCC→libbpf CO-RE migration (hand-rolled ctypes loader) | ✅ Current |
+|       | ↳ v0.4.1 — current | |
+| v0.4.x | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
@@ -489,4 +490,4 @@ If you want to learn eBPF from scratch, check out my learning notes:
 
 ---
 
-**Last Updated**: 2026-08-13
+**Last Updated**: 2026-08-14
