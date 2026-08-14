@@ -1,34 +1,36 @@
-# ADR-037: 性能压测方法与 IO 瓶颈归因
+# ADR-037: 性能压测方法与度量假象修正
 
 ## 状态
-Accepted (v0.4.3)
+Accepted (v0.4.3) · Amended (v0.4.3, 数据可信化)
 
 ## 背景
 外部评估点名"CPU 开销 < 2% 但缺乏压测数据"——毕设实验验证章节需要可复现的基准。项目此前无任何性能统计代码。
 
 ## 验证过程
-`tools/bench_openat.py` 注入 `os.open('/etc/shadow', O_RDONLY)`（500 events/s × 1000 次），统计：
-- 丢失率：注入数 vs behaviors.log 匹配数（注入窗口内 openat + comm=python3 + 路径含 shadow）
-- 延迟：匹配事件时间戳 - 注入窗口起点（含 guard poll 100ms 粒度）
-- CPU：/proc/<guard本体PID>/stat utime+stime 差分
+`tools/bench_openat.py` 注入 `os.open('/etc/shadow', O_RDONLY)`，统计丢失率/延迟/CPU。
 
-**压测暴露的坑**：guard 本体 PID 是 `sudo python3 -u main.py` 的子进程——用 sudo 包装进程的 PID 读 stat 拿到 0 CPU（包装进程不干活）。必须 `ps aux | grep main.py` 取后者。
+**压测暴露的坑（两轮）**：
+1. **guard 本体 PID 是 `sudo python3 -u main.py` 的子进程**——用 sudo 包装进程的 PID 读 stat 拿到 0 CPU（包装进程不干活）。必须 `ps aux | grep main.py` 取后者
+2. **初版延迟度量是假象**（关键教训）：初版用"落盘时间 − 注入窗口起点"——但 1000 事件是 2 秒内均匀注入的，每个事件离起点平均 1s。测出的 p50≈1.67s ≈ 注入分布(1s) + 处理排队(0.67s)，**不是真实延迟**。CPU "≈0%" 也是采样噪声（空闲 0.5% → 压测 0.3% 是负增量，4 核抖动比信号大）
 
 ## 备选方案
 - 注入方式：openat('/etc/shadow')（内核态过滤后命中上报，最现实）vs mount 洪泛（干扰 docker0）——选 openat
-- 对照组：behavior_log on/off——归因 IO vs 探针
+- 延迟度量：**逐事件配对**（注入记每事件 wall 时间戳，behaviors.log 按序配对）vs 窗口起点近似——**选配对**（修正假象）
+- 极限测试：阶梯式加压（每档落盘 JSON，崩溃不丢已测数据）vs 一次性高压——**选阶梯**；ringbuf 溢出是丢包不是崩溃（guard 丢事件不丢进程），极限测试安全
 
 ## 决策
-采用 bench_openat.py + 3 组取中位 + 对照组。结果：
-- **丢失率 0%**（500 events/s，ringbuf 1MB 无溢出，10Hz poll 消费跟得上）
-- **CPU 增量 ≈0%**（空闲 0.5% → 压测 0.3%，优于宣称 <2%）
-- **延迟 p50≈1.67s 归因 behavior_log 每事件 `open('a')+write+close`**（对照组 behavior off 无此延迟）——非探针/ringbuf 问题
+采用 bench_openat.py v2（逐事件配对 + 阶梯模式 + ulimit 限注入进程）。结果：
+- **零丢失至 40K ev/s**（ringbuf 1MB 每 poll(100ms) 排空约 2400 条，20K/s 时 100ms 窗口 2000 条 < 上限）
+- **真实丢包阈值 ≈50K ev/s**（0.09%）——远超容器逃逸实际事件率（<100/s）
+- **真实延迟 p50 52-58ms**（poll 100ms 粒度主导，探针本身微秒级）
+- **CPU 增量 <1%（噪声内）**——高速率下仍未超噪声，证明开销确实小
 
 ## 后果
-- ✅ 毕设实验验证有可复现数据（docs/performance-report.md）；K8s 多节点后可对比
-- ✅ 确认检测可靠性（零丢失）与资源占用（<1%）
-- ❌ 延迟受 IO 影响——标注可选优化：BehaviorLogger 改 buffered writer + final flush（消除每事件 2 次 syscall，延迟预期降一个量级），不入本期
-- 📝 延迟下限由 poll(100ms) 粒度决定，p50≈50-100ms 属预期，非 IO 归因
+- ✅ 毕设实验验证有可信数据（docs/performance-report.md 修正版）；K8s 多节点后可对比
+- ✅ 确认检测可靠性（零丢失至 40K）与资源占用（<1%）
+- ❌ 延迟受 behavior_log 每事件 `open('a')+write+close` IO 影响（极高速率 50K 时成瓶颈）——标注可选优化：buffered writer + final flush，不入本期
+- 📝 **度量方法会污染结果**：压测延迟必须逐事件配对，窗口起点近似会引入注入分布偏差；采样噪声大于信号时，结论只能说"<噪声上限"而非精确值
+- 📝 延迟下限由 poll(100ms) 粒度决定，p50≈50-100ms 属预期；ringbuf 溢出是丢包不是崩溃——极限测试不会崩 guard
 
 ## 关联
 - [ADR-036](036-systemd-deployment.md)：压测工具暴露的 PID 获取经验
