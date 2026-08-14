@@ -24,7 +24,7 @@
 ### Startup Commands
 
 ```bash
-cd /home/chenjx12/ebpf/ebpf-container-guard
+cd ebpf-container-guard
 
 # Silent mode: alerts only (recommended for production)
 sudo python3 main.py

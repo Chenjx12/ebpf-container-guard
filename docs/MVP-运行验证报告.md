@@ -24,7 +24,7 @@
 ### 启动命令
 
 ```bash
-cd /home/chenjx12/ebpf/ebpf-container-guard
+cd ebpf-container-guard
 
 # 静默模式：仅输出告警（推荐生产环境）
 sudo python3 main.py
