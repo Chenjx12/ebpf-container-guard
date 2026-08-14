@@ -70,6 +70,22 @@ cd ebpf-container-guard
 sudo python3 main.py --rules my_rules.yaml --responses my_responses.yaml
 ```
 
+### systemd 部署（单机/边缘/政企内网，v0.4.3）
+
+适合**无 K8s 集群**的环境（隔离内网/边缘单机）；集群内请用 DaemonSet（v0.4.4 规划）。
+
+```bash
+sudo make build                                    # 预编译 CO-RE 探针（首次）
+sudo cp deploy/systemd/ebpf-guard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ebpf-guard             # 开机自启 + 启动
+sudo journalctl -u ebpf-guard -f                   # 查看实时日志
+```
+
+- 部署前先停旧实例防双进程：`sudo pkill -f "python3 -u main.py"`
+- 停止 `systemctl stop ebpf-guard` 会干净退出（SIGTERM → XDP detach + iptables 清理）
+- SIGKILL 强杀可能残留 XDP 阻断：`sudo bpftool net detach xdp dev docker0 && sudo rm -f /sys/fs/bpf/guard_xdp_block`
+
 ### 使用预制 strace 镜像测试 ptrace 逃逸
 
 ```bash

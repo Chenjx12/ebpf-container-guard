@@ -517,6 +517,31 @@ class ContainerEscapeMonitor:
     # Main loop
     # ================================================================
 
+    def _shutdown(self):
+        """干净退出 (v0.4.3 systemd): 幂等清理全部资源"""
+        if getattr(self, '_shutdown_done', False):
+            return
+        self._shutdown_done = True
+        try:
+            self.identity.stop()
+            self.executor.stop()
+            self.ai.stop()
+        except Exception:
+            pass
+        # XDP pin 不随进程退出自动 detach (bpftool prog load + net attach pinned),
+        # 必须显式清理; iptables 阻断无自愈调用方 (cleanup_expired), 停机主动 unblock
+        try:
+            if hasattr(self.netblocker, 'detach'):
+                self.netblocker.detach()
+            for ip, port in self.netblocker.list_blocks():
+                self.netblocker.unblock(ip, port)
+        except Exception:
+            pass
+        try:
+            self.bpf.close()
+        except Exception:
+            pass
+
     def run(self):
         """Start monitoring loop"""
         self.bpf['events'].open_ring_buffer(self.handle_event)
@@ -527,9 +552,7 @@ class ContainerEscapeMonitor:
                 time.sleep(0.1)
         except KeyboardInterrupt:
             print("\n[i] Shutting down...")
-            self.identity.stop()
-            self.executor.stop()
-            self.ai.stop()
+            self._shutdown()
             print("👋 eBPF Container Guard stopped.")
 
 
@@ -579,6 +602,13 @@ def main():
         responses_file=str(responses_path),
         verbose=args.verbose
     )
+
+    # v0.4.3 systemd: SIGTERM → 复用 KeyboardInterrupt 清理路径
+    # (systemd stop 默认发 SIGTERM; raise_signal 复用既有 except 分支)
+    import signal
+    signal.signal(signal.SIGTERM,
+                  lambda sig, frm: signal.raise_signal(signal.SIGINT))
+
     monitor.run()
 
 

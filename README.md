@@ -66,6 +66,23 @@ sudo python3 main.py \
   --verbose
 ```
 
+### Option 3b: systemd Deployment (single-host / edge / isolated networks, v0.4.3)
+
+For environments **without a K8s cluster** (isolated intranets / edge nodes);
+use DaemonSet inside clusters (v0.4.4 planned).
+
+```bash
+sudo make build                                    # precompile CO-RE probes (first use)
+sudo cp deploy/systemd/ebpf-guard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ebpf-guard             # auto-start on boot + start now
+sudo journalctl -u ebpf-guard -f                   # live logs
+```
+
+- Stop old instances before deploying to avoid double processes: `sudo pkill -f "python3 -u main.py"`
+- `systemctl stop ebpf-guard` exits cleanly (SIGTERM → XDP detach + iptables cleanup)
+- After SIGKILL, XDP block may remain: `sudo bpftool net detach xdp dev docker0 && sudo rm -f /sys/fs/bpf/guard_xdp_block`
+
 ### Option 4: Test with pre-built strace image (ptrace escape)
 
 ```bash

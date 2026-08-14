@@ -1,0 +1,40 @@
+# eBPF Container Guard — systemd 服务 (v0.4.3)
+#
+# 部署形态: 单机 / 边缘 / 政企内网 (无 K8s 集群的环境)。
+# 集群内请用 DaemonSet (v0.4.4, 见 docs/ADRs/ 规划)。
+#
+# 安装:
+#   sudo make build                        # 预编译 CO-RE 探针 (首次)
+#   sudo cp deploy/systemd/ebpf-guard.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ebpf-guard
+#
+# 查看:
+#   sudo journalctl -u ebpf-guard -f
+#
+# 注意: 部署前先停掉 run.sh 启动的旧实例, 避免双实例冲突:
+#   sudo pkill -f "python3 -u main.py" || true
+
+[Unit]
+Description=eBPF Container Guard - container escape detection and defense
+Documentation=https://github.com/chenjx12/ebpf-container-guard
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/chenjx12/ebpf/ebpf-container-guard
+ExecStart=/usr/bin/python3 main.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+Environment=PYTHONUNBUFFERED=1
+# 日志走 stdout → journald (告警/行为日志在项目根目录 events.log 等文件)
+StandardOutput=journal
+StandardError=journal
+# SIGKILL 兜底清理 XDP (可选: 极端强杀后手动执行):
+#   sudo bpftool net detach xdp dev docker0 && sudo rm -f /sys/fs/bpf/guard_xdp_block
+# ExecStopPost=/usr/bin/sh -c 'bpftool net detach xdp dev docker0 2>/dev/null; rm -f /sys/fs/bpf/guard_xdp_block 2>/dev/null'
+
+[Install]
+WantedBy=multi-user.target
