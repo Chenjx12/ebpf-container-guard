@@ -9,6 +9,21 @@
 
 ---
 
+## [0.5.0] - 2026-08-14
+
+### 新增
+- **单实例锁**（v0.5 开门第一件事）：main.py 启动时 `fcntl.flock` 抢 `/var/run/ebpf-guard.pid`——run.sh / systemd / DaemonSet 三种启动方式统一互斥
+  - 抢锁失败打印"另一实例已在运行"并以 **exit 0 退出**（不触发 systemd `Restart=on-failure` 死循环）
+  - 锁随进程退出自动释放（flock 语义），无需手动清理
+  - **附带修复存量坑**：run.sh pkill 不可靠、systemd 双启动、systemd/DaemonSet 跨方式互撞（为 v0.5 K8s 部署形态互斥打基础）
+
+### 验证
+- 第一实例持锁运行 / 第二实例拒绝（exit 0）
+- systemd 同服务双 start 为 no-op；**systemd 跑时手动起第二个被拒**（跨方式互斥）
+- systemctl stop 后锁释放，可重启
+
+---
+
 ## [0.4.4] - 2026-08-14
 
 ### 新增

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.0] - 2026-08-14
+
+### Added
+- **Single-instance lock** (v0.5 opener): main.py acquires `fcntl.flock` on `/var/run/ebpf-guard.pid` at startup — unified mutual exclusion across run.sh / systemd / DaemonSet
+  - Lock-failure prints "another instance running" and **exits 0** (avoids systemd `Restart=on-failure` loop)
+  - Lock auto-releases on process exit (flock semantics), no manual cleanup
+  - **Fixes legacy pitfalls**: unreliable run.sh pkill, systemd double-start, cross-mode collisions (foundation for v0.5 K8s deployment-mode mutual exclusion)
+
+### Verified
+- First instance holds lock / second instance rejected (exit 0)
+- systemd double-start of same service is a no-op; **manual second instance rejected while systemd runs** (cross-mode exclusion)
+- Lock released after systemctl stop; restartable
+
 ## [0.4.4] - 2026-08-14
 
 ### Added

@@ -9,6 +9,7 @@ Licensed under the MIT License. See LICENSE for details.
 """
 
 import argparse
+import os
 import sys
 import time
 import threading
@@ -600,6 +601,20 @@ def main():
     if not responses_path.exists():
         print(f"❌ Error: Responses file not found: {responses_path}")
         sys.exit(1)
+
+    # v0.5.0: 单实例锁 — 防双启动 (run.sh/systemd/DaemonSet 统一互斥)
+    # 抢锁失败以 exit 0 退出 (不触发 systemd Restart=on-failure 死循环);
+    # 锁文件持锁运行, 进程退出自动释放 (flock 语义)。
+    import fcntl
+    lock_path = Path("/var/run/ebpf-guard.pid")
+    lock_fd = open(lock_path, 'w')
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f"❌ 另一实例已在运行 ({lock_path} 被锁) — 拒绝启动")
+        sys.exit(0)
+    lock_fd.write(f"{os.getpid()}\n")
+    lock_fd.flush()
 
     # Start monitor
     monitor = ContainerEscapeMonitor(
