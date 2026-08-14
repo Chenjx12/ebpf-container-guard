@@ -65,22 +65,18 @@ echo ""
 echo -e "${CYAN}[1/4] 系统依赖检查${RESET}"
 install_if_missing "python3" "python3" || true
 install_if_missing "clang" "clang" || true
+install_if_missing "bpftool" "linux-tools-generic" || true
 
-# BCC (python3-bcc 提供 bcc 模块)
-if python3 -c "import bcc" >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✅ python3-bcc 已安装${RESET}"
+# libbpf 1.x + 内核 BTF (CO-RE 必需, v0.4.1 迁移后不再需要 BCC)
+if [ -f /sys/kernel/btf/vmlinux ]; then
+    echo -e "  ${GREEN}✅ 内核 BTF 就绪 (/sys/kernel/btf/vmlinux)${RESET}"
 else
-    if [ "$CHECK_ONLY" = true ]; then
-        echo -e "  ${RED}❌ python3-bcc 未安装（需 apt install python3-bcc bpfcc-tools）${RESET}"
-    else
-        echo -e "  ${YELLOW}⬇️  安装 python3-bcc bpfcc-tools ...${RESET}"
-        sudo apt install -y python3-bcc bpfcc-tools >/dev/null 2>&1
-        if python3 -c "import bcc" >/dev/null 2>&1; then
-            echo -e "  ${GREEN}✅ python3-bcc 安装完成${RESET}"
-        else
-            echo -e "  ${RED}❌ BCC 安装失败，请手动安装: sudo apt install python3-bcc bpfcc-tools${RESET}"
-        fi
-    fi
+    echo -e "  ${RED}❌ 内核 BTF 缺失 — 需 CONFIG_DEBUG_INFO_BTF=y 的内核${RESET}"
+fi
+if [ -f /usr/lib64/libbpf.so.1 ]; then
+    echo -e "  ${GREEN}✅ libbpf 1.x 就绪 (/usr/lib64/libbpf.so.1)${RESET}"
+else
+    echo -e "  ${YELLOW}⚠️  未找到 /usr/lib64/libbpf.so.1 — 需源码编译安装 libbpf 1.x${RESET}"
 fi
 
 # Docker

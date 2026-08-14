@@ -48,7 +48,7 @@ The test suite has two layers:
 |------------|-------------|
 | OS | Ubuntu 22.04 LTS (kernel ≥ 5.4) |
 | Python | 3.8+ |
-| BCC | `sudo apt install bpfcc-tools python3-bcc` |
+| libbpf 1.x + clang | 源码编译 libbpf → /usr/lib64/, `make build` 预编译 CO-RE |
 | Docker | Installed and running |
 | Permissions | Root required for scenario tests (eBPF + Docker) |
 
@@ -317,7 +317,7 @@ docker exec test_nsenter bash -c \
 | Kernel | 6.8.0-136-generic |
 | OS | Ubuntu 22.04 LTS |
 | Python | 3.10 |
-| BCC | Installed |
+| libbpf 1.x | Installed |
 | Docker | Installed and running |
 | Guard version | v0.3.9 |
 

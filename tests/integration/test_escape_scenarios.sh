@@ -77,10 +77,10 @@ fi
 
 # Test 4: Python dependencies importable
 print_test "Python dependencies importable"
-if python3 -c "import bcc, yaml, docker, streamlit" 2>/dev/null; then
+if python3 -c "import yaml, docker, streamlit" 2>/dev/null; then
     print_pass
 else
-    print_fail "Missing dependencies (bcc, pyyaml, docker, streamlit)"
+    print_fail "Missing dependencies (pyyaml, docker, streamlit)"
 fi
 
 # Test 5: YAML syntax valid

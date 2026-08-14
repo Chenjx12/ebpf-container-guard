@@ -23,9 +23,9 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-if ! python3 -c "import bcc" &> /dev/null; then
-    echo "❌ BCC framework not installed"
-    echo "   Install with: sudo apt install bpfcc-tools python3-bcc"
+if ! python3 -c "import sys; sys.path.insert(0, 'src'); from core.libbpf import BpfObject" 2>/dev/null &> /dev/null; then
+    echo "❌ libbpf 加载层不可用 (需 libbpf.so.1)"
+    echo "   Install with: 源码编译 libbpf 1.x → /usr/lib64/"
     exit 1
 fi
 

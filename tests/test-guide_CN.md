@@ -48,7 +48,7 @@
 |------|------|
 | 操作系统 | Ubuntu 22.04 LTS（kernel ≥ 5.4） |
 | Python | 3.8+ |
-| BCC | `sudo apt install bpfcc-tools python3-bcc` |
+| libbpf 1.x + clang | 源码编译 libbpf → /usr/lib64/, `make build` 预编译 CO-RE |
 | Docker | 已安装并运行 |
 | 权限 | 场景测试需要 root（eBPF + Docker） |
 
@@ -326,7 +326,7 @@ docker exec test_nsenter bash -c \
 | 内核版本 | 6.8.0-136-generic |
 | 操作系统 | Ubuntu 22.04 LTS |
 | Python | 3.10 |
-| BCC | 已安装 |
+| libbpf 1.x | 已安装 |
 | Docker | 已安装并运行 |
 | Guard 版本 | v0.3.9 |
 
