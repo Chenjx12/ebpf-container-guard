@@ -19,7 +19,7 @@
   - 实测 systemctl start/stop×3 循环，stop 后 XDP/iptables 无残留
 - **性能压测工具 + 基准报告**：
   - `tools/bench_openat.py`：注入 openat('/etc/shadow')，统计丢失率/延迟分位/CPU 占用，behavior_log 开关对照组
-  - `docs/performance-report.md`：3 组取中位——**丢失率 0%**（500 events/s，ringbuf 1MB 无溢出）、**CPU 增量 ≈0%**（空闲 0.5%→压测 0.3%，优于宣称 <2%）、延迟 p50≈1.67s 归因 behavior_log 每事件 open('a') IO（对照组验证，非探针问题）
+  - `docs/performance-report.md`（**数据修正版**）：逐事件配对延迟——**零丢失至 40K ev/s**、**真实丢包阈值 ≈50K ev/s**、**延迟 p50 52-58ms**（poll 100ms 粒度主导）、CPU 增量 <1%（噪声内）。初版 1.67s 延迟为度量假象（注入分布污染），已用逐事件配对修正
 
 ### 变更
 - **文档一致性清理**：README 双语 / test-guide 双语 / CONTRIBUTING 双语 / 集成测试 banner 全部同步到 v0.4.3（12 规则 / 6 探针 / 10 攻击向量 × 8 组合 / capset 探针列表）

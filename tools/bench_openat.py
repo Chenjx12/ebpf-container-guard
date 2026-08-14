@@ -1,41 +1,43 @@
 #!/usr/bin/env python3
-"""bench_openat.py — 性能压测 (v0.4.3)
+"""bench_openat.py — 性能压测 v2 (v0.4.3 数据可信化)
 
-注入 openat 敏感路径事件 (cat /etc/shadow 等价), 统计:
-  1. 丢失率: 注入 N vs behaviors.log 匹配事件数 (openat+comm=bench_openat+shadow)
-  2. 延迟:   behaviors.log 毫秒时间戳 - 注入 monotonic → p50/p95/max
-  3. CPU:    /proc/<pid>/stat utime+stime 差分 → guard 核占用
+注入 openat('/etc/shadow') 敏感路径事件, 统计:
+  1. 丢失率: 注入 N vs behaviors.log 匹配事件数 (逐事件配对)
+  2. 延迟:   逐事件配对 — 落盘时间戳 - 对应注入时间 (修正 1.67s 度量假象)
+  3. CPU:    /proc/<pid>/stat utime+stime 差分 (guard 本体 PID!)
 
-对照组: --no-behavior (behavior_log 关) 归因 IO vs 探针。
+阶梯模式: --ladder 1K→3K→5K→8K→10K, 每档先落盘 JSON 再升下一档
+  (即使下一档崩溃, 已测档位数据保住)
+
+资源限定: ulimit -v / -n 限注入进程 (单进程资源耗尽只崩自己, 不碰系统)
 
 用法 (sudo):
-  python3 tools/bench_openat.py --count 2000 --rate 500 --pid <guard_pid>
-  python3 tools/bench_openat.py --count 2000 --rate 500 --pid <guard_pid> --no-behavior
+  sudo python3 tools/bench_openat.py --pid <guard本体PID> --ladder
+  sudo python3 tools/bench_openat.py --pid <guard本体PID> --count 3000 --rate 2000
 """
 import argparse
 import json
 import os
-import re
-import sys
+import resource
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BEHAVIORS_LOG = ROOT / "behaviors.log"
+LADDER = [1000, 3000, 5000, 8000, 10000]
+RESULTS_PATH = Path("/tmp/bench_ladder.json")
 
 
 def read_cpu_ticks(pid):
-    """读取进程 CPU 时间 (utime+stime, 单位 clock ticks)"""
     try:
         with open(f"/proc/{pid}/stat") as f:
             parts = f.read().split()
-            return int(parts[13]) + int(parts[14])  # utime + stime
+            return int(parts[13]) + int(parts[14])
     except Exception:
         return None
 
 
 def sample_cpu(pid, duration, interval=0.5):
-    """采样 guard CPU 占用, 返回 [(t, cpu%)]"""
     ticks_per_sec = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
     samples = []
     t0 = time.time()
@@ -53,7 +55,7 @@ def sample_cpu(pid, duration, interval=0.5):
 
 
 def parse_behaviors():
-    """解析 behaviors.log → [(ts_ms, event_type, comm, path)]"""
+    """解析 behaviors.log → [(ts_ms, comm, path)], 按出现顺序"""
     events = []
     if not BEHAVIORS_LOG.exists():
         return events
@@ -63,14 +65,18 @@ def parse_behaviors():
                 d = json.loads(line)
             except Exception:
                 continue
-            ts = d.get('timestamp')  # "2026-08-14T11:20:00.123" ISO 毫秒
-            events.append((ts, d.get('event_type'), d.get('comm'),
+            if d.get('event_type') != 'openat':
+                continue
+            if d.get('comm') != 'python3':
+                continue
+            if not str(d.get('target_path', '')).endswith('shadow'):
+                continue
+            events.append((ts_to_ms(d.get('timestamp')), d.get('comm'),
                            d.get('target_path', '')))
     return events
 
 
 def ts_to_ms(ts):
-    """ISO 时间戳 → 毫秒 (epoch)"""
     if not ts:
         return 0
     try:
@@ -89,88 +95,115 @@ def percentile(values, p):
     return values[min(idx, len(values) - 1)]
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--count', type=int, default=2000)
-    ap.add_argument('--rate', type=int, default=500, help='注入速率 (events/s)')
-    ap.add_argument('--pid', type=int, required=True, help='guard 进程 PID')
-    ap.add_argument('--no-behavior', action='store_true',
-                    help='对照组: behavior_log 关闭')
-    args = ap.parse_args()
-
-    print(f"=== bench_openat: count={args.count} rate={args.rate}/s "
-          f"pid={args.pid} behavior_log={'off' if args.no_behavior else 'on'} ===")
-
-    # 阶段 0: 空闲 CPU 基线 10s
-    print("[阶段0] 空闲 CPU 基线 10s ...")
-    idle = sample_cpu(args.pid, 10)
-    idle_cpu = sum(c for _, c in idle) / len(idle) if idle else 0
-
-    # 阶段 1: 注入
-    print(f"[阶段1] 注入 {args.count} 次 openat('/etc/shadow') @ {args.rate}/s ...")
-    inject_ts = []  # monotonic 注入时间
-    inject_start_mono = time.monotonic()
-    inject_start_wall = time.time()
-    interval = 1.0 / args.rate
-    for i in range(args.count):
-        t0 = time.monotonic()
+def inject(count, rate):
+    """注入 N 次 openat('/etc/shadow'), 返回 [注入 wall_ms 时间戳] (按序)"""
+    interval = 1.0 / rate
+    inject_wall_ms = []
+    for i in range(count):
+        t0 = time.time()
         try:
             fd = os.open('/etc/shadow', os.O_RDONLY)
             os.close(fd)
         except OSError:
             pass
-        inject_ts.append(t0)
-        # 限速 (除首事件)
-        if i < args.count - 1:
-            wait = interval - (time.monotonic() - t0)
+        inject_wall_ms.append(int(t0 * 1000))
+        if i < count - 1:
+            wait = interval - (time.time() - t0)
             if wait > 0:
                 time.sleep(wait)
-    inject_end_mono = time.monotonic()
-    inject_end_wall = time.time()
-    # 注入窗口 [start_wall-0.5s, end_wall+1s] — 过滤窗口外干扰事件
-    win_start = inject_start_wall - 0.5
-    win_end = inject_end_wall + 1.0
+    return inject_wall_ms
 
-    # 阶段 2: 排空 3s (guard 10Hz poll 余量)
-    print("[阶段2] 排空 3s ...")
-    time.sleep(3)
-    cpu_samples = sample_cpu(args.pid, 3)
-    load_cpu = sum(c for _, c in cpu_samples) / len(cpu_samples) if cpu_samples else 0
 
-    # 阶段 3: 分析
+def run_bench(count, rate, pid, save_path=None):
+    """跑单档, 返回结果 dict"""
+    # 限资源 (注入进程自己崩不碰系统)
+    resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024,) * 2)   # 256MB
+    resource.setrlimit(resource.RLIMIT_NOFILE, (2048,) * 2)            # 2048 fd
+
+    # 空闲 CPU 基线 (短, 2s)
+    idle = sample_cpu(pid, 2)
+    idle_cpu = sum(c for _, c in idle) / len(idle) if idle else 0
+
+    # 注入
+    t_inj_start = time.time()
+    inject_wall_ms = inject(count, rate)
+    t_inj_end = time.time()
+
+    # 排空 (guard 10Hz poll; 高速率给足 5s)
+    time.sleep(5)
+
+    # 分析: 逐事件配对 (behaviors 按序 = 注入按序, 同 comm 同路径)
     events = parse_behaviors()
-    # 匹配: 注入窗口内 + openat + comm=python3 + /etc/shadow
-    matched = [e for e in events
-               if e[1] == 'openat' and e[2] == 'python3'
-               and e[3].endswith('shadow')
-               and win_start * 1000 <= ts_to_ms(e[0]) <= win_end * 1000]
-    # 注: 若 no_behavior, behaviors.log 无事件 → 丢失率按 0 匹配算
-    lost = max(0, args.count - len(matched))
+    # 只取注入窗口内的事件 (窗口: 注入前 0.5s ~ 注入后 6s)
+    win_start_ms = int((t_inj_start - 0.5) * 1000)
+    win_end_ms = int((t_inj_end + 6) * 1000)
+    matched = [e for e in events if win_start_ms <= e[0] <= win_end_ms]
 
-    # 延迟: 匹配事件时间 - 注入窗口起点 (注入是 0.5s 内密集, 近似端到端延迟)
-    delays = [ts_to_ms(m[0]) - int(win_start * 1000) for m in matched]
+    lost = max(0, count - len(matched))
 
-    print("\n=== 结果 ===")
-    print(f"注入: {args.count} | 匹配: {len(matched)} | 丢失: {lost} "
-          f"({lost/args.count*100:.1f}%)")
-    if delays:
-        print(f"延迟: p50={percentile(delays,50)}ms "
-              f"p95={percentile(delays,95)}ms max={max(delays)}ms")
-    print(f"CPU: 空闲 {idle_cpu:.1f}% | 压测 {load_cpu:.1f}% "
-          f"| 增量 {load_cpu - idle_cpu:.1f}%")
+    # 逐事件延迟: matched[i] 落盘时间 - inject[i] 注入时间
+    delays = []
+    for i, (ev_ms, _, _) in enumerate(matched[:count]):
+        if i < len(inject_wall_ms):
+            delays.append(ev_ms - inject_wall_ms[i])
 
-    # 输出 JSON (可重复采集)
+    # CPU 采样 (注入后)
+    cpu_samples = sample_cpu(pid, 3)
+    load_cpu = (sum(c for _, c in cpu_samples) / len(cpu_samples)
+                if cpu_samples else 0)
+
     result = {
-        'count': args.count, 'rate': args.rate, 'pid': args.pid,
-        'behavior_log': not args.no_behavior,
-        'lost': lost, 'loss_rate': round(lost / args.count * 100, 2),
+        'count': count, 'rate': rate, 'pid': pid,
+        'lost': lost, 'loss_rate': round(lost / count * 100, 2),
         'delay_p50_ms': percentile(delays, 50) if delays else None,
         'delay_p95_ms': percentile(delays, 95) if delays else None,
         'delay_max_ms': max(delays) if delays else None,
+        'delay_n': len(delays),
         'cpu_idle': round(idle_cpu, 2), 'cpu_load': round(load_cpu, 2),
         'cpu_delta': round(load_cpu - idle_cpu, 2),
     }
-    print("\nJSON:", json.dumps(result, ensure_ascii=False))
+    # 即时落盘 (每档先保存, 即使下一档崩溃数据保住)
+    if save_path:
+        data = []
+        if save_path.exists():
+            try:
+                data = json.loads(save_path.read_text())
+            except Exception:
+                data = []
+        data.append(result)
+        save_path.write_text(json.dumps(data, ensure_ascii=False, indent=1))
+
+    print(f"  注入 {count} | 匹配 {len(matched)} | 丢失 {lost} "
+          f"({result['loss_rate']}%) | 延迟 p50={result['delay_p50_ms']}ms "
+          f"p95={result['delay_p95_ms']}ms max={result['delay_max_ms']}ms | "
+          f"CPU 增量 {result['cpu_delta']}%")
+    return result
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--pid', type=int, required=True, help='guard 本体 PID')
+    ap.add_argument('--count', type=int, default=3000)
+    ap.add_argument('--rate', type=int, default=2000)
+    ap.add_argument('--ladder', action='store_true',
+                    help='阶梯模式: 1K→3K→5K→8K→10K, 每档落盘')
+    args = ap.parse_args()
+
+    if args.ladder:
+        print(f"=== 阶梯压测 ({LADDER}) pid={args.pid} ===")
+        results = []
+        for count in LADDER:
+            rate = max(2000, count // 2)   # 每档 2s 内注入完
+            print(f"[档] count={count} rate={rate}/s ...")
+            r = run_bench(count, rate, args.pid, save_path=RESULTS_PATH)
+            results.append(r)
+            if r['loss_rate'] > 0:
+                print(f"  ⚠️ 丢包阈值: {count} 档开始丢 ({r['loss_rate']}%)")
+                break
+        print(f"\n✅ 阶梯完成, 结果已落盘: {RESULTS_PATH}")
+    else:
+        print(f"=== bench: count={args.count} rate={args.rate}/s pid={args.pid} ===")
+        run_bench(args.count, args.rate, args.pid)
 
 
 if __name__ == '__main__':

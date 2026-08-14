@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Verified: systemctl start/stop×3 loop, no XDP/iptables residue after stop
 - **Performance benchmark tool + baseline report**:
   - `tools/bench_openat.py`: injects openat('/etc/shadow'), measures loss rate / latency percentiles / CPU usage, behavior_log on/off control group
-  - `docs/performance-report.md`: median of 3 runs — **0% loss** (500 events/s, 1MB ringbuf no overflow), **CPU delta ≈0%** (idle 0.5% → load 0.3%, better than claimed <2%), latency p50≈1.67s attributed to behavior_log per-event `open('a')` IO (control group verified, not a probe issue)
+  - `docs/performance-report.md` (**corrected data**): per-event paired latency — **zero loss up to 40K ev/s**, **real loss threshold ≈50K ev/s**, **latency p50 52-58ms** (poll 100ms granularity dominant), CPU delta <1% (within noise). The initial 1.67s latency was a measurement artifact (injection-distribution pollution), fixed via per-event pairing
 
 ### Changed
 - **Doc consistency sweep**: README ×2 / test-guide ×2 / CONTRIBUTING ×2 / integration banner synced to v0.4.3 (12 rules / 6 probes / 10 vectors × 8 combos / capset probe)
