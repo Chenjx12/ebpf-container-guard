@@ -21,6 +21,9 @@ IMAGE="ebpf-test:cgroup"
 CONTAINER="test_cgroup"
 TEST_CONTAINERS="$CONTAINER"
 
+# 清残留容器（上次失败可能遗留, 防 docker run 冲突）
+docker rm -f $TEST_CONTAINERS 2>/dev/null || true
+
 print_result "cgroup release_agent 写入 (cgroup_release_agent_write)"
 
 # 1. 构建镜像

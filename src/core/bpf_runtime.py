@@ -151,6 +151,14 @@ class BpfRuntime:
                 self._obj.attach_tracepoint(prog_name, cat, tp)
         self._views = {}
         self._xdp_iface = None
+        # 预创建主探针对象 map view — ring_buffer_poll 回调中首次访问
+        # 会触发 __getitem__ 修改 _views, 迭代时崩溃 (v0.4.2 修复)。
+        # XDP 对象无 events/container_map, 缺失则跳过 (容错)。
+        for name in ("events", "container_map"):
+            try:
+                self[name]
+            except LibbpfError:
+                pass
 
     def attach_xdp(self, iface, prog_name="xdp_block"):
         """attach XDP 程序到网卡 (bpftool, generic 模式 — 虚拟网卡只支持 skb 模式)。
@@ -194,7 +202,7 @@ class BpfRuntime:
 
     def ring_buffer_poll(self, timeout_ms=100):
         n = 0
-        for view in self._views.values():
+        for view in list(self._views.values()):  # 快照防回调中新增 view
             n += view.poll(timeout_ms)
         return n
 

@@ -20,6 +20,9 @@ IMAGE="ebpf-test:capset"
 CONTAINER="test_capset"
 TEST_CONTAINERS="$CONTAINER"
 
+# 清残留容器（上次失败可能遗留, 防 docker run 冲突）
+docker rm -f $TEST_CONTAINERS 2>/dev/null || true
+
 print_result "capset 能力设置 (capset_cap_sys_admin)"
 
 # 1. 构建镜像
