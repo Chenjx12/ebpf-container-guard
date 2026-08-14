@@ -19,6 +19,7 @@
 | [037](037-performance-benchmark.md) | 性能压测方法与 IO 瓶颈归因 | Accepted | v0.4.3 |
 | [038](038-behavior-logger-io.md) | BehaviorLogger buffered writer + 按天轮转 | Accepted | v0.4.4 |
 | [039](039-single-instance-lock.md) | 单实例锁（部署形态互斥基础） | Accepted | v0.5.0 |
+| [040](040-k8s-runtime-backend.md) | K8s 适配：RuntimeBackend 双轨抽象 | Accepted | v0.5.1 |
 
 ## 格式
 

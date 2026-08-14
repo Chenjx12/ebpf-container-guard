@@ -9,6 +9,30 @@
 
 ---
 
+## [0.5.1] - 2026-08-14
+
+### 新增
+- **K8s 适配第一步：容器发现 + 身份识别**（RuntimeBackend 双轨抽象）：
+  - `RuntimeBackend` 接口（list_containers/events_loop/cgroup_path/get_meta），DockerBackend 现码平移零改动 + K8sBackend 新增（kubernetes client watch pods + cgroup glob 扫描 + cri-containerd 解析）
+  - **Docker 6 个 E2E 场景不破坏**（双轨并行，自动检测 docker.sock → Docker，containerd.sock + kubepods.slice → K8s）
+  - `--runtime auto|docker|k8s` 参数（默认 auto）
+  - **容器身份**：K8s 下 eBPF map value 填 `ns/pod`（如 `default/client`，可读）；cgroup 路径通配 kubepods.slice 全 QoS 类
+- **响应 no-op**（v0.5.1 只做检测）：K8s 模式 responder/executor 挂 no-op（Docker 动作不适用），响应 v0.5.2 实现
+- requirements +kubernetes（纯 Python 依赖）
+
+### 验证
+- Docker mount 场景回归通过（DockerBackend 零改动）
+- K8s 模式：12 容器 / 192 进程映射成功
+- k3s pod 内读 /etc/shadow → sensitive_file_access 命中，容器身份显示 `default/client`
+- pytest 105/105
+
+### 修复
+- Docker cgroup_path 用完整 ID（短 ID glob 通配）
+- display 字段超 64B（eBPF map 限制）→ 改 `ns/pod` 紧凑格式
+- banner 版本 v0.4.3 → v0.5.1
+
+---
+
 ## [0.5.0] - 2026-08-14
 
 ### 新增

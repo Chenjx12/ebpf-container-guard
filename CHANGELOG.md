@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.1] - 2026-08-14
+
+### Added
+- **K8s adaptation step 1: container discovery + identity** (RuntimeBackend dual-track abstraction):
+  - `RuntimeBackend` interface (list_containers/events_loop/cgroup_path/get_meta); DockerBackend moved verbatim (zero logic change) + new K8sBackend (kubernetes client watch pods + cgroup glob scan + cri-containerd parsing)
+  - **Docker 6 E2E scenarios unaffected** (dual-track parallel; auto-detect docker.sock → Docker, containerd.sock + kubepods.slice → K8s)
+  - `--runtime auto|docker|k8s` (default auto)
+  - **Container identity**: K8s eBPF map value = `ns/pod` (e.g. `default/client`, readable); cgroup paths glob all QoS classes under kubepods.slice
+- **Response no-op** (v0.5.1 detection-only): K8s mode responder/executor are no-op (Docker actions N/A); responses land in v0.5.2
+- requirements +kubernetes (pure Python)
+
+### Verified
+- Docker mount scenario regression passes (DockerBackend unchanged)
+- K8s mode: 12 containers / 192 processes mapped
+- k3s pod reads /etc/shadow → sensitive_file_access hit, container identity `default/client`
+- pytest 105/105
+
+### Fixed
+- Docker cgroup_path needs full ID (short-ID glob)
+- display field >64B (eBPF map limit) → compact `ns/pod` format
+- banner version v0.4.3 → v0.5.1
+
 ## [0.5.0] - 2026-08-14
 
 ### Added

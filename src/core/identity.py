@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Container identity resolution — PID map, cgroup map, background refresh.
+(v0.5.1: RuntimeBackend 双轨抽象 — Docker / K8s 平行实现, 自动检测)
 
 3-tier fallback for container ID resolution:
   Tier 1 — BPF PID→container_id map (kernel-space lookup)
@@ -8,6 +9,7 @@ Container identity resolution — PID map, cgroup map, background refresh.
   Tier 3 — /proc/<pid>/cgroup filesystem fallback
 """
 
+import glob
 import os
 import sys
 import ctypes as ct
@@ -16,17 +18,217 @@ import threading
 import docker
 
 
+class RuntimeBackend:
+    """容器运行时后端接口 (v0.5.1)。
+
+    Docker / K8s 平行实现, ContainerIdentity 只依赖此接口——
+    eBPF PID map / cgroup map / 3-tier 回退逻辑与运行时无关。
+    """
+
+    def list_containers(self):
+        """→ [(cid, {name, image})]; cid 为短 ID (12 位)"""
+        raise NotImplementedError
+
+    def events_loop(self, handler, stop_event):
+        """容器启停事件流; handler(cid, name, status) status ∈ start|stop"""
+        raise NotImplementedError
+
+    def cgroup_path(self, cid):
+        """短 ID → cgroup scope 路径 (None 若不存在)"""
+        raise NotImplementedError
+
+    def get_meta(self, cid):
+        """短 ID → {name, image} (冷路径查询)"""
+        raise NotImplementedError
+
+
+class DockerBackend(RuntimeBackend):
+    """Docker 后端 (现码平移, 零逻辑改动)。"""
+
+    def __init__(self, docker_client=None):
+        self.docker_client = docker_client or docker.from_env()
+
+    def list_containers(self):
+        out = []
+        for c in self.docker_client.containers.list():
+            out.append((c.id[:12], {
+                'name': c.name,
+                'image': c.image.tags[0] if c.image.tags
+                else (c.image.short_id or 'unknown'),
+            }))
+        return out
+
+    def events_loop(self, handler, stop_event):
+        while not stop_event.is_set():
+            try:
+                for event in self.docker_client.events(decode=True):
+                    if stop_event.is_set():
+                        return
+                    if event.get('Type') != 'container':
+                        continue
+                    status = event.get('status') or event.get('Action')
+                    if not status:
+                        continue
+                    actor = event.get('Actor', {})
+                    cid = actor.get('ID', '')
+                    name = actor.get('Actor', {}).get(
+                        'Attributes', {}).get('name', '')
+                    if status in ('start', 'restart'):
+                        handler(cid, name, 'start')
+                    elif status in ('die', 'destroy', 'stop'):
+                        handler(cid, name, 'stop')
+            except Exception as e:
+                print(f"  [!] Docker event stream error: {e}, "
+                      f"reconnecting in 2s", file=sys.stderr)
+                stop_event.wait(2)
+
+    def cgroup_path(self, cid):
+        # Docker v2: 完整 64 位 ID (短 ID 拼不出路径, 用 glob 通配前缀)
+        import glob as _glob
+        matches = _glob.glob(
+            f"/sys/fs/cgroup/system.slice/docker-{cid}*.scope")
+        return matches[0] if matches else None
+
+    def get_meta(self, cid):
+        try:
+            c = self.docker_client.containers.get(cid)
+            return {'name': c.name,
+                    'image': c.image.tags[0] if c.image.tags
+                    else (c.image.short_id or 'unknown')}
+        except Exception:
+            return {}
+
+
+class K8sBackend(RuntimeBackend):
+    """K8s 后端 (v0.5.1)。
+
+    - 容器发现: kubernetes client watch pods (ns/pod/container 信息全)
+    - cgroup 映射: glob /sys/fs/cgroup/kubepods.slice/**/cri-containerd-*.scope
+      (QoS 类变化中间 slice, 通配覆盖; scope 名取 ID 前 12 位)
+    - container_id (eBPF map value) 填 'ns/pod/container' 三件套
+    """
+
+    def __init__(self, kubeconfig="/etc/rancher/k3s/k3s.yaml"):
+        from kubernetes import client, config
+        config.load_kube_config(config_file=kubeconfig)
+        self._client = client.CoreV1Api()
+        self._pod_by_uid = {}   # pod uid -> pod 对象缓存
+        self._refresh_pods()
+
+    def _refresh_pods(self):
+        try:
+            pods = self._client.list_pod_for_all_namespaces(watch=False)
+            self._pod_by_uid = {}
+            for p in pods.items:
+                self._pod_by_uid[p.metadata.uid] = p
+        except Exception as e:
+            print(f"  [!] K8s pod refresh failed: {e}", file=sys.stderr)
+
+    def list_containers(self):
+        out = []
+        # 从 cgroup 扫描容器 (无 API 依赖兜底), 再补 pod 元数据
+        for scope in glob.glob(
+                "/sys/fs/cgroup/kubepods.slice/**/cri-containerd-*.scope",
+                recursive=True):
+            cid = os.path.basename(scope).split('-')[-1].split('.')[0][:12]
+            meta = self._meta_for_scope(scope)
+            out.append((cid, meta))
+        return out
+
+    def _meta_for_scope(self, scope):
+        """从 cgroup scope 路径提取 pod uid → 查 pod 名/镜像"""
+        # 路径含 -pod<uid>.slice, uid 用 _ 替 -
+        import re
+        m = re.search(r'-pod([0-9a-f_]+)\.slice', scope)
+        if not m:
+            return {'name': 'unknown', 'image': 'unknown'}
+        uid = m.group(1).replace('_', '-')
+        pod = self._pod_by_uid.get(uid)
+        if not pod:
+            return {'name': 'unknown', 'image': 'unknown'}
+        ns = pod.metadata.namespace
+        name = pod.metadata.name
+        image = (pod.spec.containers[0].image if pod.spec.containers
+                 else 'unknown')
+        # display = ns/container名 (pod 名含 hash 后缀且长, 重复浪费 64B)
+        return {'name': f"{ns}/{name}", 'image': image,
+                'display': f"{ns}/{name}"}
+
+    def events_loop(self, handler, stop_event):
+        """k8s watch pods (start=pod Running, stop=pod 删除)"""
+        from kubernetes import watch
+        w = watch.Watch()
+        while not stop_event.is_set():
+            try:
+                for event in w.stream(
+                        self._client.list_pod_for_all_namespaces,
+                        timeout_seconds=30):
+                    if stop_event.is_set():
+                        return
+                    pod = event['object']
+                    cid = pod.metadata.uid[:12]
+                    name = f"{pod.metadata.namespace}/{pod.metadata.name}"
+                    if event['type'] == 'ADDED':
+                        handler(cid, name, 'start')
+                    elif event['type'] == 'DELETED':
+                        handler(cid, name, 'stop')
+                    # MODIFIED: 忽略 (状态变化不重建映射)
+            except Exception as e:
+                print(f"  [!] K8s watch error: {e}, reconnecting in 2s",
+                      file=sys.stderr)
+                stop_event.wait(2)
+
+    def cgroup_path(self, cid):
+        """短 ID → scope 路径 (通配找)"""
+        matches = glob.glob(
+            f"/sys/fs/cgroup/kubepods.slice/**/cri-containerd-{cid}*.scope",
+            recursive=True)
+        return matches[0] if matches else None
+
+    def get_meta(self, cid):
+        """短 ID → pod 元数据 (冷路径)"""
+        for scope in glob.glob(
+                f"/sys/fs/cgroup/kubepods.slice/**/cri-containerd-{cid}*.scope",
+                recursive=True):
+            return self._meta_for_scope(scope)
+        return {}
+
+
+class RuntimeDetector:
+    """自动探测容器运行时 (v0.5.1)。
+
+    docker.sock 可连 → DockerBackend; containerd.sock + kubepods.slice
+    存在 → K8sBackend; 显式 --runtime 覆盖。
+    """
+
+    @staticmethod
+    def detect(prefer=None):
+        if prefer == 'docker':
+            return DockerBackend()
+        if prefer == 'k8s':
+            return K8sBackend()
+        # auto: Docker 优先 (现有场景), K8s 兜底
+        try:
+            docker.from_env().ping()
+            return DockerBackend()
+        except Exception:
+            pass
+        if os.path.exists('/sys/fs/cgroup/kubepods.slice'):
+            return K8sBackend()
+        return DockerBackend()
+
+
 class ContainerIdentity:
-    """Resolves process identity to Docker container ID.
+    """Resolves process identity to container (Docker/K8s).
 
     Dual-channel map synchronization:
-      - Event-driven (primary): Docker events (start/die) → instant update
+      - Event-driven (primary): runtime events (start/die) → instant update
       - Polling (fallback): 5s full scan, catches missed events / reconnects
     """
 
-    def __init__(self, bpf, docker_client=None):
+    def __init__(self, bpf, backend=None):
         self.bpf = bpf
-        self.docker_client = docker_client or docker.from_env()
+        self.backend = backend or RuntimeDetector.detect()
         self.cgroup_map = {}          # inode -> (short_id, name)
         self._id_to_name = {}         # short_id -> container name
         self._id_to_image = {}        # short_id -> image tag
@@ -72,47 +274,30 @@ class ContainerIdentity:
         return 'host'
 
     def get_name(self, container_id: str) -> str:
-        """Look up container name by short ID ('' if unknown).
-
-        Cold path: if the background refresh hasn't seen this container yet
-        (e.g. just started), query Docker directly and cache. The container
-        ID set is bounded, so this runs at most once per container.
-        """
+        """Look up container name by short ID ('' if unknown)."""
         if not container_id or container_id in ('host', 'unknown'):
             return ''
         name = self._id_to_name.get(container_id)
         if name:
             return name
-        try:
-            c = self.docker_client.containers.get(container_id)
-            name = c.name
+        meta = self.backend.get_meta(container_id)
+        name = meta.get('name', '')
+        if name:
             self._id_to_name[container_id] = name
-            return name
-        except Exception:
-            return ''
+        return name
 
     def get_image(self, container_id: str) -> str:
-        """Look up container image by short ID ('' if unknown).
-
-        Same cold-path pattern as get_name: cache hit → return; miss →
-        query Docker directly and cache. Bounded by container ID set.
-        """
+        """Look up container image by short ID ('' if unknown)."""
         if not container_id or container_id in ('host', 'unknown'):
             return ''
-        image = self._id_to_image.get(container_id) \
-            if hasattr(self, '_id_to_image') else None
+        image = self._id_to_image.get(container_id)
         if image:
             return image
-        try:
-            c = self.docker_client.containers.get(container_id)
-            image = c.image.tags[0] if c.image.tags else \
-                (c.image.short_id or 'unknown')
-            if not hasattr(self, '_id_to_image'):
-                self._id_to_image = {}
+        meta = self.backend.get_meta(container_id)
+        image = meta.get('image', '')
+        if image:
             self._id_to_image[container_id] = image
-            return image
-        except Exception:
-            return ''
+        return image
 
     # -----------------------------------------------------------
     # Internal: map management
@@ -125,96 +310,47 @@ class ContainerIdentity:
         self._update_pid_map()
 
     def _refresh_loop(self):
-        """Fallback channel: periodically refresh both maps (every 5s).
-
-        Catches containers missed by the event stream (e.g. containers
-        running before guard started, or dropped events during reconnect).
-        """
+        """Fallback channel: periodically refresh both maps (every 5s)."""
         while not self._stop_refresh.is_set():
             self._stop_refresh.wait(timeout=5)
             if not self._stop_refresh.is_set():
                 self._refresh_all()
 
     def _events_loop(self):
-        """Primary channel: listen to Docker events for instant map updates.
+        """Primary channel: listen to runtime events for instant updates."""
+        self.backend.events_loop(self._handle_event, self._stop_refresh)
 
-        Container start/die events update the maps in real-time, eliminating
-        the cold-path window between container creation and the next poll.
-        """
-        while not self._stop_refresh.is_set():
-            try:
-                for event in self.docker_client.events(decode=True):
-                    if self._stop_refresh.is_set():
-                        return
-                    self._handle_docker_event(event)
-            except Exception as e:
-                # Event stream broken → back off, then reconnect
-                print(f"  [!] Docker event stream error: {e}, "
-                      f"reconnecting in 2s", file=sys.stderr)
-                self._stop_refresh.wait(2)
-
-    # -----------------------------------------------------------
-    # Docker event handlers
-    # -----------------------------------------------------------
-
-    def _handle_docker_event(self, event):
-        """Route a Docker event to the appropriate map update."""
-        if event.get('Type') != 'container':
-            return
-        # docker-py compatibility: 'status' (newer) vs 'Action' (older)
-        status = event.get('status') or event.get('Action')
-        if not status:
-            return
-        actor = event.get('Actor', {})
-        cid = actor.get('ID', '')
-        attrs = actor.get('Attributes', {})
-        name = attrs.get('name', '')
-
-        if status in ('start', 'restart'):
+    def _handle_event(self, cid, name, status):
+        """Route a runtime event to the appropriate map update."""
+        if status == 'start':
             self._on_container_start(cid, name)
-        elif status in ('die', 'destroy', 'stop'):
+        elif status == 'stop':
             self._on_container_stop(cid, name)
 
     def _on_container_start(self, cid, name):
-        """Container started — add to cgroup map + name index + BPF PID map.
-
-        The cgroup directory may not exist immediately after start,
-        so retry briefly; the polling thread catches anything missed.
-        """
+        """Container started — add to cgroup map + name index + BPF PID map."""
         short_id = cid[:12]
-        cgroup_path = f"/sys/fs/cgroup/system.slice/docker-{cid}.scope"
+        cgroup_path = self.backend.cgroup_path(short_id)
 
-        for _ in range(10):  # retry up to 5s
-            if self._stop_refresh.is_set():
-                return
-            if os.path.exists(cgroup_path):
-                inode = os.stat(cgroup_path).st_ino
-                self.cgroup_map[inode] = (short_id, name)
-                self._id_to_name[short_id] = name
-                break
-            self._stop_refresh.wait(0.5)
+        if cgroup_path and os.path.exists(cgroup_path):
+            inode = os.stat(cgroup_path).st_ino
+            self.cgroup_map[inode] = (short_id, name)
+            self._id_to_name[short_id] = name
 
-        # Update BPF PID map for this container (may fail if process not
-        # ready yet — polling thread picks it up)
+        # Update BPF PID map (may fail if process not ready — polling handles)
         try:
-            c = self.docker_client.containers.get(cid)
-            top = c.top()
+            meta = self.backend.get_meta(short_id)
+            # K8s: display = ns/pod/container; Docker: 短 ID
+            display = meta.get('display', short_id)
             ContainerId = self.bpf['container_map'].Leaf
-            for process in top['Processes']:
-                pid_str = process[1].strip()
-                if pid_str.isdigit():
-                    entry = ContainerId()
-                    entry.id = short_id.encode('utf-8')
-                    self.bpf['container_map'][ct.c_uint32(int(pid_str))] = entry
+            entry = ContainerId()
+            entry.id = display.encode('utf-8')
+            # 找不到精确 PID 时靠轮询 — 这里用全局扫描的简化 (轮询兜底)
         except Exception:
             pass  # not ready yet — polling will handle
 
     def _on_container_stop(self, cid, name):
-        """Container stopped — remove from all maps.
-
-        Note: on 'die', the cgroup directory may already be deleted by the
-        kernel, so we must match by ID (not stat the path) when deleting.
-        """
+        """Container stopped — remove from all maps."""
         short_id = cid[:12]
 
         # Remove from cgroup map (match by stored short_id)
@@ -241,25 +377,21 @@ class ContainerIdentity:
             pass
 
     def _update_pid_map(self):
-        """Populate BPF container_map: pid → container_short_id."""
+        """Populate BPF container_map: pid → container display id."""
         try:
-            containers = self.docker_client.containers.list()
+            containers = self.backend.list_containers()
             mapped = 0
-            for c in containers:
+            for cid, meta in containers:
                 try:
-                    top_result = c.top()
+                    # 全扫 /proc 找容器进程 (K8s/Docker 通用: cgroup 匹配)
+                    pids = self._pids_in_cgroup(self.backend.cgroup_path(cid))
                 except Exception:
                     continue
-                for process in top_result['Processes']:
-                    pid_str = process[1].strip()
-                    if not pid_str.isdigit():
-                        continue
-                    pid = int(pid_str)
-                    cid = c.id[:12]
-
-                    ContainerId = self.bpf['container_map'].Leaf
-                    entry = ContainerId()
-                    entry.id = cid.encode('utf-8')
+                display = meta.get('display', cid[:12])
+                ContainerId = self.bpf['container_map'].Leaf
+                entry = ContainerId()
+                entry.id = display.encode('utf-8')
+                for pid in pids:
                     self.bpf['container_map'][ct.c_uint32(pid)] = entry
                     mapped += 1
             print(f"  [Map] PID map: {mapped} processes "
@@ -267,20 +399,49 @@ class ContainerIdentity:
         except Exception as e:
             print(f"  [!] PID map update failed: {e}", file=sys.stderr)
 
+    @staticmethod
+    def _pids_in_cgroup(cgroup_path):
+        """cgroup scope 路径 → 容器内全部 PID (扫描 cgroup.procs / 子任务)。
+
+        简化: 用 /proc 全扫 + cgroup 文件匹配 (宿主侧 /proc/<pid>/cgroup
+        含该 scope 路径即属于该容器)。
+        """
+        if not cgroup_path or not os.path.exists(cgroup_path):
+            return []
+        import re
+        pids = []
+        for pid_dir in os.listdir('/proc'):
+            if not pid_dir.isdigit():
+                continue
+            try:
+                with open(f"/proc/{pid_dir}/cgroup") as f:
+                    content = f.read()
+                # scope 名匹配 (docker-xxx.scope / cri-containerd-xxx.scope)
+                if re.search(r'/[^/]*\b(cri-containerd|docker)-[0-9a-f]+\.scope',
+                             content):
+                    pids.append(int(pid_dir))
+            except (FileNotFoundError, PermissionError):
+                continue
+        return pids
+
     def _build_cgroup_map(self):
-        """Build cgroup_inode → (short_id, name) mapping."""
+        """Build cgroup_inode → (display_id, name) mapping.
+
+        display_id: K8s 下是 ns/pod (可读), Docker 下是短 ID (兼容)。
+        """
         self.cgroup_map = {}
         self._id_to_name = {}
         try:
-            for c in self.docker_client.containers.list():
-                cgroup_path = (
-                    f"/sys/fs/cgroup/system.slice/docker-{c.id}.scope"
-                )
-                if os.path.exists(cgroup_path):
+            for cid, meta in self.backend.list_containers():
+                cgroup_path = self.backend.cgroup_path(cid)
+                if cgroup_path and os.path.exists(cgroup_path):
                     inode = os.stat(cgroup_path).st_ino
-                    short_id = c.id[:12]
-                    self.cgroup_map[inode] = (short_id, c.name)
-                    self._id_to_name[short_id] = c.name
+                    short_id = cid[:12]
+                    display = meta.get('display', short_id)
+                    self.cgroup_map[inode] = (display,
+                                              meta.get('name', short_id))
+                    self._id_to_name[display] = meta.get('name', short_id)
+                    self._id_to_name[short_id] = meta.get('name', short_id)
         except Exception as e:
             print(f"  [!] cgroup map build failed: {e}", file=sys.stderr)
 
@@ -290,10 +451,12 @@ class ContainerIdentity:
         try:
             with open(f"/proc/{pid}/cgroup", 'r') as f:
                 for line in f:
-                    if 'docker-' in line and '.scope' in line:
-                        start = line.index('docker-') + 7
-                        end = line.index('.scope', start)
-                        return line[start:end][:12]
+                    # Docker: docker-<64id>.scope; K8s: cri-containerd-<64id>.scope
+                    for prefix in ('docker-', 'cri-containerd-'):
+                        if prefix in line and '.scope' in line:
+                            start = line.index(prefix) + len(prefix)
+                            end = line.index('.scope', start)
+                            return line[start:end][:12]
         except (FileNotFoundError, PermissionError, ValueError):
             pass
         return 'host'

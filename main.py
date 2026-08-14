@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-eBPF Container Guard - Main Entry Point (v0.4.3)
+eBPF Container Guard - Main Entry Point (v0.5.1)
 
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
@@ -76,8 +76,9 @@ class ContainerEscapeMonitor:
 
     def __init__(self, rules_file="config/rules.yaml",
                  responses_file="config/responses.yaml",
-                 verbose=False):
+                 verbose=False, runtime="auto"):
         self.verbose = verbose
+        self._runtime_pref = runtime
 
         # Resolve paths relative to this script
         script_dir = Path(__file__).parent.resolve()
@@ -94,7 +95,6 @@ class ContainerEscapeMonitor:
         # 3. Load response strategies
         print("[3/8] Loading response strategies...")
         self.responder = ResponseEngine(responses_file)
-
         # 4. Initialize attack matrix (Tier 2: behavior → CVE)
         print("[4/8] Initializing attack matrix...")
         self.matrix = AttackMatrix()
@@ -109,17 +109,23 @@ class ContainerEscapeMonitor:
             results_path=str(script_dir / "ai_results.log"))
         self.ai.start()
 
-        # 6. Connect to Docker daemon
-        print("[6/8] Connecting to Docker daemon...")
+        # 6. Detect container runtime (v0.5.1: Docker/K8s 双轨)
+        print("[6/8] Detecting container runtime...")
+        from core.identity import RuntimeDetector, K8sBackend
+        self.runtime = getattr(self, '_runtime_pref', 'auto')
+        self.docker_client = None
         try:
-            self.docker_client = docker.from_env()
-        except docker.errors.DockerException as e:
-            print(f"[!] Docker connection failed: {e}", file=sys.stderr)
+            self.backend = RuntimeDetector.detect(prefer=self.runtime)
+            self.k8s_mode = isinstance(self.backend, K8sBackend)
+            print(f"  [Runtime] backend={self.backend.__class__.__name__} "
+                  f"k8s_mode={self.k8s_mode}")
+        except Exception as e:
+            print(f"[!] Runtime detection failed: {e}", file=sys.stderr)
             sys.exit(1)
 
         # 7. Initialize container identity + event log
         print("[7/8] Initializing container identity + event log...")
-        self.identity = ContainerIdentity(self.bpf, self.docker_client)
+        self.identity = ContainerIdentity(self.bpf, self.backend)
         self.identity.start()
         self.logger = EventLogger(str(script_dir / "events.log"))
 
@@ -149,10 +155,20 @@ class ContainerEscapeMonitor:
         else:
             self.netblocker = NetBlocker()
 
-        # 10. Initialize decision executor (human verdicts → Docker actions)
-        self.executor = DecisionExecutor(
-            str(script_dir / "decisions.log"), self.docker_client)
-        self.executor.start()
+        # 10. Initialize decision executor (human verdicts → runtime actions)
+        # v0.5.1: K8s 模式响应留 v0.5.2 — 挂 no-op 避免启动崩
+        if self.k8s_mode:
+            print("  [Executor] K8s 模式响应 v0.5.2 实现 — 当前 no-op")
+            self.executor = None
+            # K8s 模式 responder 也 no-op (Docker 动作不适用)
+            class _NoopResponder:
+                def handle_alert(self, *a, **k):
+                    return 'skipped_k8s'
+            self.responder = _NoopResponder()
+        else:
+            self.executor = DecisionExecutor(
+                str(script_dir / "decisions.log"), self.docker_client)
+            self.executor.start()
 
         # 11. Start rules hot-reload watcher (v0.3.3)
         self._rules_path = Path(rules_file)
@@ -177,7 +193,7 @@ class ContainerEscapeMonitor:
         print(f"  [Behavior] enabled: {self.behavior_logger.enabled}")
 
         print("\n========================================")
-        print("  eBPF Container Guard v0.4.3")
+        print("  eBPF Container Guard v0.5.1")
         print("  6 probes | 12 rules | 3-tier detection")
         print("  Press Ctrl+C to stop")
         print("========================================\n")
@@ -586,6 +602,12 @@ def main():
         action='store_true',
         help='Enable verbose logging (print all normal events)'
     )
+    parser.add_argument(
+        '--runtime',
+        default='auto',
+        choices=['auto', 'docker', 'k8s'],
+        help='Container runtime backend: auto|docker|k8s (v0.5.1, default auto)'
+    )
 
     args = parser.parse_args()
 
@@ -620,7 +642,8 @@ def main():
     monitor = ContainerEscapeMonitor(
         rules_file=str(rules_path),
         responses_file=str(responses_path),
-        verbose=args.verbose
+        verbose=args.verbose,
+        runtime=args.runtime,
     )
 
     # v0.4.3 systemd: SIGTERM → 复用 KeyboardInterrupt 清理路径
