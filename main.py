@@ -16,11 +16,13 @@ from datetime import datetime
 from pathlib import Path
 from socket import htons
 
-from bcc import BPF
 import docker
 
 # Add src to path for module imports
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
+
+# v0.4.1: BCC → libbpf CO-RE (自研 ctypes 加载层)
+from core.bpf_runtime import BpfRuntime
 
 from detector.engine import EscapeDetector, print_alert
 from detector.attack_matrix import AttackMatrix
@@ -78,11 +80,11 @@ class ContainerEscapeMonitor:
 
         # Resolve paths relative to this script
         script_dir = Path(__file__).parent.resolve()
-        ebpf_c_file = str(script_dir / "src" / "ebpf" / "escape-detect.bpf.c")
+        ebpf_obj_file = str(script_dir / ".build" / "escape-detect.bpf.o")
 
-        # 1. Compile and load eBPF program
-        print("[1/8] Compiling and loading eBPF program...")
-        self.bpf = BPF(src_file=ebpf_c_file)
+        # 1. Load eBPF program (CO-RE, make build 预编译)
+        print("[1/8] Loading eBPF program (CO-RE)...")
+        self.bpf = BpfRuntime(ebpf_obj_file)
 
         # 2. Load detection rules
         print("[2/8] Loading detection rules...")

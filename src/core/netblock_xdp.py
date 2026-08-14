@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-XDP network blocking backend (v0.3.9).
+XDP network blocking backend (v0.3.9, v0.4.1 CO-RE).
 
 eBPF XDP program drops blocked packets at the NIC driver level —
 microsecond latency, pure kernel space. Compatible interface with
 NetBlocker (iptables backend): block / unblock / list_blocks / cleanup.
 
-Requires root; loads src/ebpf/xdp-block.bpf.c via BCC and attaches to
-the given interface (default: docker0 — container traffic passes through).
+Requires root; loads .build/xdp-block.bpf.o via BpfRuntime (libbpf CO-RE,
+自研 ctypes 加载层) and attaches to the given interface (default: docker0).
 """
 
+import ctypes as ct
 import os
 import sys
 import time
 from pathlib import Path
 from typing import Dict, Optional
 
-from bcc import BPF
-
+from core.bpf_runtime import BpfRuntime, BlockIpKey, BlockIpPortKey
 from core.netblock import ip_int_to_str
 
-XDP_FILE = Path(__file__).parent.parent / "ebpf" / "xdp-block.bpf.c"
+XDP_OBJ = Path(__file__).parent.parent.parent / ".build" / "xdp-block.bpf.o"
 
 
 class CompositeNetBlocker:
@@ -76,19 +76,22 @@ class XDPNetBlocker:
         self.iface = iface
         self.ttl = ttl
         self.blocked: Dict[str, float] = {}  # "ip:port" -> ts
-        self.bpf: Optional[BPF] = None
+        self.bpf: Optional[BpfRuntime] = None
         self._load()
 
     def _load(self):
-        """Compile + load XDP program, attach to interface."""
-        if not XDP_FILE.exists():
-            print(f"  [!] XDP program not found: {XDP_FILE}", file=sys.stderr)
+        """Load CO-RE XDP program, attach to interface."""
+        if not XDP_OBJ.exists():
+            print(f"  [!] XDP object not found: {XDP_OBJ}", file=sys.stderr)
             self.bpf = None
             return
         try:
-            self.bpf = BPF(src_file=str(XDP_FILE))
-            fn = self.bpf.load_func("xdp_block", BPF.XDP)
-            self.bpf.attach_xdp(self.iface, fn)
+            self.bpf = BpfRuntime(str(XDP_OBJ), auto_build=False,
+                                  attach_tracepoints=False)
+            if not self.bpf.attach_xdp(self.iface, "xdp_block"):
+                self.bpf.close()
+                self.bpf = None
+                return
             print(f"  [XDP] attached to {self.iface} "
                   f"(kernel-level packet blocking)")
         except Exception as e:
@@ -114,14 +117,12 @@ class XDPNetBlocker:
 
         ip_be = self._ip_to_be(ip)
         try:
-            import ctypes as ct
             if port == 0:
                 # 整 IP 阻断
-                k = self.bpf["block_ip_map"].Key(ip=ip_be)
+                k = BlockIpKey(ip=ip_be)
                 self.bpf["block_ip_map"][k] = ct.c_uint32(1)
             else:
-                k = self.bpf["block_port_map"].Key(
-                    ip=ip_be, port=self._port_to_be(port))
+                k = BlockIpPortKey(ip=ip_be, port=self._port_to_be(port))
                 self.bpf["block_port_map"][k] = ct.c_uint32(1)
             self.blocked[key] = time.time()
             return True
@@ -138,12 +139,10 @@ class XDPNetBlocker:
         ip_be = self._ip_to_be(ip)
         try:
             if port == 0:
-                del self.bpf["block_ip_map"][
-                    self.bpf["block_ip_map"].Key(ip=ip_be)]
+                del self.bpf["block_ip_map"][BlockIpKey(ip=ip_be)]
             else:
                 del self.bpf["block_port_map"][
-                    self.bpf["block_port_map"].Key(
-                        ip=ip_be, port=self._port_to_be(port))]
+                    BlockIpPortKey(ip=ip_be, port=self._port_to_be(port))]
             self.blocked.pop(key, None)
             return True
         except Exception:
@@ -175,7 +174,8 @@ class XDPNetBlocker:
         """Detach XDP program from interface."""
         if self.bpf:
             try:
-                self.bpf.remove_xdp(self.iface, 0)
+                self.bpf.remove_xdp()
+                self.bpf.close()
             except Exception:
                 pass
 
