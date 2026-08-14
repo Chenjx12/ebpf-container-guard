@@ -519,3 +519,16 @@ docker rm -f test_esc
 ---
 
 **最后更新**: 2026-08-14
+
+---
+# Star
+## Star History
+
+<a href="https://www.star-history.com/?repos=Chenjx12%2Febpf-container-guard&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Chenjx12/ebpf-container-guard&type=date&theme=dark&legend=top-left&sealed_token=9k7OUZGHtswnc4p3F85KN7nwPccDIhPVqYRFOm27eQEkFc7qPqxehUY5H2qnuRtK2TrbB3hAaSBAt7HRbZuH2iwv_iyvGX-qYd_CK3E5CSNCnhAuv2PjpQ685pKkSOSG1wNRhq7kd4GEN6FaEIOZ7YiYDgY96MWd7pjFKNTz3qVY9fbgYk3XDq039mMQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Chenjx12/ebpf-container-guard&type=date&legend=top-left&sealed_token=9k7OUZGHtswnc4p3F85KN7nwPccDIhPVqYRFOm27eQEkFc7qPqxehUY5H2qnuRtK2TrbB3hAaSBAt7HRbZuH2iwv_iyvGX-qYd_CK3E5CSNCnhAuv2PjpQ685pKkSOSG1wNRhq7kd4GEN6FaEIOZ7YiYDgY96MWd7pjFKNTz3qVY9fbgYk3XDq039mMQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Chenjx12/ebpf-container-guard&type=date&legend=top-left&sealed_token=9k7OUZGHtswnc4p3F85KN7nwPccDIhPVqYRFOm27eQEkFc7qPqxehUY5H2qnuRtK2TrbB3hAaSBAt7HRbZuH2iwv_iyvGX-qYd_CK3E5CSNCnhAuv2PjpQ685pKkSOSG1wNRhq7kd4GEN6FaEIOZ7YiYDgY96MWd7pjFKNTz3qVY9fbgYk3XDq039mMQ" />
+ </picture>
+</a>
+
