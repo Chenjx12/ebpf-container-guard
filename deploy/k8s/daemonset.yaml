@@ -35,8 +35,8 @@ spec:
         - operator: Exists
       containers:
         - name: guard
-          image: ebpf-guard:v0.5.3
-          imagePullPolicy: IfNotPresent
+          image: ebpf-guard:v0.5.5-fix
+          imagePullPolicy: Never
           securityContext:
             privileged: true
             capabilities:

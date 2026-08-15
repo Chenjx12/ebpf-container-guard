@@ -1,7 +1,7 @@
 # eBPF Container Guard — DaemonSet 镜像 (v0.5.3)
 # K8s 模式: 容器内 in_cluster kubeconfig + 宿主 /sys + hostPID
-# 构建: docker build -f deploy/Dockerfile.guard -t ebpf-guard:v0.5.3 .
-# 部署: sudo k3s ctr images import <(docker save ebpf-guard:v0.5.3)
+# 构建: docker build -f deploy/Dockerfile.guard -t ebpf-guard:v0.5.5 .
+# 部署: sudo k3s ctr images import <(docker save ebpf-guard:v0.5.5)
 #       kubectl apply -f deploy/k8s/
 FROM python:3.10-slim
 

@@ -104,6 +104,7 @@ class K8sDecisionExecutor:
     # -----------------------------------------------------------
 
     @staticmethod
+    @staticmethod
     def _parse_ns_pod(container_id):
         parts = container_id.split('/')
         if len(parts) == 2 and parts[0] and parts[1]:

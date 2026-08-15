@@ -52,14 +52,44 @@ class K8sResponseEngine:
     # Helpers
     # -----------------------------------------------------------
 
-    @staticmethod
-    def _parse_ns_pod(container_id):
-        """'ns/pod' → (ns, pod); 无法解析返回 (None, None)"""
+    def _parse_ns_pod(self, container_id):
+        """'ns/pod' → (ns, pod); 短 ID → 反查 ns/pod (身份冷启动兜底)"""
         if not container_id or container_id in ('host', 'unknown'):
             return None, None
         parts = container_id.split('/')
         if len(parts) == 2 and parts[0] and parts[1]:
             return parts[0], parts[1]
+        # 短 ID (12位 hex) → glob scope → 反查 pod
+        if len(container_id) == 12 and container_id.isalnum():
+            return self._short_id_to_ns_pod(container_id)
+        return None, None
+
+    def _short_id_to_ns_pod(self, short_id):
+        """短 ID → (ns, pod): cgroup scope 反查 pod uid → k8s 查名。
+
+        scope 创建可能有延迟 — 重试一次 (2s)。
+        """
+        import glob
+        import re
+        import time
+        for attempt in range(2):
+            matches = glob.glob(
+                f"/sys/fs/cgroup/kubepods.slice/**/cri-containerd-{short_id}*.scope",
+                recursive=True)
+            for m in matches:
+                mm = re.search(r'-pod([0-9a-f_]+)\.slice', m)
+                if not mm:
+                    continue
+                uid = mm.group(1).replace('_', '-')
+                try:
+                    pods = self._client.list_pod_for_all_namespaces(
+                        field_selector=f"metadata.uid={uid}")
+                    for p in pods.items:
+                        return p.metadata.namespace, p.metadata.name
+                except Exception:
+                    continue
+            if attempt == 0:
+                time.sleep(2)
         return None, None
 
     @staticmethod
@@ -76,17 +106,34 @@ class K8sResponseEngine:
             pass
         return None
 
-    def _set_freeze(self, pid, freeze, ns=None, pod=None):
+    def _set_freeze(self, pid, freeze, ns=None, pod=None, container_id=None):
         """写 cgroup.freeze (1=冻结, 0=解冻)。
 
-        优先用 event pid 反查 cgroup; 失败时按 pod uid 扫 /proc 兜底
-        (触发进程可能已退出)。
+        三级定位 (v0.5.5): event pid cgroup → pod 主容器 ID → 短 ID glob。
+        container_id 可能本身是短 ID (身份冷启动) — 直接用它 glob。
+        防自毁: 解析出的 scope 若是 guard 自身容器则拒绝。
         """
         path = self._pod_cgroup_path(pid)
         if path is None and ns and pod:
             path = self._pod_cgroup_path_by_uid(ns, pod)
+        if path is None:
+            # 短 ID 直接 glob (身份冷启动窗口内 container_id 可能是短 ID)
+            path = self._pod_cgroup_path_by_shortid(ns, pod, container_id)
         if not path or not os.path.exists(path):
             return False
+        # 防自毁: 自身 cgroup 的容器 ID
+        try:
+            with open('/proc/self/cgroup') as f:
+                self_cg = f.read()
+            self_cid = ''
+            if 'cri-containerd-' in self_cg:
+                start = self_cg.index('cri-containerd-') + 15
+                self_cid = self_cg[start:start + 12]
+            if self_cid and self_cid in path:
+                print(f"⚠️ 防自毁: freeze 目标 {path} 是 guard 自身, 拒绝")
+                return False
+        except (FileNotFoundError, PermissionError, ValueError):
+            pass
         freeze_file = os.path.join(path, 'cgroup.freeze')
         try:
             with open(freeze_file, 'w') as f:
@@ -94,6 +141,38 @@ class K8sResponseEngine:
             return True
         except (PermissionError, FileNotFoundError):
             return False
+
+    def _pod_cgroup_path_by_shortid(self, ns, pod, container_id=None):
+        """短 ID → scope (身份冷启动兜底)。
+
+        container_id 优先 (可能是短 ID 或完整 ID); 否则 pod 名查 k8s。
+        """
+        import glob
+        candidates = []
+        # container_id 本身可能是短 ID (12位) 或完整 ID
+        if container_id and container_id not in ('host', 'unknown'):
+            candidates.append(container_id)
+        if ns and pod:
+            # 尝试 ns/pod 名 → 查 k8s 拿容器 ID
+            try:
+                p = self._client.read_namespaced_pod(pod, ns)
+                cid = (p.status.container_statuses[0].container_id
+                       if p.status.container_statuses else '')
+                full_id = cid.split('//')[-1]
+                if full_id:
+                    candidates.append(full_id)
+            except Exception:
+                pass
+        # 短 ID 直试 (pod 参数本身是短 ID)
+        if pod and len(pod) == 12 and pod.isalnum():
+            candidates.append(pod)
+        for cid in candidates:
+            matches = glob.glob(
+                f"/sys/fs/cgroup/kubepods.slice/**/cri-containerd-{cid[:12]}*.scope",
+                recursive=True)
+            if matches:
+                return matches[0]
+        return None
 
     def _pod_cgroup_path_by_uid(self, ns, pod):
         """按 pod 主容器 ID 定位 cgroup (精确, 非扫 /proc 碰运气)。
@@ -234,13 +313,17 @@ class K8sResponseEngine:
         try:
             success = True
             if action == 'pause_container':
-                success = self._set_freeze(event_pid, True, ns, pod)
+                success = self._set_freeze(event_pid, True, ns, pod,
+                                           container_id)
                 if success:
                     self._patch_annotation(
                         ns, pod, 'guard/frozen',
                         datetime.now().isoformat())
                     print(f"✅ Pod {container_id} FROZEN (cgroup.freeze)")
             elif action == 'isolate_network':
+                # ns/pod 可能因短 ID 解析失败 — 重解析 (短 ID 反查)
+                if not ns or not pod:
+                    ns, pod = self._parse_ns_pod(container_id)
                 pod_ip = self._pod_ip(ns, pod)
                 if self._iptables_available():
                     success = self._iptables_block(pod_ip)
