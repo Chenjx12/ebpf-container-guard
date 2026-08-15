@@ -21,7 +21,7 @@ start_guard || exit 1
 print_test "创建逃逸 pod + 触发"
 kubectl run "$POD" --image="$IMAGE" --privileged --restart=Never --command -- sleep 300 2>/dev/null
 sleep 8
-kubectl exec -n default "$POD" -- /bin/sh -c "echo CONNECT" 2>/dev/null
+kubectl exec -n default "$POD" -- /bin/sh -c "curl -m 3 -s http://1.0.43.10/ > /dev/null 2>&1; echo CONNECT" 2>/dev/null
 print_pass
 
 print_test "检测到 reverse_shell"

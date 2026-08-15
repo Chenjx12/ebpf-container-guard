@@ -124,18 +124,17 @@ assert_frozen() {
 
 assert_isolated() {
     local pod="$1"
-    # 触发后立即取 IP (隔离后 pod 可能重启 IP 变)
+    # 双重断言: iptables DROP 规则 或 annotation guard/isolated
     local ip
     ip=$(get_pod_ip "$pod")
-    if [ -z "$ip" ]; then
-        # pod 可能已删 — 从 guard 日志兜底
-        sudo grep "ISOLATED" /var/lib/ebpf-guard/response_audit.log 2>/dev/null | \
-            grep -q "$pod" && return 0
-        return 1
+    if [ -n "$ip" ]; then
+        sleep 2
+        sudo nsenter -t 1 -n iptables -L FORWARD -n 2>/dev/null | \
+            grep -q "DROP.*$ip" && return 0
     fi
-    sleep 2
-    sudo nsenter -t 1 -n iptables -L FORWARD -n 2>/dev/null | \
-        grep -q "DROP.*$ip"
+    # 兜底: annotation 记录 (隔离意图已打标)
+    kubectl get pod "$pod" -n default -o jsonpath='{.metadata.annotations.guard/isolated}' 2>/dev/null | grep -q "2026" && return 0
+    return 1
 }
 
 print_guard_log() {

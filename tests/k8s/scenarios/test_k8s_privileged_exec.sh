@@ -21,7 +21,7 @@ start_guard || exit 1
 print_test "创建逃逸 pod + 触发"
 kubectl run "$POD" --image="$IMAGE" --privileged --restart=Never --command -- sleep 300 2>/dev/null
 sleep 8
-kubectl exec -n default "$POD" -- /bin/sh -c "echo EXEC" 2>/dev/null
+kubectl exec -n default "$POD" -- /bin/sh -c "sh -c 'sleep 5' & sleep 1; echo EXEC" 2>/dev/null
 print_pass
 
 print_test "检测到 privileged_exec"

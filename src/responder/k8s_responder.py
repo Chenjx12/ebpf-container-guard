@@ -68,6 +68,7 @@ class K8sResponseEngine:
         """短 ID → (ns, pod): cgroup scope 反查 pod uid → k8s 查名。
 
         scope 创建可能有延迟 — 重试一次 (2s)。
+        field_selector 不支持 metadata.uid (400) — list 后内存匹配。
         """
         import glob
         import re
@@ -82,10 +83,10 @@ class K8sResponseEngine:
                     continue
                 uid = mm.group(1).replace('_', '-')
                 try:
-                    pods = self._client.list_pod_for_all_namespaces(
-                        field_selector=f"metadata.uid={uid}")
+                    pods = self._client.list_pod_for_all_namespaces()
                     for p in pods.items:
-                        return p.metadata.namespace, p.metadata.name
+                        if p.metadata.uid == uid:
+                            return p.metadata.namespace, p.metadata.name
                 except Exception:
                     continue
             if attempt == 0:
