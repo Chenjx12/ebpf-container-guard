@@ -452,66 +452,75 @@ const AssetsPage = {
     const podDialog = reactive({ show: false, pod: null, title: '' });
     const topoRef = ref(null);
     let chart = null;
+    let lastTopoKey = '';  // 轮询去重: 数据未变不重建图 (布局稳定)
 
-    // v0.5.7: 拓扑图 — ECharts 关系图 (节点=pod, 按 node 成簇, 服务关联连线)
+    // v0.5.7: 拓扑图 — ECharts 关系图 (节点=pod+service, 按 node 成簇, 服务关联连线)
     function buildTopo() {
       if (!topoRef.value || typeof echarts === 'undefined') return;
       if (!chart) chart = echarts.init(topoRef.value);
       const nodes = [];
       const edges = [];
       const nodeIdx = {};
-      // 节点簇: 每 node 一组, 以 node 为聚类中心
+      const svcIdx = {};
       const nodeGroups = data.nodes.map(n => n.name);
       data.nodes.forEach((nd, gi) => {
         nd.pods.forEach(p => {
           const key = p.namespace + '/' + p.name;
           nodeIdx[key] = nodes.length;
           nodes.push({
-            id: key, name: p.name.split('-')[0],   // 短名显示
+            id: key, name: p.name.split('-')[0],
             symbolSize: p.privileged ? 34 : 24,
             category: gi,
             itemStyle: { color: p.status === 'Running' ? '#3b82f6' : '#64748b' },
-            label: { show: true, color: '#cbd5e1', fontSize: 10 },
           });
         });
       });
-      // 服务关联边: pod → 所属 service
+      data.services.forEach(s => {
+        const sk = s.namespace + '/' + s.name;
+        svcIdx[sk] = nodes.length;
+        nodes.push({
+          id: sk, name: s.name, symbol: 'diamond', symbolSize: 18,
+          category: -1,
+          itemStyle: { color: '#f59e0b' },
+        });
+      });
       data.nodes.forEach(nd => {
         nd.pods.forEach(p => {
           const key = p.namespace + '/' + p.name;
+          const src = nodeIdx[key];
+          if (src === undefined) return;
           p.services.forEach(s => {
-            // 找到该 service 的第一个 pod 作为目标 (简化为星型: service 是中心)
-            const svcPod = nodeIdx[key];
-            if (svcPod !== undefined) {
-              // 指向同 namespace 里随机一个关联 pod
-              const targets = data.nodes.flatMap(n => n.pods)
-                .filter(x => x.services.includes(s) && x.namespace === p.namespace);
-              const t = targets[0];
-              if (t) {
-                const tk = t.namespace + '/' + t.name;
-                if (nodeIdx[tk] !== undefined && nodeIdx[tk] !== svcPod) {
-                  edges.push({ source: svcPod, target: nodeIdx[tk], label: { show: true, formatter: s, fontSize: 8, color: '#f59e0b' } });
-                }
-              }
+            const tk = p.namespace + '/' + s;
+            if (svcIdx[tk] !== undefined) {
+              edges.push({ source: src, target: svcIdx[tk] });
             }
           });
         });
       });
-      // 节点分组: 同 node 的 pod 用簇
+      // 轮询去重: 数据未变不重建 (否则 force 布局每 5s 重算, 图一直动)
+      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'')),
+                                    edges: edges.map(e => e.source + '>' + e.target) });
+      if (key === lastTopoKey) return;
+      lastTopoKey = key;
       chart.setOption({
         backgroundColor: 'transparent',
-        tooltip: { trigger: 'item' },
+        tooltip: { trigger: 'item',
+          formatter: (p) => p.dataType === 'edge'
+            ? `${p.data.sourceName} → ${p.data.targetName}`
+            : (p.data.id || p.name) },
         series: [{
           type: 'graph',
           layout: 'force',
           roam: true,
           draggable: true,
-          label: { show: true, fontSize: 10 },
-          force: { repulsion: 120, edgeLength: 80 },
+          label: { show: true, fontSize: 10, color: '#cbd5e1' },
+          force: { repulsion: 160, edgeLength: [60, 120], gravity: 0.08,
+                   friction: 0.6, layoutAnimation: false },
+          animation: false,       // 关全局动画 — 布局收敛后静止
           categories: nodeGroups.map(n => ({ name: n })),
           data: nodes,
           links: edges,
-          lineStyle: { color: '#f59e0b', width: 1.5, opacity: 0.6 },
+          lineStyle: { color: '#f59e0b', width: 1.5, opacity: 0.7 },
           emphasis: { focus: 'adjacency' },
         }],
       });
