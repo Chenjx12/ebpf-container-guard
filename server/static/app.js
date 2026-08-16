@@ -555,6 +555,7 @@ const AssetsPage = {
       }).filter(Boolean);
       const legendGraphics = legendItems.map((it, i) => ({
         type: 'group',
+        id: 'svc-legend-' + i,   // 稳定 id: ECharts graphic 按 id 合并, 空数组时旧图例被清
         left: 12 + i * 150, bottom: 8,
         children: [
           { type: 'circle', shape: { r: 4 },
@@ -602,7 +603,7 @@ const AssetsPage = {
             animation: false,
             emphasis: { focus: 'adjacency' },
           }],
-        });
+        }, { replaceMerge: ['graphic'] });
         chart.__topoInit = true;
         // 点击节点 → pod 详情
         chart.off('click');
@@ -624,7 +625,7 @@ const AssetsPage = {
           data: nodes,
           links: [],
         }],
-      });
+      }, { replaceMerge: ['graphic'] });  // 清空旧 graphic (图例随开关消失)
     }
 
     // v0.5.7: 筛选防抖 — 快速连续筛选合并为一次重绘 (响应感知更快)
