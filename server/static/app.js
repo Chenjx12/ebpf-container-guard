@@ -541,10 +541,11 @@ const AssetsPage = {
         const idx = nodeIdx[p.namespace + '/' + p.name];
         if (idx !== undefined) {
           const isInfra = INFRA_SVCS.includes(p.services[0]);
-          const show = isInfra ? topoFilter.showInfra : topoFilter.showPrivate;
-          // 私有服务筛选: 选中某服务时只高亮该服务的 pod
-          const svcMatch = !topoFilter.svc || p.services[0] === topoFilter.svc;
-          if (show && svcMatch) {
+          // v0.5.7: 私有服务筛选独立生效 (选了就高亮, 不依赖 showPrivate 开关)
+          const svcSelected = topoFilter.svc === p.services[0];
+          const show = isInfra ? topoFilter.showInfra
+                      : (svcSelected || topoFilter.showPrivate);
+          if (show) {
             nodes[idx].itemStyle.shadowColor =
               svcColors[svcColorIdx[sk] % svcColors.length];
             nodes[idx].itemStyle.shadowBlur = 25;
@@ -557,9 +558,10 @@ const AssetsPage = {
       const legendItems = Object.entries(svcColorIdx).map(([sk, i]) => {
         const svcName = sk.split('/')[1];
         const isInfra = INFRA_SVCS.includes(svcName);
-        const active = isInfra ? topoFilter.showInfra : topoFilter.showPrivate;
-        const svcMatch = !topoFilter.svc || svcName === topoFilter.svc;
-        return (active && svcMatch) ? {
+        // svc 选中时该服务图例独立显示 (不依赖 showPrivate)
+        const active = isInfra ? topoFilter.showInfra
+                      : (topoFilter.showPrivate || topoFilter.svc === svcName);
+        return active ? {
           text: (isInfra ? '公共 ' : '私有 ') + svcName,
           color: svcColors[i % svcColors.length],
         } : null;
