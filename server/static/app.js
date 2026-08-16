@@ -169,7 +169,8 @@ const AlertsPage = {
       <el-button v-if="q.container || q.rule || q.severity" size="small" @click="resetFilter">清除筛选</el-button>
     </div>
     <div class="panel">
-      <el-table :data="events" size="small" stripe max-height="70vh">
+      <el-table :data="events" size="small" stripe max-height="70vh"
+                @row-click="showDetail">
         <el-table-column label="时间" width="170"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
         <el-table-column label="容器" width="200"><template #default="{row}"><span class="mono">{{ row.container_id }}</span></template></el-table-column>
         <el-table-column label="规则" min-width="180"><template #default="{row}">
@@ -187,6 +188,42 @@ const AlertsPage = {
           <span v-else style="color:var(--muted)">—</span></template></el-table-column>
       </el-table>
     </div>
+
+    <el-dialog v-model="detail.show" title="事件详情" width="640px">
+      <template v-if="detail.event">
+        <el-descriptions :column="2" size="small" border>
+          <el-descriptions-item label="规则"><span class="ev-rule">{{ detail.event.rule }}</span></el-descriptions-item>
+          <el-descriptions-item label="严重度">
+            <el-tag :type="sevTag(detail.event.severity)" size="small">{{ detail.event.severity }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="容器"><span class="mono">{{ detail.event.container_id }}</span></el-descriptions-item>
+          <el-descriptions-item label="时间">{{ fmtTime(detail.event.timestamp) }}</el-descriptions-item>
+          <el-descriptions-item label="事件类型"><span class="mono">{{ detail.event.event_type }}</span></el-descriptions-item>
+          <el-descriptions-item label="攻击向量"><span class="mono">{{ detail.event.tier2_vector || '—' }}</span></el-descriptions-item>
+          <el-descriptions-item label="动作">{{ detail.event.action }} ({{ detail.event.action_status }})</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ detail.event.state }}</el-descriptions-item>
+          <el-descriptions-item label="进程" :span="2">
+            <span class="mono">{{ detail.event.event?.comm || '—' }} (PID {{ detail.event.event?.pid || '?' }})</span></el-descriptions-item>
+          <el-descriptions-item v-if="detail.event.event?.target_path" label="目标路径" :span="2">
+            <span class="mono">{{ detail.event.event.target_path }}</span></el-descriptions-item>
+          <el-descriptions-item v-if="detail.event.event?.daddr" label="目标地址" :span="2">
+            <span class="mono">{{ detail.event.event.daddr }}:{{ detail.event.event.dport }}</span></el-descriptions-item>
+        </el-descriptions>
+        <div v-if="detail.event.tier2_narrative" style="margin-top:10px;font-size:13px;color:var(--muted)">
+          行为矩阵: {{ detail.event.tier2_narrative }}</div>
+      </template>
+
+      <div v-if="detail.ai" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+        <h4 style="margin-bottom:8px">🤖 AI 研判
+          <el-tag :type="detail.ai.ai_verdict === 'true_positive' ? 'danger' : 'success'" size="small" style="margin-left:8px">
+            {{ detail.ai.ai_verdict === 'true_positive' ? '真实攻击' : '误报' }} {{ detail.ai.ai_confidence }}%</el-tag>
+        </h4>
+        <p style="font-size:13px;line-height:1.7;margin-bottom:8px">{{ detail.ai.ai_report }}</p>
+        <p v-if="detail.ai.ai_technique" style="font-size:12px;color:var(--muted)">手法: {{ detail.ai.ai_technique }}</p>
+      </div>
+      <div v-else-if="detail.event" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+        <p style="font-size:13px;color:var(--muted)">该事件未触发 AI 研判 (矩阵置信度不在 60-85 区间或 AI 未配置)</p>
+      </div>
+    </el-dialog>
   </div>`,
   setup() {
     const events = ref([]);
@@ -224,11 +261,21 @@ const AlertsPage = {
       q.container = ''; q.rule = ''; q.severity = '';
       load();
     }
+    // 事件详情弹窗 (v0.5.6): 点击行 → 详情 + 关联 AI 研判
+    const detail = reactive({ show: false, event: null, ai: null });
+    async function showDetail(row) {
+      detail.show = true;
+      detail.event = null; detail.ai = null;
+      try {
+        const d = await get('/api/alerts/detail?ts=' + encodeURIComponent(row.timestamp));
+        detail.event = d.event; detail.ai = d.ai;
+      } catch (e) { ElMessage.error(e.message); }
+    }
     onMounted(() => { readHash(); state.timer = setInterval(load, 3000); });
     onUnmounted(() => clearInterval(state.timer));
     window.addEventListener('hashchange', readHash);
     return { events, curFilter, filterLabel, clearFilter, resetFilter, q, ruleOptions,
-             fmtTime, sevTag };
+             detail, showDetail, fmtTime, sevTag };
   },
 };
 

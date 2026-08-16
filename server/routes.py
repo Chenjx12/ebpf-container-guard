@@ -138,6 +138,75 @@ def alerts(limit: int = 50, filter: str = "all", container: str = "",
     return {"events": records, "netblocks": []}
 
 
+@router.get("/alerts/detail")
+def alert_detail(ts: str = "", container_id: str = "", user: dict = read_any):
+    """单事件详情 + 关联 AI 研判 (v0.5.6)。
+
+    AI 结果在 ai_results.log (异步, events.log 无回写) — 按 event_ts
+    归一化关联, 与 aifp 筛选同口径。
+    """
+    if not ts:
+        raise HTTPException(status_code=400, detail="缺少 ts")
+    events = common.load_events(limit=5000)
+    if events.empty:
+        return {"event": None, "ai": None}
+    norm_ts = _norm_ts(ts)
+    row = None
+    for _, r in events.iterrows():
+        if _norm_ts(r.get('timestamp')) == norm_ts:
+            row = {k: (str(v) if hasattr(v, 'isoformat') else v)
+                   for k, v in r.to_dict().items()}
+            break
+    ai = None
+    if row:
+        ai_df = common.load_ai_results()
+        if not ai_df.empty and 'event_ts' in ai_df.columns:
+            m = ai_df[ai_df['event_ts'].map(_norm_ts) == norm_ts]
+            if len(m):
+                ai = {k: (str(v) if hasattr(v, 'isoformat') else v)
+                      for k, v in m.iloc[-1].to_dict().items()}
+    return {"event": row, "ai": ai}
+    events = common.load_events(limit=2000)
+    if events.empty:
+        return {"events": [], "netblocks": []}
+    # v0.5.6: KPI 下钻筛选 — netblocked / aifp / all
+    if filter == "netblocked" and 'netblocked' in events.columns:
+        events = events[events['netblocked'].fillna(False).astype(bool)]
+    elif filter == "aifp":
+        # v0.5.6 修复: events.log 的 tier3_ai_verdict 恒为 null (AI 结果
+        # 异步写 ai_results.log 不回写 events) — 筛选必须按 event_ts 关联
+        # ai_results.log, 与 KPI 统计同口径 (此前筛不出与 KPI 39 不一致)
+        ai = common.load_ai_results()
+        fp_ts = set()
+        if not ai.empty and 'ai_verdict' in ai.columns and 'event_ts' in ai.columns:
+            fp_ts = {_norm_ts(t) for t in
+                     ai[ai['ai_verdict'] == 'false_positive']['event_ts']}
+        if fp_ts:
+            events = events[events['timestamp'].astype(str).map(_norm_ts)
+                            .isin(fp_ts)]
+        else:
+            events = events.iloc[0:0]
+    # v0.5.6: 页面筛选 — 容器/规则/严重度
+    if container and 'container_id' in events.columns:
+        events = events[events['container_id'].astype(str).str.contains(
+            container, na=False)]
+    if rule and 'rule' in events.columns:
+        events = events[events['rule'].astype(str) == rule]
+    if severity and 'severity' in events.columns:
+        events = events[events['severity'].astype(str).str.upper() ==
+                        severity.upper()]
+    events = events.sort_values('timestamp', ascending=False).head(limit)
+    records = _df_records(events)
+    # join human decision (latest per container)
+    decisions = common.load_decisions()
+    if not decisions.empty and 'container_id' in decisions.columns:
+        latest = decisions.sort_values('timestamp').groupby(
+            'container_id').last()['decision'].to_dict()
+        for r in records:
+            r['human_decision'] = latest.get(r.get('container_id'))
+    return {"events": records, "netblocks": []}
+
+
 # ================================================================
 # Review queue
 # ================================================================
