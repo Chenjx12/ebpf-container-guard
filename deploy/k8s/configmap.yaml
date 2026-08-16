@@ -330,13 +330,13 @@ data:
     # 由面板从 ai_profiles.yaml 的 active profile 生成 (guard 热加载),
     # 不要手动编辑。k8s 部署: key 由 Secret AI_API_KEY 注入。
     api_key: ""
-    model: "deepseek-chat"
+    model: "deepseek-v4-flash"
     base_url: "https://api.deepseek.com/v1"
     auto_response_threshold: 85
     pending_review_threshold: 60
   ai_config.yaml: |
     api_key: ""
-    model: "deepseek-chat"
+    model: "deepseek-v4-flash"
     base_url: "https://api.deepseek.com/v1"
     auto_response_threshold: 85
     pending_review_threshold: 60
