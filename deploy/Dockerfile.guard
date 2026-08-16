@@ -13,6 +13,11 @@ RUN ln -sf /usr/lib/x86_64-linux-gnu/libelf.so.1.0.0 \
 # pip 依赖 (guard 必需; streamlit 面板不打包)
 RUN pip install --no-cache-dir pyyaml docker kubernetes
 
+# v0.5.5: tzdata — 事件时间戳用本地时区 (TZ env 需 zoneinfo, 否则容器 UTC 偏差 8h)
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+        tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 # libbpf.so.1 (1.8.0, 版本化符号 ctypes 自动解析; 从 deploy/libbpf/ COPY)
 COPY deploy/libbpf/libbpf.so.1.8.0 /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0
 RUN ln -sf /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0 \

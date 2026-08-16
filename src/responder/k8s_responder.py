@@ -292,6 +292,8 @@ class K8sResponseEngine:
             action = forced_action
         else:
             action = self.policy.get(severity, 'log_only')
+        # v0.5.5: 回写实际执行动作 (events.log 此前记的是矩阵建议, 误导排查)
+        alert['executed_action'] = action
 
         # ADR-014: 不可逆动作永远进人工队列
         if action in self.IRREVERSIBLE_ACTIONS:

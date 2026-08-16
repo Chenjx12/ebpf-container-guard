@@ -95,6 +95,8 @@ class ResponseEngine:
             action = forced_action
         else:
             action = self.policy.get(severity, 'log_only')
+        # v0.5.5: 回写实际执行动作 (events.log 此前记的是矩阵建议, 误导排查)
+        alert['executed_action'] = action
 
         # 决策记录 #14：不可逆动作永远进人工队列（即使 AI 置信度 95%）
         # 可逆动作（pause/isolate/netblock）已自动执行填上时间缺口，

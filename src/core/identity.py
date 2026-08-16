@@ -234,12 +234,46 @@ class ContainerIdentity:
         self._id_to_name = {}         # short_id/display -> container name
         self._id_to_image = {}        # short_id -> image tag
         self._short_to_display_map = {}  # short_id -> display (K8s: ns/pod)
+        self._host_cgroup_cache = set()  # 已确认宿主 cgroup_id (避免重复 stat)
 
         self._stop_refresh = threading.Event()
         self._refresh_thread = threading.Thread(
             target=self._refresh_loop, daemon=True)
         self._events_thread = threading.Thread(
             target=self._events_loop, daemon=True)
+
+    def resolve_by_cgroup(self, cgroup_id: int) -> str:
+        """cgroup_id(inode) → 容器 display — 事件原子捕获值, 不依赖进程存活。
+
+        v0.5.5: 秒退进程(exec 的 mount/cat/echo)在用户态处理时 /proc 已
+        不可读 → resolve 兜底失败标 host → 规则跳过。cgroup_id 是内核侧
+        捕获的 scope inode, 与 os.stat(scope).st_ino 一致 (cgroup v2 kernfs)。
+        冷窗口 cgroup_map 未建时现场遍历 scope 补 map。
+        """
+        if not cgroup_id or cgroup_id in self._host_cgroup_cache:
+            return 'host'
+        hit = self.cgroup_map.get(cgroup_id)
+        if hit:
+            return hit[0]
+        import glob
+        for scope in glob.glob(
+                "/sys/fs/cgroup/kubepods.slice/**/cri-containerd-*.scope",
+                recursive=True):
+            try:
+                if os.stat(scope).st_ino != cgroup_id:
+                    continue
+            except OSError:
+                continue
+            short = os.path.basename(scope).split('-')[-1].split('.')[0][:12]
+            meta = self.backend.get_meta(short)
+            display = meta.get('display', short)
+            name = meta.get('name', short)
+            self.cgroup_map[cgroup_id] = (display, name)
+            self._id_to_name[display] = name
+            self._short_to_display_map[short] = display
+            return display
+        self._host_cgroup_cache.add(cgroup_id)
+        return 'host'
 
     def start(self):
         """Start both refresh channels."""
@@ -427,12 +461,18 @@ class ContainerIdentity:
     def _pids_in_cgroup(cgroup_path):
         """cgroup scope 路径 → 容器内全部 PID (扫描 cgroup.procs / 子任务)。
 
-        简化: 用 /proc 全扫 + cgroup 文件匹配 (宿主侧 /proc/<pid>/cgroup
-        含该 scope 路径即属于该容器)。
+        v0.5.5 修复: 之前忽略 cgroup_path 参数, 只要 /proc/<pid>/cgroup 含
+        任意 cri-containerd/docker scope 就归入当前容器 → 每个容器分到全量
+        容器进程, PID map 张冠李戴 (exec 进程标成别的容器/直接标 host)。
+        现在按本容器的 scope 名精确匹配。
         """
         if not cgroup_path or not os.path.exists(cgroup_path):
             return []
         import re
+        scope_name = os.path.basename(cgroup_path.rstrip('/'))
+        if not re.match(r'(cri-containerd|docker)-[0-9a-f]{6,}\.scope',
+                        scope_name):
+            return []
         pids = []
         for pid_dir in os.listdir('/proc'):
             if not pid_dir.isdigit():
@@ -440,9 +480,7 @@ class ContainerIdentity:
             try:
                 with open(f"/proc/{pid_dir}/cgroup") as f:
                     content = f.read()
-                # scope 名匹配 (docker-xxx.scope / cri-containerd-xxx.scope)
-                if re.search(r'/[^/]*\b(cri-containerd|docker)-[0-9a-f]+\.scope',
-                             content):
+                if scope_name in content:
                     pids.append(int(pid_dir))
             except (FileNotFoundError, PermissionError):
                 continue
@@ -452,10 +490,12 @@ class ContainerIdentity:
         """Build cgroup_inode → (display_id, name) mapping.
 
         display_id: K8s 下是 ns/pod (可读), Docker 下是短 ID (兼容)。
+        v0.5.5: 先建新表再原子换入 — 旧实现清空后重建, 事件回调并发读
+        会看到空表, tier-1 cgroup 兜底失效 → 短命进程事件丢失。
         """
-        self.cgroup_map = {}
-        self._id_to_name = {}
-        self._short_to_display_map = {}
+        new_map = {}
+        new_id_to_name = {}
+        new_short_to_display = {}
         try:
             for cid, meta in self.backend.list_containers():
                 cgroup_path = self.backend.cgroup_path(cid)
@@ -463,13 +503,16 @@ class ContainerIdentity:
                     inode = os.stat(cgroup_path).st_ino
                     short_id = cid[:12]
                     display = meta.get('display', short_id)
-                    self.cgroup_map[inode] = (display,
-                                              meta.get('name', short_id))
-                    self._id_to_name[display] = meta.get('name', short_id)
-                    self._id_to_name[short_id] = meta.get('name', short_id)
-                    self._short_to_display_map[short_id] = display
+                    new_map[inode] = (display,
+                                      meta.get('name', short_id))
+                    new_id_to_name[display] = meta.get('name', short_id)
+                    new_id_to_name[short_id] = meta.get('name', short_id)
+                    new_short_to_display[short_id] = display
         except Exception as e:
             print(f"  [!] cgroup map build failed: {e}", file=sys.stderr)
+        self.cgroup_map = new_map
+        self._id_to_name = new_id_to_name
+        self._short_to_display_map = new_short_to_display
 
     @staticmethod
     def _resolve_via_proc(pid: int) -> str:
@@ -483,6 +526,7 @@ class ContainerIdentity:
                             start = line.index(prefix) + len(prefix)
                             end = line.index('.scope', start)
                             return line[start:end][:12]
-        except (FileNotFoundError, PermissionError, ValueError):
+        except (FileNotFoundError, PermissionError, ValueError,
+                ProcessLookupError):
             pass
         return 'host'

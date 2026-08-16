@@ -19,9 +19,12 @@ reset_environment
 start_guard || exit 1
 
 print_test "创建逃逸 pod + 触发"
-kubectl run "$POD" --image="$IMAGE" --privileged --restart=Never --command -- sleep 300 2>/dev/null
-sleep 8
-kubectl exec -n default "$POD" -- /bin/sh -c "cat /etc/shadow > /dev/null 2>&1; echo READ" 2>/dev/null
+if ! run_escape_pod "$POD" "$IMAGE"; then
+    print_fail "pod 未就绪"
+    cleanup "$POD"
+    print_summary
+fi
+kubectl exec -n default "$POD" -- /bin/sh -c "cat /etc/shadow > /dev/null 2>&1; echo READ" 2>/dev/null || { print_fail "exec 触发失败"; cleanup "$POD"; print_summary; }
 print_pass
 
 print_test "检测到 sensitive_file_access"

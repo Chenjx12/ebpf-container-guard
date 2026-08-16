@@ -9,6 +9,45 @@
 
 ---
 
+## [0.5.5] - 2026-08-16
+
+### 新增
+- **k3s E2E 全量脚本化**（`tests/k8s/scenarios/`）：6 个逃逸场景 × 4 断言全绿——
+  `sudo bash tests/k8s/scenarios/run_all_k8s.sh`（procfs_mount / sensitive_file / reverse_shell /
+  privileged_exec / cgroup_write / capset），单测 105/105，guard 自噪声 0
+  - `lib_k8s.sh`：`run_escape_pod`（轮询 pod Ready——kubectl run 异步返回，固定 sleep 会竞态）、
+    guard 就绪轮询（"6 probes" 横幅 = bpf 真正 attach）、exec 加 timeout -k（冻结后连接挂住，
+    124 即冻结铁证）
+- **guard 自豁免**（main.py `_self_container_ids`）：K8s 模式跳过 guard 自身容器
+  （ns/pod + 容器短 ID 双形态匹配）——os.system 跑 iptables 曾自触发自身规则
+- **cgroup_id 反查容器**（identity.py `resolve_by_cgroup`）：秒退进程（mount/cat/echo 在用户态
+  处理前已退出）用 eBPF 原子捕获的 cgroup inode 反查（cgroup v2 kernfs ino == st_ino），
+  不再误标 host
+- **events.log 记录实际执行动作**：responder 回写 `alert['executed_action']`
+  （此前记矩阵建议，排查时误导）
+- **TZ 修复**：Dockerfile.guard + tzdata，daemonset `TZ=Asia/Shanghai`（此前 UTC 偏差 8h）
+
+### 修复
+- **openat 内核过滤前缀 bug（事件风暴总根因）**：`path[6]=='s'` 放行 /proc/self/*、/proc/stat；
+  /proc/self/mem|cmdline 前缀匹配放行 mountinfo/cgroup——宿主高频路径塞满 1MB ringbuf →
+  **execve 事件随机丢**。改为精确完整路径匹配（kcore/kallsyms、self/exe|mem|cmdline）
+- **`_pids_in_cgroup` 张冠李戴**：忽略 cgroup_path 参数，把任意含 cri-containerd scope 的
+  /proc pid 归给每个容器（252 pids 全混，exec 进程标成别的容器）→ 按本容器 scope 名精确匹配
+- **hostname 陷阱**：hostNetwork pod 的 HOSTNAME env = 节点名 → 自豁免需 downward API `POD_NAME`
+- **场景假 PASS**：kubectl exec 失败被 2>/dev/null 吞 + 固定 sleep 8 → 触发从未发生；改为响亮失败
+- **set -e 误杀**：timeout 124（冻结预期）与空 glob `[ -f ]` 返回 1 → `|| true` 豁免
+- 消费循环 sleep 0.1 → 0.02s（缩小突发丢包窗口）
+
+### 已知限制
+- `env → /bin/sh` 成功 execve 事件被 ringbuf 丢弃（实测 2/2 丢）；直接 `sh → /bin/sh`
+  （comm=sh）稳定到达——触发链用后者
+
+### 验证
+- k3s 6 场景全过（procfs 冻结 + `cannot exec in a paused container` 铁证、C2 iptables DROP、
+  privileged_exec 冻结）；pytest 105/105；guard 自事件 0
+
+---
+
 ## [0.5.4] - 2026-08-14
 
 ### 新增

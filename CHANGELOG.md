@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.5] - 2026-08-16
+
+### Added
+- **k3s E2E fully scripted** (`tests/k8s/scenarios/`): 6 escape scenarios × 4 assertions all green —
+  `sudo bash tests/k8s/scenarios/run_all_k8s.sh` (procfs_mount / sensitive_file / reverse_shell /
+  privileged_exec / cgroup_write / capset), unit tests 105/105, guard self-noise 0
+  - `lib_k8s.sh`: `run_escape_pod` (poll pod Ready — `kubectl run` is async, fixed sleep raced),
+    guard readiness wait ("6 probes" banner = bpf actually attached), timeout -k on exec
+    (frozen container hangs exec — 124 is the expected freeze evidence)
+- **Guard self-exemption** (main.py `_self_container_ids`): K8s mode skips guard's own container
+  (ns/pod + container short-id dual match) — os.system iptables was triggering guard's own rules
+- **cgroup_id reverse lookup** (identity.py `resolve_by_cgroup`): short-lived processes
+  (mount/cat/echo exit before userspace resolves) now resolve via eBPF-captured cgroup inode
+  (cgroup v2 kernfs ino == st_ino), no longer mislabeled `host`
+- **events.log records actually-executed action**: responder writes `alert['executed_action']`
+  (was matrix suggestion — misleading during debugging)
+- **TZ fix**: Dockerfile.guard + tzdata, daemonset `TZ=Asia/Shanghai` (was 8h UTC skew)
+
+### Fixed
+- **openat kernel filter prefix bugs (root cause of event storm)**: `path[6]=='s'` matched
+  `/proc/self/*`+`/proc/stat`, `/proc/self/mem|cmdline` prefix-matched `mountinfo`/`cgroup` —
+  high-frequency host paths flooded the 1MB ringbuf → **execve events randomly dropped**.
+  Now exact full-path matching (kcore/kallsyms, self/exe|mem|cmdline)
+- **`_pids_in_cgroup` cross-contamination**: ignored cgroup_path arg, assigned every /proc pid
+  with any cri-containerd scope to each container (252 pids all mixed, exec processes
+  mislabeled as other containers) → exact scope-name matching (18-20 pids / 14-16 containers)
+- **Hostname trap**: hostNetwork pod HOSTNAME env = node name → self-exemption needs downward
+  API `POD_NAME` fieldRef
+- **Scenario false-PASS**: kubectl exec failure silently swallowed (2>/dev/null) + fixed sleep 8
+  → trigger never fired; now fails loudly
+- **set -e kills**: timeout 124 (freeze expected) and empty glob `[ -f ]` exit 1 → `|| true`
+- Poll loop sleep 0.1 → 0.02s (smaller burst drop window)
+
+### Known limitation
+- `env → /bin/sh` successful execve events dropped by ringbuf (2/2 observed); direct
+  `sh → /bin/sh` (comm=sh) reliably delivered — trigger chain uses the latter
+
+### Verified
+- 6/6 k8s scenarios pass (procfs freeze + `cannot exec in a paused container` ironclad,
+  C2 iptables DROP, privileged_exec freeze); pytest 105/105; guard self events 0
+
 ## [0.5.4] - 2026-08-14
 
 ### Added

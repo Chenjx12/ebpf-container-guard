@@ -39,6 +39,7 @@ Thumbs.db
 *.o
 *.bpf.o
 vmlinux.h
+.build/
 
 # Config (contains API keys)
 config/ai_config.yaml

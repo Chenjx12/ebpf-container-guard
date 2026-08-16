@@ -252,9 +252,12 @@ int tracepoint__syscalls__sys_enter_openat(
         (path[5] == 's' || path[5] == 'p')) match = 1;
 
     // /proc/kcore, /proc/kallsyms — 内核信息泄漏
+    // v0.5.5 修复: 原条件 `path[6] == 'k' || path[6] == 's'` 把 /proc/self/*、
+    // /proc/stat、/proc/swaps、/proc/sys/* 全放行 → openat 事件风暴塞满 ring,
+    // execve 事件随机丢弃 (privileged_exec 触发链曾丢)。只该匹配 kcore/kallsyms。
     if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' && path[3] == 'o' &&
         path[4] == 'c' && path[5] == '/' &&
-        (path[6] == 'k' || path[6] == 's')) match = 1;
+        path[6] == 'k') match = 1;
 
     // /var/run/docker.sock — Docker socket 访问
     if (path[0] == '/' && path[1] == 'v' && path[2] == 'a' && path[3] == 'r' &&
@@ -266,19 +269,25 @@ int tracepoint__syscalls__sys_enter_openat(
         path[4] == '/' && path[5] == 'd') match = 1;
 
     // /proc/self/exe — 进程自身可执行文件 (runc 逃逸探测)
+    // v0.5.5: 前缀检查误放行 /proc/self/mountinfo(/mem 前缀) / /proc/self/cgroup
+    // (/cmdline 前缀) → openat 风暴; 精确匹配完整文件名
     if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' && path[3] == 'o' &&
         path[4] == 'c' && path[5] == '/' && path[6] == 's' && path[7] == 'e' &&
-        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'e') match = 1;
+        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'e' &&
+        path[12] == 'x' && path[13] == 'e') match = 1;
 
     // /proc/self/mem — 进程自身内存 (进程注入/修改)
     if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' && path[3] == 'o' &&
         path[4] == 'c' && path[5] == '/' && path[6] == 's' && path[7] == 'e' &&
-        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'm') match = 1;
+        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'm' &&
+        path[12] == 'e' && path[13] == 'm') match = 1;
 
     // /proc/self/cmdline — 进程命令行 (侦查/踩点)
     if (path[0] == '/' && path[1] == 'p' && path[2] == 'r' && path[3] == 'o' &&
         path[4] == 'c' && path[5] == '/' && path[6] == 's' && path[7] == 'e' &&
-        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'c') match = 1;
+        path[8] == 'l' && path[9] == 'f' && path[10] == '/' && path[11] == 'c' &&
+        path[12] == 'm' && path[13] == 'd' && path[14] == 'l' &&
+        path[15] == 'i' && path[16] == 'n' && path[17] == 'e') match = 1;
 
     // /host_* — 宿主机目录挂载点
     if (path[0] == '/' && path[1] == 'h' && path[2] == 'o' && path[3] == 's' &&

@@ -50,6 +50,15 @@ spec:
             - -c
             - >
               exec python3 -u main.py --runtime k8s
+          env:
+            # v0.5.5: 本地时区 — 事件时间戳与宿主对齐 (容器默认 UTC 偏差 8h)
+            - name: TZ
+              value: Asia/Shanghai
+            # v0.5.5: 自豁免需知自身 pod 名 (hostNetwork 下 HOSTNAME env 是节点名)
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - name: sysfs
               mountPath: /sys

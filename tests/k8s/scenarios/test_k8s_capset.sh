@@ -19,9 +19,12 @@ reset_environment
 start_guard || exit 1
 
 print_test "创建逃逸 pod + 触发"
-kubectl run "$POD" --image="$IMAGE" --privileged --restart=Never --command -- sleep 300 2>/dev/null
-sleep 8
-kubectl exec -n default "$POD" -- /bin/sh -c 'python3 -c "import ctypes; libc=ctypes.CDLL(None); hdr=(ctypes.c_uint32*3)(0x20080522,0,0); data=(ctypes.c_uint32*3)(0x200000,0x200000,0x200000); libc.syscall(126,hdr,data); print(\"CAPSET\")"' 2>/dev/null
+if ! run_escape_pod "$POD" "$IMAGE"; then
+    print_fail "pod 未就绪"
+    cleanup "$POD"
+    print_summary
+fi
+kubectl exec -n default "$POD" -- /bin/sh -c 'python3 -c "import ctypes; libc=ctypes.CDLL(None); hdr=(ctypes.c_uint32*3)(0x20080522,0,0); data=(ctypes.c_uint32*3)(0x200000,0x200000,0x200000); libc.syscall(126,hdr,data); print(\"CAPSET\")"' 2>/dev/null || { print_fail "exec 触发失败"; cleanup "$POD"; print_summary; }
 print_pass
 
 print_test "检测到 capset_cap_sys_admin"

@@ -74,19 +74,47 @@ reset_environment() {
             sudo nsenter -t 1 -n iptables -D FORWARD -s "$ip" -j DROP 2>/dev/null
         done
     sudo rm -f "$EVENTS_LOG"
-    sleep 1
+    # 重启 guard daemonset 清内存冷却 (escalation/cooldown 按镜像累计)
+    kubectl rollout restart ds/ebpf-guard -n "$GUARD_NS" > /dev/null 2>&1
+    sleep 10
 }
 
 start_guard() {
     echo "--- 启动 guard (DaemonSet) ---"
     kubectl apply -f "$PROJECT_ROOT/deploy/k8s/" 2>/dev/null
     kubectl rollout status ds/ebpf-guard -n "$GUARD_NS" --timeout=60s > /dev/null 2>&1
-    sleep 5
-    if kubectl get pods -n "$GUARD_NS" -l app=ebpf-guard 2>/dev/null | grep -q Running; then
-        echo "✅ guard 运行中"
-        return 0
-    fi
-    echo "❌ guard 启动失败"
+    # v0.5.5: 等 guard 真正就绪 (bpf attach 完成) — 固定 sleep 会竞态, 触发早于 attach 则全量丢事件
+    # 注意: 不能 --tail 限量 — 告警噪声会把启动横幅挤出窗口
+    for i in $(seq 1 30); do
+        if kubectl logs ds/ebpf-guard -n "$GUARD_NS" 2>/dev/null | \
+                grep -q "6 probes"; then
+            sleep 2
+            echo "✅ guard 就绪 (bpf 已 attach)"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "❌ guard 启动超时 (bpf 未就绪)"
+    return 1
+}
+
+# -----------------------------------------------------------
+# 逃逸 pod 创建 (v0.5.5: run + 轮询 Ready — 固定 sleep 会竞态,
+# pod 未 Ready 时 kubectl exec 失败被吞 → 触发从未发生 → 假 PASS)
+# -----------------------------------------------------------
+
+run_escape_pod() {
+    local pod="$1" image="$2"
+    kubectl run "$pod" --image="$image" --privileged --restart=Never \
+        --command -- sleep 300 2>/dev/null
+    local i phase=""
+    for i in $(seq 1 30); do
+        phase=$(kubectl get pod "$pod" -n default \
+                    -o jsonpath='{.status.phase}' 2>/dev/null)
+        [ "$phase" = "Running" ] && return 0
+        sleep 1
+    done
+    echo "  ❌ pod $pod 未就绪 (phase=$phase)"
     return 1
 }
 
@@ -139,7 +167,7 @@ assert_isolated() {
 
 print_guard_log() {
     echo "--- guard 最近响应 ---"
-    sudo grep -E "FROZEN|ISOLATED" /var/lib/ebpf-guard/response_audit.log 2>/dev/null | tail -3
+    sudo grep -E "FROZEN|ISOLATED" /var/lib/ebpf-guard/response_audit.log 2>/dev/null | tail -3 || true
 }
 
 # -----------------------------------------------------------
@@ -157,9 +185,9 @@ cleanup() {
         awk '{print $4}' | while read -r ip; do
             sudo nsenter -t 1 -n iptables -D FORWARD -s "$ip" -j DROP 2>/dev/null
         done
-    # 解冻残留
+    # 解冻残留 (|| true: glob 无匹配时 [ -f ] 返回 1, set -e 会退出)
     for f in /sys/fs/cgroup/kubepods.slice/*/*/kubepods-*/cri-containerd-*.scope/cgroup.freeze; do
-        [ -f "$f" ] && echo 0 | sudo tee "$f" > /dev/null 2>&1
+        [ -f "$f" ] && echo 0 | sudo tee "$f" > /dev/null 2>&1 || true
     done
 }
 

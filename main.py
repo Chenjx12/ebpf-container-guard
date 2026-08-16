@@ -289,6 +289,39 @@ class ContainerEscapeMonitor:
     # Event processing pipeline
     # ================================================================
 
+    def _self_container_ids(self) -> set:
+        """guard 自身容器标识 (ns/pod 显示 ID + 容器短 ID), 供自豁免匹配。
+
+        K8s 模式: BPF map 值填 ns/pod (display), 冷启动窗口 resolve 可能
+        回落短 ID — 两种形态都匹配, 避免启动期自触发 (自我冻结/自我处置)。
+        """
+        if not self.k8s_mode:
+            return set()
+        if getattr(self, '_self_ids', None) is not None:
+            return self._self_ids
+        ids = set()
+        ns = 'kube-system'
+        try:
+            with open('/var/run/secrets/kubernetes.io/serviceaccount/namespace',
+                      'r') as f:
+                ns = f.read().strip()
+        except OSError:
+            pass
+        # hostNetwork 下 HOSTNAME env 是节点名 — 优先 downward API 的 POD_NAME
+        pod = os.environ.get('POD_NAME') or os.environ.get('HOSTNAME', '')
+        if pod:
+            ids.add(f"{ns}/{pod}")
+        try:
+            with open('/proc/self/cgroup') as f:
+                for line in f:
+                    if 'cri-containerd-' in line and '.scope' in line:
+                        ids.add(line.split('cri-containerd-', 1)[1]
+                                .split('.scope', 1)[0])
+        except OSError:
+            pass
+        self._self_ids = ids
+        return ids
+
     def handle_event(self, cpu, data, size):
         """Ring buffer callback: parse -> detect -> respond"""
         try:
@@ -303,6 +336,15 @@ class ContainerEscapeMonitor:
                 'utf-8', errors='replace').rstrip('\x00')
             raw_cid = self.identity.resolve(
                 event.pid, event.cgroup_id, raw_cid)
+
+            # v0.5.5: 秒退进程 resolve 失败标 host — 用 cgroup_id(事件原子值)
+            # 反查容器, 不依赖进程存活 (mount/cat/echo 等瞬间退出的逃逸动作)
+            if raw_cid == 'host':
+                raw_cid = self.identity.resolve_by_cgroup(event.cgroup_id)
+
+            # v0.5.5: 豁免 guard 自身容器 — 不检测不响应 (防自我触发)
+            if raw_cid in self._self_container_ids():
+                return
 
             # Apply monitoring scope filter (include/exclude)
             if not self.scope.should_monitor(raw_cid,
@@ -438,8 +480,10 @@ class ContainerEscapeMonitor:
                             alert, forced_action=forced, ai_confidence=conf)
 
                         # === Event Log ===
+                        # v0.5.5: 优先记录实际执行动作 (responder 回写), 矩阵建议仅兜底
                         self.logger.write(alert, matrix_result,
-                                          ai_result, action,
+                                          ai_result,
+                                          alert.get('executed_action', action),
                                           action_status=status,
                                           netblocked=netblocked,
                                           event_ts=event_ts)
@@ -455,9 +499,8 @@ class ContainerEscapeMonitor:
 
         except Exception as e:
             print(f"[ERROR] Event processing failed: {e}", file=sys.stderr)
-            if self.verbose:
-                import traceback
-                traceback.print_exc()
+            import traceback
+            traceback.print_exc(file=sys.stderr)
 
     # ================================================================
     # Enriched alert printing
@@ -658,7 +701,9 @@ class ContainerEscapeMonitor:
         try:
             while True:
                 self.bpf.ring_buffer_poll()
-                time.sleep(0.1)
+                # v0.5.5: 缩短休眠 — 突发下 ring 堆积窗口从 ~200ms 降到 ~70ms,
+                # 减少 bpf_ringbuf reserve 失败丢事件 (privileged_exec 触发链曾丢)
+                time.sleep(0.02)
         except KeyboardInterrupt:
             print("\n[i] Shutting down...")
             self._shutdown()
