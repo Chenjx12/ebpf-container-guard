@@ -385,9 +385,11 @@ const AssetsPage = {
         <el-option v-for="nd in data.nodes" :key="nd.name" :label="nd.name" :value="nd.name" />
       </el-select>
       <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">公共服务圈</el-checkbox>
-      <el-checkbox v-model="topoFilter.showPrivate" size="small" @change="buildTopoDebounced">私有服务圈</el-checkbox>
+      <el-checkbox v-model="topoFilter.showPrivate" size="small"
+                   @change="onPrivateToggle">私有服务圈</el-checkbox>
       <el-select v-model="topoFilter.svc" placeholder="私有服务筛选" clearable size="small"
-                 style="width:180px" @change="buildTopoDebounced">
+                 style="width:180px" :disabled="!topoFilter.showPrivate"
+                 @change="buildTopoDebounced">
         <el-option v-for="s in privateSvcOptions" :key="s" :label="s" :value="s" />
       </el-select>
     </div>
@@ -642,6 +644,12 @@ const AssetsPage = {
       }, { replaceMerge: ['graphic'] });  // 清空旧 graphic (图例随开关消失)
     }
 
+    // v0.5.7: 关闭私有服务圈时清空筛选 + 重建图 (筛选是开关子功能)
+    function onPrivateToggle() {
+      if (!topoFilter.showPrivate) topoFilter.svc = '';
+      buildTopoDebounced();
+    }
+
     // v0.5.7: 筛选防抖 — 快速连续筛选合并为一次重绘 (响应感知更快)
     let topoDebounce = null;
     function buildTopoDebounced() {
@@ -674,7 +682,7 @@ const AssetsPage = {
       if (chart) { chart.dispose(); chart = null; }
     });
     return { data, podDialog, showPod, topoRef, topoFilter, nsOptions,
-             privateSvcOptions, buildTopoDebounced };
+             privateSvcOptions, buildTopoDebounced, onPrivateToggle };
   },
 };
 
