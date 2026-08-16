@@ -115,7 +115,7 @@ const OverviewPage = {
     </div>
     <div class="panel">
       <h3>最近事件</h3>
-      <el-table :data="s.recent_events" size="small" stripe>
+      <el-table :data="s.recent_events" size="small" stripe @row-click="openEventDetail">
         <el-table-column label="时间" width="170"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
         <el-table-column label="容器" width="200"><template #default="{row}"><span class="mono">{{ row.container_id }}</span></template></el-table-column>
         <el-table-column label="规则" min-width="180"><template #default="{row}">
@@ -139,9 +139,8 @@ const OverviewPage = {
       // OverviewPage 作用域无 route — 只改 hash, App 的 onHash 负责切页
       location.hash = '#/alerts?filter=' + f;
     }
-    function goPage(key) { location.hash = '#' + key; }
-    usePolling(load, 3000);
-    return { s, fmtTime, sevTag, goAlerts, goPage };
+    function goPage(key) { location.hash = '#' + key; }    usePolling(load, 3000);
+    return { s, fmtTime, sevTag, goAlerts, goPage, openEventDetail };
   },
 };
 
@@ -170,7 +169,7 @@ const AlertsPage = {
     </div>
     <div class="panel">
       <el-table :data="events" size="small" stripe max-height="70vh"
-                @row-click="showDetail">
+                @row-click="openEventDetail">
         <el-table-column label="时间" width="170"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
         <el-table-column label="容器" width="200"><template #default="{row}"><span class="mono">{{ row.container_id }}</span></template></el-table-column>
         <el-table-column label="规则" min-width="180"><template #default="{row}">
@@ -188,42 +187,6 @@ const AlertsPage = {
           <span v-else style="color:var(--muted)">—</span></template></el-table-column>
       </el-table>
     </div>
-
-    <el-dialog v-model="detail.show" title="事件详情" width="640px">
-      <template v-if="detail.event">
-        <el-descriptions :column="2" size="small" border>
-          <el-descriptions-item label="规则"><span class="ev-rule">{{ detail.event.rule }}</span></el-descriptions-item>
-          <el-descriptions-item label="严重度">
-            <el-tag :type="sevTag(detail.event.severity)" size="small">{{ detail.event.severity }}</el-tag></el-descriptions-item>
-          <el-descriptions-item label="容器"><span class="mono">{{ detail.event.container_id }}</span></el-descriptions-item>
-          <el-descriptions-item label="时间">{{ fmtTime(detail.event.timestamp) }}</el-descriptions-item>
-          <el-descriptions-item label="事件类型"><span class="mono">{{ detail.event.event_type }}</span></el-descriptions-item>
-          <el-descriptions-item label="攻击向量"><span class="mono">{{ detail.event.tier2_vector || '—' }}</span></el-descriptions-item>
-          <el-descriptions-item label="动作">{{ detail.event.action }} ({{ detail.event.action_status }})</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ detail.event.state }}</el-descriptions-item>
-          <el-descriptions-item label="进程" :span="2">
-            <span class="mono">{{ detail.event.event?.comm || '—' }} (PID {{ detail.event.event?.pid || '?' }})</span></el-descriptions-item>
-          <el-descriptions-item v-if="detail.event.event?.target_path" label="目标路径" :span="2">
-            <span class="mono">{{ detail.event.event.target_path }}</span></el-descriptions-item>
-          <el-descriptions-item v-if="detail.event.event?.daddr" label="目标地址" :span="2">
-            <span class="mono">{{ detail.event.event.daddr }}:{{ detail.event.event.dport }}</span></el-descriptions-item>
-        </el-descriptions>
-        <div v-if="detail.event.tier2_narrative" style="margin-top:10px;font-size:13px;color:var(--muted)">
-          行为矩阵: {{ detail.event.tier2_narrative }}</div>
-      </template>
-
-      <div v-if="detail.ai" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
-        <h4 style="margin-bottom:8px">🤖 AI 研判
-          <el-tag :type="detail.ai.ai_verdict === 'true_positive' ? 'danger' : 'success'" size="small" style="margin-left:8px">
-            {{ detail.ai.ai_verdict === 'true_positive' ? '真实攻击' : '误报' }} {{ detail.ai.ai_confidence }}%</el-tag>
-        </h4>
-        <p style="font-size:13px;line-height:1.7;margin-bottom:8px">{{ detail.ai.ai_report }}</p>
-        <p v-if="detail.ai.ai_technique" style="font-size:12px;color:var(--muted)">手法: {{ detail.ai.ai_technique }}</p>
-      </div>
-      <div v-else-if="detail.event" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
-        <p style="font-size:13px;color:var(--muted)">该事件未触发 AI 研判 (矩阵置信度不在 60-85 区间或 AI 未配置)</p>
-      </div>
-    </el-dialog>
   </div>`,
   setup() {
     const events = ref([]);
@@ -261,21 +224,11 @@ const AlertsPage = {
       q.container = ''; q.rule = ''; q.severity = '';
       load();
     }
-    // 事件详情弹窗 (v0.5.6): 点击行 → 详情 + 关联 AI 研判
-    const detail = reactive({ show: false, event: null, ai: null });
-    async function showDetail(row) {
-      detail.show = true;
-      detail.event = null; detail.ai = null;
-      try {
-        const d = await get('/api/alerts/detail?ts=' + encodeURIComponent(row.timestamp));
-        detail.event = d.event; detail.ai = d.ai;
-      } catch (e) { ElMessage.error(e.message); }
-    }
     onMounted(() => { readHash(); state.timer = setInterval(load, 3000); });
     onUnmounted(() => clearInterval(state.timer));
     window.addEventListener('hashchange', readHash);
     return { events, curFilter, filterLabel, clearFilter, resetFilter, q, ruleOptions,
-             detail, showDetail, fmtTime, sevTag };
+             openEventDetail, fmtTime, sevTag };
   },
 };
 
@@ -380,7 +333,7 @@ const BehaviorPage = {
       <span style="color:var(--muted);font-size:12px">共 {{ events.length }} 条 (最近 500)</span>
     </div>
     <div class="panel">
-      <el-table :data="events" size="small" max-height="68vh">
+      <el-table :data="events" size="small" max-height="68vh" @row-click="openEventDetail">
         <el-table-column label="时间" width="165"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
         <el-table-column label="容器" width="200"><template #default="{row}"><span class="mono">{{ row.container_id }}</span></template></el-table-column>
         <el-table-column label="类型" width="90"><template #default="{row}">
@@ -405,7 +358,7 @@ const BehaviorPage = {
       } catch (e) {}
     }
     usePolling(load, 5000);
-    return { q, events, load, fmtTime };
+    return { q, events, load, fmtTime, openEventDetail };
   },
 };
 
@@ -723,6 +676,83 @@ const MembersPage = {
 };
 
 /* ================================================================
+ * 事件详情弹窗 (v0.5.6) — 全局共用: 告警流/总览/行为日志
+ * ================================================================ */
+const eventDetail = reactive({ show: false, event: null, ai: null, aiPending: false });
+async function openEventDetail(row) {
+  eventDetail.show = true;
+  eventDetail.event = null;
+  eventDetail.ai = null;
+  eventDetail.aiPending = false;
+  // 行为日志是 syscall 原始事件 (无 rule/tier2), 直接展示
+  if (!row.rule) {
+    eventDetail.event = { ...row, event_type: row.event_type, event: row,
+                          is_behavior: true };
+    return;
+  }
+  try {
+    const d = await get('/api/alerts/detail?ts=' + encodeURIComponent(row.timestamp));
+    eventDetail.event = d.event;
+    eventDetail.ai = d.ai;
+    // v0.5.6: AI 异步研判中 — 事件存在但 AI 未回填 (ai_results.log
+    // 无对应 event_ts 且时间接近) 时显示"AI 研判中"
+    if (!d.ai && d.event && d.event.state !== 'pending_review') {
+      eventDetail.aiPending = true;
+    }
+  } catch (e) { ElMessage.error(e.message); }
+}
+
+const EventDetailDialog = {
+  template: `
+  <el-dialog v-model="eventDetail.show" title="事件详情" width="640px">
+    <template v-if="eventDetail.event">
+      <el-descriptions :column="2" size="small" border>
+        <el-descriptions-item label="规则"><span class="ev-rule">{{ eventDetail.event.rule || eventDetail.event.event_type || '—' }}</span></el-descriptions-item>
+        <el-descriptions-item label="严重度">
+          <el-tag v-if="eventDetail.event.severity" :type="sevTag(eventDetail.event.severity)" size="small">{{ eventDetail.event.severity }}</el-tag>
+          <span v-else style="color:var(--muted)">—</span></el-descriptions-item>
+        <el-descriptions-item label="容器"><span class="mono">{{ eventDetail.event.container_id }}</span></el-descriptions-item>
+        <el-descriptions-item label="时间">{{ fmtTime(eventDetail.event.timestamp) }}</el-descriptions-item>
+        <el-descriptions-item label="事件类型"><span class="mono">{{ eventDetail.event.event_type }}</span></el-descriptions-item>
+        <el-descriptions-item label="攻击向量"><span class="mono">{{ eventDetail.event.tier2_vector || '—' }}</span></el-descriptions-item>
+        <el-descriptions-item v-if="eventDetail.event.action" label="动作">{{ eventDetail.event.action }} ({{ eventDetail.event.action_status }})</el-descriptions-item>
+        <el-descriptions-item v-if="eventDetail.event.state" label="状态">{{ eventDetail.event.state }}</el-descriptions-item>
+        <el-descriptions-item label="进程" :span="2">
+          <span class="mono">{{ eventDetail.event.event?.comm || eventDetail.event.comm || '—' }}
+            (PID {{ eventDetail.event.event?.pid || eventDetail.event.pid || '?' }})</span></el-descriptions-item>
+        <el-descriptions-item v-if="eventDetail.event.event?.target_path || eventDetail.event.target_path" label="目标路径" :span="2">
+          <span class="mono">{{ eventDetail.event.event?.target_path || eventDetail.event.target_path }}</span></el-descriptions-item>
+        <el-descriptions-item v-if="eventDetail.event.event?.daddr || eventDetail.event.daddr" label="目标地址" :span="2">
+          <span class="mono">{{ eventDetail.event.event?.daddr || eventDetail.event.daddr }}:{{ eventDetail.event.event?.dport || eventDetail.event.dport || '' }}</span></el-descriptions-item>
+      </el-descriptions>
+      <div v-if="eventDetail.event.tier2_narrative" style="margin-top:10px;font-size:13px;color:var(--muted)">
+        行为矩阵: {{ eventDetail.event.tier2_narrative }}</div>
+    </template>
+
+    <div v-if="eventDetail.aiPending" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+      <h4 style="margin-bottom:8px">🤖 AI 研判 <el-tag type="info" size="small" style="margin-left:8px">研判中…</el-tag></h4>
+      <p style="font-size:13px;color:var(--muted)">AI 异步研判进行中 (DeepSeek 分析约需数秒), 稍后刷新可见结果。</p>
+    </div>
+    <div v-else-if="eventDetail.ai" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+      <h4 style="margin-bottom:8px">🤖 AI 研判
+        <el-tag :type="eventDetail.ai.ai_verdict === 'true_positive' ? 'danger' : 'success'" size="small" style="margin-left:8px">
+          {{ eventDetail.ai.ai_verdict === 'true_positive' ? '真实攻击' : '误报' }} {{ eventDetail.ai.ai_confidence }}%</el-tag>
+      </h4>
+      <p style="font-size:13px;line-height:1.7;margin-bottom:8px">{{ eventDetail.ai.ai_report }}</p>
+      <p v-if="eventDetail.ai.ai_technique" style="font-size:12px;color:var(--muted)">手法: {{ eventDetail.ai.ai_technique }}</p>
+    </div>
+    <div v-else-if="eventDetail.event && eventDetail.event.is_behavior"
+         style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+      <p style="font-size:13px;color:var(--muted)">行为日志为原始 syscall 事件, 不触发 AI 研判。</p>
+    </div>
+    <div v-else-if="eventDetail.event" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+      <p style="font-size:13px;color:var(--muted)">该事件未触发 AI 研判 (矩阵置信度不在 60-85 区间或 AI 未配置)</p>
+    </div>
+  </el-dialog>`,
+  setup() { return { eventDetail, sevTag, fmtTime }; },
+};
+
+/* ================================================================
  * 布局 + 哈希路由
  * ================================================================ */
 const pages = {
@@ -806,8 +836,9 @@ const App = {
       </div>
       <component v-else :is="currentComp" />
     </main>
+    <event-detail-dialog />
   </div>`,
-  components: { 'login-page': LoginPage },
+  components: { 'login-page': LoginPage, 'event-detail-dialog': EventDetailDialog },
   setup() {
     const authed = ref(false);
     const me = reactive({ username: '', role: '', must_change_password: false });
