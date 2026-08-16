@@ -378,14 +378,14 @@ const AssetsPage = {
     <!-- 拓扑图 (v0.5.7): 蓝色星空背景, 节点=pod, 按 node 成簇, 服务关联连线 -->
     <div class="panel" style="display:flex;align-items:center;gap:12px;padding:10px 18px;flex-wrap:wrap;margin-bottom:0;border-bottom:none;border-radius:10px 10px 0 0">
       <span style="font-size:13px;color:var(--muted)">拓扑筛选:</span>
-      <el-select v-model="topoFilter.ns" placeholder="命名空间" clearable size="small" style="width:150px" @change="buildTopo">
+      <el-select v-model="topoFilter.ns" placeholder="命名空间" clearable size="small" style="width:150px" @change="buildTopoDebounced">
         <el-option v-for="ns in nsOptions" :key="ns" :label="ns" :value="ns" />
       </el-select>
-      <el-select v-model="topoFilter.node" placeholder="节点" clearable size="small" style="width:180px" @change="buildTopo">
+      <el-select v-model="topoFilter.node" placeholder="节点" clearable size="small" style="width:180px" @change="buildTopoDebounced">
         <el-option v-for="nd in data.nodes" :key="nd.name" :label="nd.name" :value="nd.name" />
       </el-select>
-      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopo">显示公共依赖连线 (kube-dns/metrics-server)</el-checkbox>
-      <el-checkbox v-model="topoFilter.onlyLinked" size="small" @change="buildTopo">仅服务关联</el-checkbox>
+      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">显示公共依赖连线 (kube-dns/metrics-server)</el-checkbox>
+      <el-checkbox v-model="topoFilter.onlyLinked" size="small" @change="buildTopoDebounced">仅服务关联</el-checkbox>
     </div>
     <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
       <div ref="topoRef" style="width:100%;height:420px"></div>
@@ -533,34 +533,71 @@ const AssetsPage = {
           });
         });
       });
+      // 手动布局 (layout:'none'): 按 node 分组圆周排列 — 零布局计算,
+      // 筛选秒回 (force 布局每次 setOption 重算 ~1s, 交互慢)
+      const groups = filteredNodes.map(nd => nd.name);
+      groups.forEach((g, gi) => {
+        const pods = filteredNodes[gi].pods;
+        const angle = (2 * Math.PI * gi) / Math.max(groups.length, 1) - Math.PI / 2;
+        const cx = 50 + 40 * Math.cos(angle);
+        const cy = 45 + 32 * Math.sin(angle);
+        const n = pods.length;
+        pods.forEach((p, pi) => {
+          const key = p.namespace + '/' + p.name;
+          const idx = nodeIdx[key];
+          if (idx === undefined) return;
+          const pa = (2 * Math.PI * pi) / Math.max(n, 1);
+          nodes[idx].x = cx + 10 * Math.cos(pa);
+          nodes[idx].y = cy + 8 * Math.sin(pa);
+        });
+      });
+      // service 节点放中间
+      Object.entries(svcIdx).forEach(([sk, idx]) => {
+        nodes[idx].x = 50;
+        nodes[idx].y = 45;
+      });
       const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'')),
                                     edges: edges.map(e => e.source + '>' + e.target) });
       if (key === lastTopoKey) return;
       lastTopoKey = key;
+      // 首次全量配置 (tooltip/lineStyle/emphasis), 之后增量更新 data/links
+      // — 筛选响应更快 (全量 notMerge 重算开销大)
+      if (!chart.__topoInit) {
+        chart.setOption({
+          backgroundColor: 'transparent',
+          tooltip: { trigger: 'item',
+            formatter: (p) => p.dataType === 'edge'
+              ? `${p.data.sourceName} → ${p.data.targetName}`
+              : (p.data.id || p.name) },
+          series: [{
+            type: 'graph', layout: 'none', roam: true, draggable: true,
+            label: { show: true, fontSize: 10, color: '#cbd5e1' },
+            animation: false,
+            lineStyle: { color: '#f59e0b', width: 1.5, opacity: 0.7 },
+            emphasis: { focus: 'adjacency' },
+          }],
+        });
+        chart.__topoInit = true;
+      }
       chart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: { trigger: 'item',
-          formatter: (p) => p.dataType === 'edge'
-            ? `${p.data.sourceName} → ${p.data.targetName}`
-            : (p.data.id || p.name) },
-        legend: { data: nodeGroups, textStyle: { color: '#8ea6c8' },
+        legend: { data: groups, textStyle: { color: '#8ea6c8' },
                   bottom: 4, itemWidth: 12, itemHeight: 12 },
         series: [{
-          type: 'graph',
-          layout: 'force',
-          roam: true,
-          draggable: true,
+          type: 'graph', layout: 'none', roam: true, draggable: true,
           label: { show: true, fontSize: 10, color: '#cbd5e1' },
-          force: { repulsion: 160, edgeLength: [60, 120], gravity: 0.08,
-                   friction: 0.6, layoutAnimation: false },
-          animation: false,       // 关全局动画 — 布局收敛后静止
-          categories: nodeGroups.map(n => ({ name: n })),
+          animation: false,
+          categories: groups.map(n => ({ name: n })),
           data: nodes,
           links: edges,
-          lineStyle: { color: '#f59e0b', width: 1.5, opacity: 0.7 },
-          emphasis: { focus: 'adjacency' },
         }],
       });
+    }
+
+    // v0.5.7: 筛选防抖 — 快速连续筛选合并为一次重绘 (响应感知更快)
+    let topoDebounce = null;
+    function buildTopoDebounced() {
+      clearTimeout(topoDebounce);
+      topoDebounce = setTimeout(() => buildTopo(), 150);
     }
 
     async function load() {
@@ -587,7 +624,8 @@ const AssetsPage = {
       clearInterval(state.timer);
       if (chart) { chart.dispose(); chart = null; }
     });
-    return { data, podDialog, showPod, topoRef, topoFilter, nsOptions };
+    return { data, podDialog, showPod, topoRef, topoFilter, nsOptions,
+             buildTopoDebounced };
   },
 };
 
