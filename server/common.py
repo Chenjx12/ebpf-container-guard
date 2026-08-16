@@ -40,24 +40,35 @@ REFRESH_SECONDS = 3
 # ================================================================
 
 
-def _read_jsonl(path: Path) -> pd.DataFrame:
+def _read_jsonl(path: Path, tail_lines: int = None) -> pd.DataFrame:
+    """Read JSONL into DataFrame. tail_lines: 只解析尾部 N 行 (大文件性能)。"""
     if not path.exists():
         return pd.DataFrame()
     rows = []
     try:
-        with open(path, 'r') as f:
-            for line in f:
+        if tail_lines:
+            # 尾部窗口: deque 只保留最后 N 行, 避免全量解析
+            from collections import deque
+            with open(path, 'r') as f:
+                tail = deque(f, maxlen=tail_lines)
+            for line in tail:
                 line = line.strip()
                 if line:
                     rows.append(json.loads(line))
+        else:
+            with open(path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        rows.append(json.loads(line))
     except Exception:
         return pd.DataFrame()
     return pd.DataFrame(rows)
 
 
-def load_events() -> pd.DataFrame:
-    """Load events.log (JSONL) into a DataFrame."""
-    df = _read_jsonl(EVENTS_LOG)
+def load_events(limit: int = 0) -> pd.DataFrame:
+    """Load events.log (JSONL). v0.5.6: limit>0 只解析尾部 N 行 (15MB+ 提速)。"""
+    df = _read_jsonl(EVENTS_LOG, tail_lines=limit or None)
     if not df.empty and 'timestamp' in df.columns:
         df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     return df
@@ -73,9 +84,13 @@ def load_ai_results() -> pd.DataFrame:
     return _read_jsonl(AI_RESULTS_LOG)
 
 
-def load_behavior_log() -> pd.DataFrame:
-    """Load behaviors.log (v0.3.10 — ALL syscall events)."""
-    df = _read_jsonl(BEHAVIORS_LOG)
+def load_behavior_log(limit: int = 0) -> pd.DataFrame:
+    """Load behaviors.log tail (v0.3.10 — ALL syscall events).
+
+    v0.5.6 性能: 文件可达数十 MB, 全量读入 pandas 每次 ~2s。
+    limit>0 时只解析尾部 N 行 (deque 窗口), 面板轮询足够。
+    """
+    df = _read_jsonl(BEHAVIORS_LOG, tail_lines=limit or None)
     if not df.empty and 'timestamp' in df.columns:
         df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     return df
@@ -229,7 +244,74 @@ def record_decision(container_id: str, decision: str, event_count: int = 1,
 
 
 def get_container_profile(container_id: str):
-    """Container metadata for human review (None if unavailable/deleted)."""
+    """Container metadata for human review (None if unavailable/deleted).
+
+    v0.5.6: 双运行时支持 — k8s (ns/pod) 用 Kubernetes API 查 pod,
+    Docker 用 docker API 查容器。此前只支持 Docker, k8s 逃逸容器
+    画像恒为 None (面板显示"画像不可用")。
+    """
+    if not container_id:
+        return None
+    # k8s 形态: display = ns/pod
+    if '/' in container_id and not container_id.startswith(('sha256:', 'http')):
+        return _k8s_pod_profile(container_id)
+    return _docker_container_profile(container_id)
+
+
+def _k8s_pod_profile(container_id: str):
+    """k8s pod 画像: ns/pod → Kubernetes API 查主容器元数据。"""
+    try:
+        ns, pod = container_id.split('/', 1)
+        import sys as _sys
+        import os as _os
+        if str(SCRIPT_DIR) not in _sys.path:
+            _sys.path.insert(0, str(SCRIPT_DIR))
+        if str(SCRIPT_DIR / "src") not in _sys.path:
+            _sys.path.insert(0, str(SCRIPT_DIR / "src"))
+        from kubernetes import client as k8s_client
+        # v0.5.6: 缓存 k8s client — load_kubeconfig + 新建 client 每次
+        # 都做, 高频轮询下是主要耗时
+        v1 = getattr(_k8s_pod_profile, '_v1', None)
+        if v1 is None:
+            from core.kube_utils import load_kubeconfig
+            # k3s.yaml 是 root 600, 面板进程读不了 → 优先 ~/.kube/config 副本
+            home_cfg = str(Path.home() / ".kube" / "config")
+            load_kubeconfig(home_cfg if _os.path.exists(home_cfg)
+                            else "/etc/rancher/k3s/k3s.yaml")
+            v1 = k8s_client.CoreV1Api()
+            _k8s_pod_profile._v1 = v1
+        p = v1.read_namespaced_pod(pod, ns)
+        if not p.spec.containers:
+            return None
+        c = p.spec.containers[0]
+        status = p.status.phase
+        # 主容器运行状态 (Created/Running/Terminated)
+        cstatus = None
+        for cs in (p.status.container_statuses or []):
+            if cs.name == c.name:
+                cstatus = cs.state
+                break
+        created = str(p.metadata.creation_timestamp or '')[:19]
+        privileged = False
+        if c.security_context:
+            privileged = bool(c.security_context.privileged)
+        pod_ip = p.status.pod_ip or ''
+        return {
+            'name': pod,
+            'image': c.image or 'unknown',
+            'status': status,
+            'created': created,
+            'privileged': privileged,
+            'ports': pod_ip or '无',
+            'pid': '—',  # k8s API 无宿主 PID (需 hostPID), 留占位
+            'runtime': 'k8s',
+        }
+    except Exception:
+        return None
+
+
+def _docker_container_profile(container_id: str):
+    """Docker 容器画像 (原逻辑, v0.3.x)。"""
     try:
         import docker
         client = docker.from_env()
@@ -247,6 +329,7 @@ def get_container_profile(container_id: str):
             'privileged': c.attrs['HostConfig'].get('Privileged', False),
             'ports': port_str,
             'pid': c.attrs['State'].get('Pid', 0),
+            'runtime': 'docker',
         }
     except Exception:
         return None
@@ -262,3 +345,19 @@ from dashboard.auth import AuthManager, TokenManager  # noqa: E402
 AUTH = AuthManager(str(SCRIPT_DIR / "config" / "users.yaml"))
 TOKENS = TokenManager(str(SCRIPT_DIR / "config" / "tokens.yaml"),
                       str(AUTH_AUDIT_LOG), auth=AUTH)
+
+
+def ensure_initial_users() -> dict:
+    """首次启动(users.yaml 为空)创建内置账号, 返回 {username: password}。
+
+    admin = 管理员, test = 安全员 (v0.5.6 用户指定; 运维不预设)。
+    密码随机生成, 打印到面板终端; 首次登录强制改密 (is_initial=True)。
+    """
+    if AUTH.users:
+        return {}
+    import secrets
+    pwd_admin = secrets.token_urlsafe(12)
+    pwd_test = secrets.token_urlsafe(12)
+    AUTH.create_user('admin', pwd_admin, 'admin', is_initial=True)
+    AUTH.create_user('test', pwd_test, 'analyst', is_initial=True)
+    return {'admin': pwd_admin, 'test': pwd_test}

@@ -146,6 +146,12 @@ class K8sBackend(RuntimeBackend):
         uid = m.group(1).replace('_', '-')
         pod = self._pod_by_uid.get(uid)
         if not pod:
+            # v0.5.6: 缓存只在启动时快照, 之后新增 pod 查不到 → 元数据
+            # (image/name) 恒为 unknown → escalation 升级链失效。实时
+            # 刷新一次再查 (节流 10s, 冷路径频率低)。
+            self._maybe_refresh_pods()
+            pod = self._pod_by_uid.get(uid)
+        if not pod:
             return {'name': 'unknown', 'image': 'unknown'}
         ns = pod.metadata.namespace
         name = pod.metadata.name
@@ -154,6 +160,15 @@ class K8sBackend(RuntimeBackend):
         # display = ns/container名 (pod 名含 hash 后缀且长, 重复浪费 64B)
         return {'name': f"{ns}/{name}", 'image': image,
                 'display': f"{ns}/{name}"}
+
+    def _maybe_refresh_pods(self):
+        """节流刷新 pod 缓存 (未命中时触发, 10s 内不重复 list)。"""
+        import time as _t
+        now = _t.time()
+        if now - getattr(self, '_last_pod_refresh', 0) < 10:
+            return
+        self._last_pod_refresh = now
+        self._refresh_pods()
 
     def events_loop(self, handler, stop_event):
         """k8s watch pods (start=pod Running, stop=pod 删除)"""
@@ -332,26 +347,39 @@ class ContainerIdentity:
         return short_id
 
     def get_name(self, container_id: str) -> str:
-        """Look up container name by short ID ('' if unknown)."""
+        """Look up container name by short ID or display ('' if unknown)."""
         if not container_id or container_id in ('host', 'unknown'):
             return ''
-        name = self._id_to_name.get(container_id)
+        short = self._display_to_short(container_id)
+        name = self._id_to_name.get(short)
         if name:
             return name
-        meta = self.backend.get_meta(container_id)
+        meta = self.backend.get_meta(short)
         name = meta.get('name', '')
         if name:
-            self._id_to_name[container_id] = name
+            self._id_to_name[short] = name
         return name
 
+    def _display_to_short(self, container_id: str) -> str:
+        """display (ns/pod) → 短 ID 反查 (v0.5.6)。
+
+        k8s 模式 raw_cid 可能是 display, backend.get_meta 需短 ID —
+        不反查则 image/name 恒空 → escalation 升级链失效。
+        """
+        for sid, disp in self._short_to_display_map.items():
+            if disp == container_id:
+                return sid
+        return container_id
+
     def get_image(self, container_id: str) -> str:
-        """Look up container image by short ID ('' if unknown)."""
+        """Look up container image by short ID or display ('' if unknown)."""
         if not container_id or container_id in ('host', 'unknown'):
             return ''
-        image = self._id_to_image.get(container_id)
+        short = self._display_to_short(container_id)
+        image = self._id_to_image.get(short)
         if image:
             return image
-        meta = self.backend.get_meta(container_id)
+        meta = self.backend.get_meta(short)
         image = meta.get('image', '')
         if image:
             self._id_to_image[container_id] = image

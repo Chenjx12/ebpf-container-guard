@@ -128,6 +128,11 @@ class AIAnalyzer:
             self.base_url = config.get("base_url", self.base_url).rstrip('/')
             self.enabled = bool(self.api_key)
 
+        # v0.5.6: 环境变量优先 (k8s Secret 注入, key 不进 configmap/git)
+        if not self.api_key:
+            self.api_key = os.environ.get("AI_API_KEY", "")
+            self.enabled = bool(self.api_key)
+
         if not self.enabled:
             print("[AI] API key not configured — AI analysis disabled")
             print("[AI] Create config/ai_config.yaml with: api_key: sk-xxx")
@@ -336,6 +341,9 @@ class AsyncAIAnalyzer:
             self.analyzer.model = config.get("model", "deepseek-chat")
             base = config.get("base_url", "https://api.deepseek.com/v1")
             self.analyzer.base_url = base.rstrip('/')
+            # v0.5.6: env 兜底 (k8s Secret 注入)
+            if not self.analyzer.api_key:
+                self.analyzer.api_key = os.environ.get("AI_API_KEY", "")
             self.analyzer.enabled = bool(self.analyzer.api_key)
             status = "enabled" if self.analyzer.enabled else "disabled"
             print(f"  [AI] config reloaded: {status} "

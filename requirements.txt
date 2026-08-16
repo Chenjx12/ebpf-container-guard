@@ -4,3 +4,4 @@ streamlit
 kubernetes
 fastapi
 uvicorn
+argon2-cffi

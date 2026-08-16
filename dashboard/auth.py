@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
-Authentication & authorization for the dashboard (v0.3.8).
+Authentication & authorization for the dashboard (v0.3.8, v0.5.6 Argon2id).
 
 Roles (high → low): admin > operator > analyst
-- Password hashing: pbkdf2_hmac(sha256, 100k iterations, random salt)
+- Password hashing: **Argon2id** (memory-hard KDF, OWASP first choice,
+  GPU/ASIC-resistant) — v0.5.6 upgraded from PBKDF2-100k
 - Users stored in config/users.yaml (gitignored)
 - Initial admin created on first start, password printed to terminal
 - Temporary tokens: high-role users grant low-role users one-off
   permissions (add_member / add_rule) for 1-5 minutes, all audited
 """
 
-import hashlib
 import json
 import os
 import secrets
 import time
 from pathlib import Path
+
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHashError
 
 ROLE_RANK = {'admin': 3, 'operator': 2, 'analyst': 1}
 ALL_ROLES = ['admin', 'operator', 'analyst']
@@ -26,7 +29,13 @@ PURPOSES = {
     'add_rule': {'grantable_by': ['admin', 'operator'], 'ttl_max': 300},
 }
 
-PBKDF2_ITERATIONS = 100_000
+# Argon2id 参数 (OWASP 推荐基线: 19 MiB / t=2 / p=1)
+ARGON2_M = 19456
+ARGON2_T = 2
+ARGON2_P = 1
+
+_hasher = PasswordHasher(time_cost=ARGON2_T, memory_cost=ARGON2_M,
+                         parallelism=ARGON2_P)
 
 
 # ================================================================
@@ -82,11 +91,10 @@ class AuthManager:
         user = self.users.get(username)
         if not user:
             return False
-        salt = bytes.fromhex(user['salt'])
-        stored = bytes.fromhex(user['hash'])
-        computed = hashlib.pbkdf2_hmac(
-            'sha256', password.encode(), salt, PBKDF2_ITERATIONS)
-        return secrets.compare_digest(computed, stored)
+        try:
+            return _hasher.verify(user['hash'], password)
+        except (VerifyMismatchError, InvalidHashError):
+            return False
 
     def create_user(self, username: str, password: str, role: str,
                      is_initial: bool = True) -> bool:
@@ -95,13 +103,9 @@ class AuthManager:
             return False
         if username in self.users or role not in ALL_ROLES:
             return False
-        salt = secrets.token_bytes(16)
-        pwd_hash = hashlib.pbkdf2_hmac(
-            'sha256', password.encode(), salt, PBKDF2_ITERATIONS)
         self.users[username] = {
             'role': role,
-            'salt': salt.hex(),
-            'hash': pwd_hash.hex(),
+            'hash': _hasher.hash(password),  # Argon2id 自含盐, 无需单独 salt
             'created': time.strftime('%Y-%m-%dT%H:%M:%S'),
             'initial': is_initial,  # v0.3.10: force password change on first login
         }
@@ -111,11 +115,7 @@ class AuthManager:
     def change_password(self, username: str, new_password: str) -> bool:
         if username not in self.users or len(new_password) < 6:
             return False
-        salt = secrets.token_bytes(16)
-        pwd_hash = hashlib.pbkdf2_hmac(
-            'sha256', new_password.encode(), salt, PBKDF2_ITERATIONS)
-        self.users[username]['salt'] = salt.hex()
-        self.users[username]['hash'] = pwd_hash.hex()
+        self.users[username]['hash'] = _hasher.hash(new_password)
         self.users[username]['initial'] = False  # v0.3.10: clear initial flag
         self._save()
         return True
@@ -184,10 +184,13 @@ class TokenManager:
 
     # ---- grant ----
 
-    def generate(self, purpose: str, grantor: str, ttl: int = 180) -> str:
+    def generate(self, purpose: str, grantor: str, ttl: int = 180,
+                 note: str = "") -> str:
         """Generate a temp token. Returns token string or '' on failure.
 
         grantor is a username; permission checked via auth.get_role().
+        note (v0.5.6): optional remark shown in the token list (e.g. who
+        it was granted for / why) — audited with the grant.
         """
         purpose_def = PURPOSES.get(purpose)
         if not purpose_def:
@@ -202,6 +205,7 @@ class TokenManager:
         self.tokens[token] = {
             'purpose': purpose,
             'grantor': grantor,
+            'note': (note or '')[:100],
             'expires': time.time() + ttl,
             'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
             'used_by': None,
@@ -209,7 +213,8 @@ class TokenManager:
         }
         self._save()
         self._audit('token_grant', purpose=purpose, grantor=grantor,
-                    ttl=ttl, expires=self.tokens[token]['expires'])
+                    ttl=ttl, note=self.tokens[token]['note'],
+                    expires=self.tokens[token]['expires'])
         return token
 
     # ---- verification ----
@@ -250,7 +255,7 @@ class TokenManager:
         """Active (unused, unexpired) tokens for display."""
         now = time.time()
         return [{'token': k[:8], 'purpose': v['purpose'],
-                 'grantor': v['grantor'], 'expires': v['expires'],
-                 'used_by': v.get('used_by')}
+                 'grantor': v['grantor'], 'note': v.get('note', ''),
+                 'expires': v['expires'], 'used_by': v.get('used_by')}
                 for k, v in self.tokens.items()
                 if now < v['expires'] and not v.get('used_by')]

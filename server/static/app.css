@@ -10,6 +10,18 @@
   --danger: #ef4444;
   --ok: #22c55e;
   --warn: #f59e0b;
+  color-scheme: dark;
+}
+
+/* 亮色主题 (v0.5.6): 覆盖 CSS 变量 — 全站样式走变量, 自动生效 */
+[data-theme="light"] {
+  --bg: #f3f5f8;
+  --panel: #ffffff;
+  --panel-2: #f1f4f8;
+  --border: #dfe5ec;
+  --text: #1a2230;
+  --muted: #5f6f80;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,23 +64,58 @@ body {
 .login-card .mono { font-family: ui-monospace, monospace; font-size: 12px; }
 
 /* ---------- 布局 ---------- */
-.layout { display: flex; min-height: 100vh; }
+.layout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "topbar topbar" "sidebar main";
+  min-height: 100vh;
+}
+.topbar {
+  grid-area: topbar;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  height: 54px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-left h2 { font-size: 16px; }
+.topbar-sub { font-size: 12px; color: var(--muted); }
+.topbar-right { display: flex; align-items: center; gap: 14px; }
+.topbar-user { font-size: 13px; }
+.topbar .collapse-btn { padding: 3px 10px; border-radius: 6px; font-size: 13px; }
+.topbar .collapse-btn:hover { background: var(--panel-2); }
+.logout {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.logout:hover { color: var(--danger); }
+
 .sidebar {
-  width: 220px;
+  grid-area: sidebar;
+  width: 200px;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  transition: width .2s ease;
+  min-height: calc(100vh - 54px);
   position: sticky;
-  top: 0;
-  height: 100vh;
+  top: 54px;
 }
-.sidebar .brand {
-  padding: 20px 18px 14px;
-  border-bottom: 1px solid var(--border);
-}
-.sidebar .brand h2 { font-size: 15px; }
-.sidebar .brand p { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.sidebar.collapsed { width: 64px; }
+.sidebar.collapsed .nav a { text-align: center; padding: 10px 0; }
 .sidebar .nav { flex: 1; padding: 10px 8px; }
 .sidebar .nav a {
   display: block;
@@ -82,24 +129,8 @@ body {
 }
 .sidebar .nav a:hover { background: var(--panel-2); color: var(--text); }
 .sidebar .nav a.active { background: rgba(59,130,246,.15); color: var(--accent); }
-.sidebar .user {
-  padding: 14px 18px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.sidebar .user .role-tag { font-size: 11px; color: var(--accent); }
-.sidebar .user .logout {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 12px;
-  background: none;
-  border: none;
-}
-.sidebar .user .logout:hover { color: var(--danger); }
 
-.main { flex: 1; padding: 24px 28px; overflow-x: hidden; }
+.main { grid-area: main; padding: 24px 28px; overflow-x: hidden; }
 .page-title { font-size: 18px; margin-bottom: 18px; }
 .page-title .sub { font-size: 12px; color: var(--muted); margin-left: 10px; }
 
@@ -117,6 +148,8 @@ body {
 .kpi-card .value.warn { color: var(--warn); }
 .kpi-card .value.ok { color: var(--ok); }
 .kpi-card .value.accent { color: var(--accent); }
+.kpi-card.clickable { cursor: pointer; transition: transform .1s, border-color .1s; }
+.kpi-card.clickable:hover { transform: translateY(-2px); border-color: var(--accent); }
 
 /* ---------- 面板 ---------- */
 .panel {

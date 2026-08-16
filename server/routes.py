@@ -14,6 +14,8 @@ File-channel linkage with main.py:
 
 from fastapi import APIRouter, Depends, HTTPException
 
+import pandas as pd
+
 from server import common
 from server.deps import require_role
 
@@ -26,8 +28,16 @@ admin_only = Depends(require_role("admin"))
 
 
 def _df_records(df, **fill):
-    """pandas DataFrame → JSON-safe records (NaN → None)."""
-    return df.fillna(fill or {"value": None}).to_dict(orient="records")
+    """pandas DataFrame → JSON-safe records (NaN/Inf → None).
+
+    v0.5.6 修复: fillna({"value": None}) 填充不存在的列, NaN/Inf 残留导致
+    ValueError: Out of range float values are not JSON compliant (behaviors 500)。
+    """
+    if df.empty:
+        return []
+    df = df.replace([float('inf'), float('-inf')], float('nan'))
+    # astype(object) 先行: float 列 where 填 None 会被强转回 nan
+    return df.astype(object).where(pd.notna(df), None).to_dict(orient="records")
 
 
 # ================================================================
@@ -37,7 +47,9 @@ def _df_records(df, **fill):
 
 @router.get("/overview/stats")
 def overview_stats(user: dict = read_any):
-    events = common.load_events()
+    # v0.5.6: 尾部窗口统计 (全量 15MB 每次 ~0.4s; 尾部 2000 足够覆盖
+    # 最近状态分布, 大幅提速)
+    events = common.load_events(limit=2000)
     decisions = common.load_decisions()
     ai = common.load_ai_results()
 
@@ -72,10 +84,15 @@ def overview_stats(user: dict = read_any):
 
 
 @router.get("/alerts")
-def alerts(limit: int = 50, user: dict = read_any):
-    events = common.load_events()
+def alerts(limit: int = 50, filter: str = "all", user: dict = read_any):
+    events = common.load_events(limit=2000)
     if events.empty:
         return {"events": [], "netblocks": []}
+    # v0.5.6: KPI 下钻筛选 — netblocked / aifp / all
+    if filter == "netblocked" and 'netblocked' in events.columns:
+        events = events[events['netblocked'].fillna(False).astype(bool)]
+    elif filter == "aifp" and 'tier3_ai_verdict' in events.columns:
+        events = events[events['tier3_ai_verdict'] == 'false_positive']
     events = events.sort_values('timestamp', ascending=False).head(limit)
     records = _df_records(events)
     # join human decision (latest per container)
@@ -95,7 +112,9 @@ def alerts(limit: int = 50, user: dict = read_any):
 
 @router.get("/review/queue")
 def review_queue(user: dict = read_any):
-    events = common.load_events()
+    """队列组头默认不含画像 (v0.5.6: k8s API 慢, 收起态零调用);
+    前端展开时调 /review/profile 按需加载。"""
+    events = common.load_events(limit=2000)
     ai = common.load_ai_results()
     ai_by_ts = {}
     if not ai.empty and 'event_ts' in ai.columns:
@@ -121,10 +140,16 @@ def review_queue(user: dict = read_any):
         groups.append({
             "container_id": cid,
             "event_count": len(items),
-            "profile": common.get_container_profile(cid),
+            "profile": None,  # 懒加载
             "events": items,
         })
     return {"groups": groups}
+
+
+@router.get("/review/profile")
+def review_profile(container_id: str, user: dict = read_any):
+    """单容器画像 (展开时按需加载, 避免轮询拖慢)。"""
+    return {"profile": common.get_container_profile(container_id)}
 
 
 @router.post("/review/decision")
@@ -145,7 +170,8 @@ def review_decision(body: dict, user: dict = write_op):
 @router.get("/behaviors")
 def behaviors(container: str = "", syscall: str = "", host_only: bool = False,
               limit: int = 500, user: dict = read_any):
-    df = common.load_behavior_log()
+    # v0.5.6: 只读尾部 limit 行 — 全量解析 58MB 文件需 ~2s
+    df = common.load_behavior_log(limit=limit)
     if df.empty:
         return {"events": []}
     if container:
@@ -249,7 +275,18 @@ def get_ai_config(user: dict = read_any):
 
 @router.put("/config/ai")
 def put_ai_config(body: dict, user: dict = write_op):
-    ok, err = common.save_ai_config(body)
+    # merge 语义: 请求未带 api_key 时保留现有 (防止留空输入框覆盖掉 key → AI 禁用)
+    merged = dict(body)
+    if not merged.get('api_key'):
+        try:
+            import yaml
+            with open(common.AI_CONFIG_PATH) as f:
+                old_key = (yaml.safe_load(f) or {}).get('api_key')
+            if old_key:
+                merged['api_key'] = old_key
+        except Exception:
+            pass
+    ok, err = common.save_ai_config(merged)
     if not ok:
         raise HTTPException(status_code=400, detail=err)
     return {"ok": True}
@@ -289,10 +326,11 @@ def add_member(body: dict, user: dict = admin_only):
 def issue_token(body: dict, user: dict = admin_only):
     purpose = body.get("purpose") or ""
     ttl = int(body.get("ttl", 180))
-    token = common.TOKENS.generate(purpose, user['username'], ttl)
+    note = (body.get("note") or "").strip()[:100]
+    token = common.TOKENS.generate(purpose, user['username'], ttl, note)
     if not token:
         raise HTTPException(status_code=403, detail="无权签发该目的 token")
-    return {"token": token, "purpose": purpose}
+    return {"token": token, "purpose": purpose, "note": note}
 
 
 @router.post("/tokens/consume")

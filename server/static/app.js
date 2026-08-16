@@ -30,11 +30,23 @@ const put = (p, body) => api(p, { method: 'PUT', body: JSON.stringify(body) });
  * 工具
  * ================================================================ */
 const fmtTime = (t) => t ? String(t).replace('T', ' ').slice(0, 19) : '—';
+// Unix 秒时间戳 → 本地时间 (toISOString 是 UTC, 会差 8 小时)
+const fmtTs = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+       + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
 const sevClass = (s) => `sev-${(s || 'low').toLowerCase()}`;
 const sevTag = (s) => {
   const m = { CRITICAL: 'danger', HIGH: 'warning', MEDIUM: 'primary', LOW: 'info' };
   return m[(s || '').toUpperCase()] || 'info';
 };
+// 角色 → 中文标签 + 颜色 (admin 黄 / operator 紫 / analyst 蓝)
+const ROLE_LABELS = { admin: '管理员', operator: '运维', analyst: '安全员' };
+const ROLE_COLORS = { admin: '', operator: '#722ed1', analyst: '' };
+const ROLE_TYPES = { admin: 'warning', operator: 'danger', analyst: 'primary' };
 
 function usePolling(fn, ms) {
   onMounted(() => { fn(); state.timer = setInterval(fn, ms); });
@@ -46,6 +58,7 @@ const state = { timer: null };
  * 登录页
  * ================================================================ */
 const LoginPage = {
+  props: ['onLoggedIn'],
   template: `
   <div class="login-wrap">
     <div class="login-card">
@@ -60,20 +73,17 @@ const LoginPage = {
       <p v-if="hint" style="margin-top:12px;font-size:12px;color:var(--warn)">{{ hint }}</p>
     </div>
   </div>`,
-  setup() {
-    const f = reactive({ username: '', password: '' });
+  setup(props) {
+    const f = reactive({ username: 'admin', password: '' });
     const loading = ref(false);
     const hint = ref('');
     async function doLogin() {
       loading.value = true;
       try {
-        const r = await post('/api/auth/login', f);
-        if (r.must_change_password) {
-          hint.value = '首次登录请先修改密码';
-          location.hash = '#/settings';
-        } else {
-          location.hash = '#/overview';
-        }
+        await post('/api/auth/login', f);
+        props.onLoggedIn && props.onLoggedIn();
+        // 强制改密由 App 按 must_change_password 拦截
+        location.hash = '#/overview';
       } catch (e) { ElMessage.error(e.message); }
       loading.value = false;
     }
@@ -89,11 +99,11 @@ const OverviewPage = {
   <div>
     <div class="page-title">总览 <span class="sub">实时检测统计</span></div>
     <div class="kpi-row">
-      <div class="kpi-card"><div class="label">总告警</div><div class="value accent">{{ s.total_alerts }}</div></div>
-      <div class="kpi-card"><div class="label">待人工判决</div><div class="value warn">{{ s.pending_review }}</div></div>
-      <div class="kpi-card"><div class="label">已冻结容器</div><div class="value danger">{{ s.frozen }}</div></div>
-      <div class="kpi-card"><div class="label">网络阻断</div><div class="value warn">{{ s.netblocked }}</div></div>
-      <div class="kpi-card"><div class="label">AI 误报</div><div class="value ok">{{ s.ai_false_positives }}</div></div>
+      <div class="kpi-card clickable" @click="goAlerts('all')"><div class="label">总告警</div><div class="value accent">{{ s.total_alerts }}</div></div>
+      <div class="kpi-card clickable" @click="go('#/review')"><div class="label">待人工判决</div><div class="value warn">{{ s.pending_review }}</div></div>
+      <div class="kpi-card clickable" @click="goAlerts('netblocked')"><div class="label">网络阻断</div><div class="value warn">{{ s.netblocked }}</div></div>
+      <div class="kpi-card clickable" @click="goAlerts('aifp')"><div class="label">AI 误报</div><div class="value ok">{{ s.ai_false_positives }}</div></div>
+      <div class="kpi-card clickable" @click="goAlerts('all')"><div class="label">已冻结容器</div><div class="value danger">{{ s.frozen }}</div></div>
     </div>
     <div class="panel">
       <h3>AI 研判配置
@@ -125,8 +135,9 @@ const OverviewPage = {
     async function load() {
       try { Object.assign(s, await get('/api/overview/stats')); } catch (e) {}
     }
+    function goAlerts(f) { location.hash = '#/alerts?filter=' + f; }
     usePolling(load, 3000);
-    return { s, fmtTime, sevTag };
+    return { s, fmtTime, sevTag, goAlerts };
   },
 };
 
@@ -136,7 +147,10 @@ const OverviewPage = {
 const AlertsPage = {
   template: `
   <div>
-    <div class="page-title">告警流 <span class="sub">最近 {{ events.length }} 条</span></div>
+    <div class="page-title">告警流 <span class="sub">最近 {{ events.length }} 条
+      <el-tag v-if="curFilter !== 'all'" size="small" closable @close="clearFilter"
+              style="margin-left:8px">{{ filterLabel }}</el-tag>
+    </span></div>
     <div class="panel">
       <el-table :data="events" size="small" stripe max-height="70vh">
         <el-table-column label="时间" width="170"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
@@ -159,11 +173,29 @@ const AlertsPage = {
   </div>`,
   setup() {
     const events = ref([]);
+    const curFilter = ref('all');
+    const filterLabel = computed(() =>
+      ({ netblocked: '仅网络阻断', aifp: '仅 AI 误报' }[curFilter.value] || ''));
     async function load() {
-      try { events.value = (await get('/api/alerts?limit=50')).events; } catch (e) {}
+      try {
+        const q = curFilter.value !== 'all' ? '?filter=' + curFilter.value : '';
+        events.value = (await get('/api/alerts' + q)).events;
+      } catch (e) {}
     }
-    usePolling(load, 3000);
-    return { events, fmtTime, sevTag };
+    function readHash() {
+      const m = location.hash.match(/filter=(\w+)/);
+      curFilter.value = m ? m[1] : 'all';
+      load();
+    }
+    function clearFilter() {
+      location.hash = '#/alerts';
+      curFilter.value = 'all';
+      load();
+    }
+    onMounted(() => { readHash(); state.timer = setInterval(load, 3000); });
+    onUnmounted(() => clearInterval(state.timer));
+    window.addEventListener('hashchange', readHash);
+    return { events, curFilter, filterLabel, clearFilter, fmtTime, sevTag };
   },
 };
 
@@ -173,48 +205,72 @@ const AlertsPage = {
 const ReviewPage = {
   template: `
   <div>
-    <div class="page-title">人工确认队列 <span class="sub">按容器分组 · 判决联动 main.py DecisionExecutor</span></div>
+    <div class="page-title">人工确认队列 <span class="sub">按容器分组 · 点击展开详情 · 判决联动 main.py</span></div>
     <div v-if="groups.length === 0" class="panel" style="color:var(--muted)">暂无待判决事件 🎉</div>
-    <div v-for="g in groups" :key="g.container_id" class="panel">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div>
-          <span class="mono" style="font-size:15px;font-weight:600">{{ g.container_id }}</span>
-          <el-tag size="small" style="margin-left:10px">{{ g.event_count }} 事件</el-tag>
+    <el-collapse v-model="openNames" style="margin-bottom:18px" @change="onExpand">
+      <el-collapse-item v-for="g in groups" :key="g.container_id" :name="g.container_id">
+        <template #title>
+          <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
+            <span class="mono" style="font-weight:600">{{ g.container_id }}</span>
+            <el-tag size="small" :type="g.event_count > 10 ? 'danger' : 'warning'">{{ g.event_count }} 事件</el-tag>
+            <el-tag v-if="g.profile" size="small" type="info" style="max-width:300px;overflow:hidden;text-overflow:ellipsis">
+              {{ g.profile.image }} · {{ g.profile.status }}
+              <template v-if="g.profile.privileged"> · 特权</template>
+            </el-tag>
+            <span style="font-size:12px;color:var(--muted)">点击展开明细</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-right:12px">
+            <el-button type="danger" size="small" @click.stop="decide(g, 'confirmed')">确认攻击</el-button>
+            <el-button type="success" size="small" @click.stop="decide(g, 'dismissed')">驳回</el-button>
+          </div>
+        </template>
+        <div style="padding:0 4px">
+          <el-descriptions v-if="g.profile" :column="3" size="small" border style="margin-bottom:10px">
+            <el-descriptions-item label="镜像">{{ g.profile.image }}
+              <el-tag size="small" :type="g.profile.runtime === 'k8s' ? 'primary' : 'success'"
+                      style="margin-left:6px">{{ g.profile.runtime === 'k8s' ? 'k8s' : 'docker' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="状态">{{ g.profile.status }}</el-descriptions-item>
+            <el-descriptions-item label="特权">{{ g.profile.privileged }}</el-descriptions-item>
+            <el-descriptions-item label="端口/IP">{{ g.profile.ports }}</el-descriptions-item>
+            <el-descriptions-item label="创建">{{ g.profile.created }}</el-descriptions-item>
+            <el-descriptions-item label="PID">{{ g.profile.pid }}</el-descriptions-item>
+          </el-descriptions>
+          <p v-else style="font-size:12px;color:var(--muted);margin-bottom:10px">画像加载中…</p>
+          <el-table :data="g.events" size="small">
+            <el-table-column label="时间" width="160"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
+            <el-table-column label="规则" min-width="170"><template #default="{row}"><span class="ev-rule">{{ row.rule }}</span></template></el-table-column>
+            <el-table-column label="进程" width="140"><template #default="{row}">
+              <span class="mono">{{ row.event?.comm || '—' }}</span></template></el-table-column>
+            <el-table-column label="AI 研判" min-width="200"><template #default="{row}">
+              <template v-if="row.ai">
+                <el-tag :type="row.ai.ai_verdict === 'true_positive' ? 'danger' : 'success'" size="small">
+                  {{ row.ai.ai_verdict === 'true_positive' ? '真实攻击' : '误报' }} {{ row.ai.ai_confidence }}%</el-tag>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px">{{ row.ai.ai_report }}</div>
+              </template>
+              <span v-else style="color:var(--muted)">—</span>
+            </template></el-table-column>
+          </el-table>
         </div>
-        <div>
-          <el-button type="danger" size="small" @click="decide(g, 'confirmed')">确认攻击 (冻结)</el-button>
-          <el-button type="success" size="small" @click="decide(g, 'dismissed')">驳回 (解冻)</el-button>
-        </div>
-      </div>
-      <el-descriptions v-if="g.profile" :column="3" size="small" border style="margin-bottom:10px">
-        <el-descriptions-item label="镜像">{{ g.profile.image }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ g.profile.status }}</el-descriptions-item>
-        <el-descriptions-item label="特权">{{ g.profile.privileged }}</el-descriptions-item>
-        <el-descriptions-item label="端口">{{ g.profile.ports }}</el-descriptions-item>
-        <el-descriptions-item label="创建">{{ g.profile.created }}</el-descriptions-item>
-        <el-descriptions-item label="PID">{{ g.profile.pid }}</el-descriptions-item>
-      </el-descriptions>
-      <p v-else style="font-size:12px;color:var(--muted);margin-bottom:10px">容器画像不可用 (已删除或非 Docker 环境)</p>
-      <el-table :data="g.events" size="small">
-        <el-table-column label="时间" width="160"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
-        <el-table-column label="规则" min-width="170"><template #default="{row}"><span class="ev-rule">{{ row.rule }}</span></template></el-table-column>
-        <el-table-column label="进程" width="140"><template #default="{row}">
-          <span class="mono">{{ row.event?.comm || '—' }}</span></template></el-table-column>
-        <el-table-column label="AI 研判" min-width="200"><template #default="{row}">
-          <template v-if="row.ai">
-            <el-tag :type="row.ai.ai_verdict === 'true_positive' ? 'danger' : 'success'" size="small">
-              {{ row.ai.ai_verdict === 'true_positive' ? '真实攻击' : '误报' }} {{ row.ai.ai_confidence }}%</el-tag>
-            <div style="font-size:12px;color:var(--muted);margin-top:4px">{{ row.ai.ai_report }}</div>
-          </template>
-          <span v-else style="color:var(--muted)">—</span>
-        </template></el-table-column>
-      </el-table>
-    </div>
+      </el-collapse-item>
+    </el-collapse>
   </div>`,
   setup() {
     const groups = ref([]);
+    const openNames = ref([]);  // 默认全部收起, 点击展开
     async function load() {
       try { groups.value = (await get('/api/review/queue')).groups; } catch (e) {}
+    }
+    // v0.5.6: 展开才加载画像 (k8s API 慢, 收起态零调用)
+    async function onExpand(names) {
+      for (const g of groups.value) {
+        if (names.includes(g.container_id) && !g.profile) {
+          try {
+            const r = await get('/api/review/profile?container_id=' + encodeURIComponent(g.container_id));
+            g.profile = r.profile;
+          } catch (e) {}
+        }
+      }
     }
     async function decide(g, decision) {
       try {
@@ -224,7 +280,7 @@ const ReviewPage = {
       } catch (e) { ElMessage.error(e.message); }
     }
     usePolling(load, 3000);
-    return { groups, decide, fmtTime };
+    return { groups, decide, fmtTime, openNames, onExpand };
   },
 };
 
@@ -439,20 +495,24 @@ const SettingsPage = {
     </div>
 
     <div v-if="isAdmin" class="panel"><h3>临时授权 Token</h3>
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
-        <el-select v-model="tokenPurpose" style="width:160px" size="small">
-          <el-option label="add_member (加成员)" value="add_member" />
-          <el-option label="add_rule (加规则)" value="add_rule" />
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <el-select v-model="tokenPurpose" style="width:150px" size="small">
+          <el-option label="add_member" value="add_member" />
+          <el-option label="add_rule" value="add_rule" />
         </el-select>
         <el-input-number v-model="tokenTtl" :min="60" :max="300" :step="30" size="small" />
+        <el-input v-model="tokenNote" placeholder="备注 (给谁/为什么)" size="small" style="width:220px" clearable />
         <el-button type="primary" size="small" @click="issueToken">签发</el-button>
-        <el-input v-model="issuedToken" readonly size="small" style="width:260px" placeholder="签发后显示" />
+        <el-input v-model="issuedToken" readonly size="small" style="width:240px" placeholder="签发后显示" />
       </div>
       <el-table :data="tokens" size="small">
-        <el-table-column prop="token" label="Token (前 8 位)" width="140" />
-        <el-table-column prop="purpose" label="用途" width="120" />
-        <el-table-column prop="grantor" label="签发人" width="120" />
-        <el-table-column label="过期" width="200"><template #default="{row}">{{ fmtTime(new Date(row.expires * 1000).toISOString()) }}</template></el-table-column>
+        <el-table-column prop="token" label="Token (前 8 位)" width="130" />
+        <el-table-column prop="purpose" label="用途" width="110" />
+        <el-table-column prop="grantor" label="签发人" width="100" />
+        <el-table-column prop="note" label="备注" min-width="140">
+          <template #default="{row}">{{ row.note || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="过期" width="200"><template #default="{row}">{{ fmtTs(row.expires) }}</template></el-table-column>
       </el-table>
     </div>
   </div>`,
@@ -464,6 +524,7 @@ const SettingsPage = {
     const masked = ref('');
     const tokenPurpose = ref('add_member');
     const tokenTtl = ref(180);
+    const tokenNote = ref('');
     const issuedToken = ref('');
     const tokens = ref([]);
 
@@ -501,15 +562,16 @@ const SettingsPage = {
     }
     async function issueToken() {
       try {
-        const r = await post('/api/tokens/issue', { purpose: tokenPurpose.value, ttl: tokenTtl.value });
+        const r = await post('/api/tokens/issue', { purpose: tokenPurpose.value, ttl: tokenTtl.value, note: tokenNote.value });
         issuedToken.value = r.token;
         ElMessage.success('Token 已签发 (一次性, 5 分钟内有效)');
+        tokenNote.value = '';
         load();
       } catch (e) { ElMessage.error(e.message); }
     }
     onMounted(load);
-    return { me, isAdmin, pw, ai, masked, tokenPurpose, tokenTtl, issuedToken, tokens,
-      changePw, saveAi, issueToken, fmtTime };
+    return { me, isAdmin, pw, ai, masked, tokenPurpose, tokenTtl, tokenNote, issuedToken, tokens,
+      changePw, saveAi, issueToken, fmtTime, fmtTs };
   },
 };
 
@@ -585,29 +647,75 @@ const pages = {
   members: { title: '成员管理', comp: MembersPage, roles: ['admin'] },
 };
 
+/* ================================================================
+ * 主题 (v0.5.6): 暗/亮/跟随系统 — CSS 变量切换 + EP dark css 联动
+ * ================================================================ */
+const THEME_KEY = 'guard_theme';
+function applyTheme(mode) {
+  const dark = mode === 'dark' ||
+    (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);   // EP dark css
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+}
+const themeState = reactive({ mode: localStorage.getItem(THEME_KEY) || 'system' });
+function setTheme(mode) {
+  themeState.mode = mode;
+  localStorage.setItem(THEME_KEY, mode);
+  applyTheme(mode);
+}
+// 跟随系统: 系统主题变化时实时切换
+const mq = window.matchMedia('(prefers-color-scheme: dark)');
+mq.addEventListener('change', () => {
+  if (themeState.mode === 'system') applyTheme('system');
+});
+applyTheme(themeState.mode);
+
 const App = {
   template: `
-  <div v-if="!authed" style="min-height:100vh"><login-page /></div>
+  <div v-if="!authed" style="min-height:100vh"><login-page :on-logged-in="onLoggedIn" /></div>
   <div v-else class="layout">
-    <aside class="sidebar">
-      <div class="brand">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="logout collapse-btn" @click="toggleSidebar" title="收起/展开导航">≪</button>
         <h2>🛡️ Container Guard</h2>
-        <p>eBPF 容器逃逸检测与防护</p>
+        <span class="topbar-sub">eBPF 容器逃逸检测与防护</span>
       </div>
-      <nav class="nav">
-        <a v-for="(p, key) in allowedPages" :key="key"
-           :class="{ active: route === key }" @click="go(key)">{{ p.title }}</a>
-      </nav>
-      <div class="user">
-        <div>
-          <div>{{ me.username }}</div>
-          <div class="role-tag">{{ me.role }}</div>
-        </div>
+      <div class="topbar-right">
+        <el-select v-model="themeState.mode" size="small" style="width:96px"
+                   @change="setTheme" title="主题">
+          <el-option label="🌙 暗色" value="dark" />
+          <el-option label="☀️ 亮色" value="light" />
+          <el-option label="🖥️ 跟随系统" value="system" />
+        </el-select>
+        <span class="topbar-user">{{ me.username }}
+          <el-tag size="small" :type="ROLE_TYPES[me.role] || 'info'"
+                  :color="ROLE_COLORS[me.role] || ''"
+                  :style="ROLE_COLORS[me.role] ? 'color:#fff;border:none' : ''"
+                  style="margin-left:6px">{{ ROLE_LABELS[me.role] || me.role }}</el-tag>
+        </span>
         <button class="logout" @click="logout">退出</button>
       </div>
+    </header>
+    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+      <nav class="nav">
+        <a v-for="(p, key) in allowedPages" :key="key"
+           :class="{ active: route === key && !mustChangePw }" @click="go(key)"
+           :title="p.title">{{ sidebarCollapsed ? p.title[0] : p.title }}</a>
+      </nav>
     </aside>
     <main class="main">
-      <component :is="currentComp" />
+      <div v-if="mustChangePw" class="panel" style="max-width:480px;margin:60px auto">
+        <h3>🔒 首次登录请修改密码</h3>
+        <p style="color:var(--muted);font-size:13px;margin:8px 0 16px">
+          账号 {{ me.username }} 使用初始密码, 修改后才能使用面板。</p>
+        <el-form :model="pw" label-width="80px" size="small" @submit.prevent>
+          <el-form-item label="旧密码"><el-input v-model="pw.old" type="password" show-password /></el-form-item>
+          <el-form-item label="新密码"><el-input v-model="pw.new1" type="password" show-password /></el-form-item>
+          <el-form-item label="确认新密码"><el-input v-model="pw.new2" type="password" show-password /></el-form-item>
+          <el-button type="primary" :loading="savingPw" @click="submitMustChange">修改并进入</el-button>
+        </el-form>
+      </div>
+      <component v-else :is="currentComp" />
     </main>
   </div>`,
   components: { 'login-page': LoginPage },
@@ -616,6 +724,16 @@ const App = {
     const me = reactive({ username: '', role: '', must_change_password: false });
     const route = ref('overview');
     const allowedPages = ref(pages);
+    const sidebarCollapsed = ref(localStorage.getItem('guard_sidebar') === '1');
+    function toggleSidebar() {
+      sidebarCollapsed.value = !sidebarCollapsed.value;
+      localStorage.setItem('guard_sidebar', sidebarCollapsed.value ? '1' : '0');
+    }
+    // 收起时切页自动展开 (避免图标导航盲点)
+    function go(key) {
+      location.hash = '#' + key;
+      if (sidebarCollapsed.value) { sidebarCollapsed.value = false; localStorage.setItem('guard_sidebar', '0'); }
+    }
 
     async function refreshMe() {
       try {
@@ -624,13 +742,31 @@ const App = {
           authed.value = true;
           Object.assign(me, r);
           localStorage.setItem('guard_me', JSON.stringify(r));
+          mustChangePw.value = !!r.must_change_password;
         } else {
           authed.value = false;
           location.hash = '#/login';
         }
       } catch (e) { authed.value = false; }
     }
-    function go(key) { location.hash = '#' + key; }
+    // 强制改密 (v0.5.6): 初始账号首登必须改密, 否则一直停留在改密视图
+    const mustChangePw = ref(false);
+    const pw = reactive({ old: '', new1: '', new2: '' });
+    const savingPw = ref(false);
+    async function submitMustChange() {
+      if (pw.new1 !== pw.new2) { ElMessage.warning('两次新密码不一致'); return; }
+      savingPw.value = true;
+      try {
+        await post('/api/auth/change-password', { old_password: pw.old, new_password: pw.new1 });
+        ElMessage.success('密码已修改');
+        mustChangePw.value = false;
+        me.must_change_password = false;
+        localStorage.setItem('guard_me', JSON.stringify({ ...me, must_change_password: false }));
+        pw.old = pw.new1 = pw.new2 = '';
+        location.hash = '#/overview';
+      } catch (e) { ElMessage.error(e.message); }
+      savingPw.value = false;
+    }
     function onHash() {
       const key = location.hash.replace('#', '') || 'overview';
       route.value = pages[key] ? key : 'overview';
@@ -641,6 +777,8 @@ const App = {
       authed.value = false;
       location.hash = '#/login';
     }
+    // 登录成功后立即刷新认证状态 (authed → true → 主界面渲染, 无需强制刷新)
+    const onLoggedIn = () => refreshMe();
 
     const currentComp = computed(() => pages[route.value]?.comp || OverviewPage);
 
@@ -649,8 +787,11 @@ const App = {
       window.addEventListener('hashchange', onHash);
       refreshMe();
     });
-    return { authed, me, route, allowedPages, currentComp, go, logout };
+    return { authed, me, route, allowedPages, currentComp, go, logout, onLoggedIn,
+             themeState, setTheme, sidebarCollapsed, toggleSidebar,
+             ROLE_LABELS, ROLE_COLORS, ROLE_TYPES,
+             mustChangePw, pw, savingPw, submitMustChange };
   },
 };
 
-createApp(App).mount('#app');
+createApp(App).use(ElementPlus).mount('#app');

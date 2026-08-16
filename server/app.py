@@ -25,6 +25,14 @@ from server.routes import router
 
 # Swagger docs: opt-in only (attack-surface minimization)
 DOCS_ENABLED = os.environ.get("ENABLE_DOCS") == "1"
+# 首次启动创建内置账号 (admin 管理员 + test 安全员), 密码打印终端
+_initial = common.ensure_initial_users()
+if _initial:
+    print("\n[Panel] 初始账号已创建 (首次登录请立即修改密码):")
+    for _u, _p in _initial.items():
+        print(f"   用户名: {_u}   密码: {_p}")
+    print()
+
 app = FastAPI(
     title="eBPF Container Guard API",
     version="0.5.6",

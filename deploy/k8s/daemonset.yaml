@@ -35,7 +35,7 @@ spec:
         - operator: Exists
       containers:
         - name: guard
-          image: ebpf-guard:v0.5.5-fix
+          image: ebpf-guard:v0.5.6-fix
           imagePullPolicy: Never
           securityContext:
             privileged: true
@@ -59,6 +59,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # v0.5.6: AI key 从 Secret 注入 (不进 configmap/git)
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ebpf-guard-ai
+                  key: api_key
           volumeMounts:
             - name: sysfs
               mountPath: /sys
