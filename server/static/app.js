@@ -384,7 +384,7 @@ const AssetsPage = {
       <el-select v-model="topoFilter.node" placeholder="节点" clearable size="small" style="width:180px" @change="buildTopoDebounced">
         <el-option v-for="nd in data.nodes" :key="nd.name" :label="nd.name" :value="nd.name" />
       </el-select>
-      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">显示公共依赖连线 (kube-dns/metrics-server)</el-checkbox>
+      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">显示公共服务圈 (kube-dns/metrics-server)</el-checkbox>
       <el-checkbox v-model="topoFilter.onlyLinked" size="small" @change="buildTopoDebounced">仅服务关联</el-checkbox>
     </div>
     <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
@@ -469,9 +469,14 @@ const AssetsPage = {
     //  节点=pod (按命名空间着色) + service (金色菱形)
     //  按 node 成簇; 公共依赖服务 (kube-dns/metrics-server) 默认折叠连线
     //  筛选: 命名空间/节点/仅服务关联
-    const topoFilter = reactive({ ns: '', node: '', showInfra: false, onlyLinked: false });
+    const topoFilter = reactive({ ns: '', node: '', showInfra: true, onlyLinked: false });
     const nsOptions = ref([]);
     const INFRA_SVCS = ['kube-dns', 'metrics-server'];
+    // 服务名 → 圈色 (v0.5.7: 关联 pod 虚线边框用)
+    const svcColorsMap = {
+      'kube-dns': '#f59e0b', 'metrics-server': '#22c55e',
+      'traefik': '#a855f7', 'kubernetes': '#06b6d4',
+    };
     const NS_COLORS = {
       'default': '#3b82f6', 'kube-system': '#22c55e',
       'kube-public': '#f59e0b', 'kube-node-lease': '#a855f7',
@@ -481,7 +486,6 @@ const AssetsPage = {
       if (!topoRef.value || typeof echarts === 'undefined') return;
       if (!chart) chart = echarts.init(topoRef.value);
       const nodes = [];
-      const edges = [];
       const nodeIdx = {};
       const svcIdx = {};
       // 筛选: 过滤 pod
@@ -500,11 +504,19 @@ const AssetsPage = {
         nd.pods.forEach(p => {
           const key = p.namespace + '/' + p.name;
           nodeIdx[key] = nodes.length;
+          // 服务关联 pod: 虚线边框 = 服务圈 (不同服务不同边框色)
+          const svcColor = p.services.length
+            ? svcColorsMap[p.services[0]] || '#f59e0b' : '';
           nodes.push({
             id: key, name: p.name.split('-')[0],
             symbolSize: p.privileged ? 34 : 24,
             category: nodeGroups.indexOf(nd.name),
-            itemStyle: { color: NS_COLORS[p.namespace] || '#64748b' },
+            itemStyle: {
+              color: NS_COLORS[p.namespace] || '#64748b',
+              ...(svcColor ? { borderColor: svcColor, borderWidth: 2,
+                               borderType: 'dashed' } : {}),
+            },
+            __pod: p,
           });
         });
       });
@@ -518,77 +530,68 @@ const AssetsPage = {
           itemStyle: { color: '#f59e0b' },
         });
       });
-      filteredNodes.forEach(nd => {
-        nd.pods.forEach(p => {
-          const key = p.namespace + '/' + p.name;
-          const src = nodeIdx[key];
-          if (src === undefined) return;
-          p.services.forEach(s => {
-            // 公共依赖折叠: 基础设施服务连线默认隐藏
-            if (INFRA_SVCS.includes(s) && !topoFilter.showInfra) return;
-            const tk = p.namespace + '/' + s;
-            if (svcIdx[tk] !== undefined) {
-              edges.push({ source: src, target: svcIdx[tk] });
-            }
-          });
-        });
-      });
-      // 手动布局 (layout:'none'): 按 node 分组圆周排列 — 零布局计算,
-      // 筛选秒回 (force 布局每次 setOption 重算 ~1s, 交互慢)
+      // 手动布局 (layout:'none'): 按 node 分组圆周排列 — 零布局计算
+      // 注意: layout:'none' 的 x/y 是像素 (相对容器左上), 非百分比!
+      const topoW = topoRef.value.clientWidth || 800;
+      const topoH = topoRef.value.clientHeight || 420;
       const groups = filteredNodes.map(nd => nd.name);
       groups.forEach((g, gi) => {
         const pods = filteredNodes[gi].pods;
         const angle = (2 * Math.PI * gi) / Math.max(groups.length, 1) - Math.PI / 2;
-        const cx = 50 + 40 * Math.cos(angle);
-        const cy = 45 + 32 * Math.sin(angle);
+        const cx = topoW * 0.5 + topoW * 0.28 * Math.cos(angle);
+        const cy = topoH * 0.5 + topoH * 0.3 * Math.sin(angle);
         const n = pods.length;
         pods.forEach((p, pi) => {
           const key = p.namespace + '/' + p.name;
           const idx = nodeIdx[key];
           if (idx === undefined) return;
           const pa = (2 * Math.PI * pi) / Math.max(n, 1);
-          nodes[idx].x = cx + 10 * Math.cos(pa);
-          nodes[idx].y = cy + 8 * Math.sin(pa);
+          nodes[idx].x = cx + 70 * Math.cos(pa);
+          nodes[idx].y = cy + 50 * Math.sin(pa);
         });
       });
-      // service 节点放中间
+      // service 节点放中间 (像素坐标)
       Object.entries(svcIdx).forEach(([sk, idx]) => {
-        nodes[idx].x = 50;
-        nodes[idx].y = 45;
+        nodes[idx].x = topoW * 0.5;
+        nodes[idx].y = topoH * 0.5;
       });
-      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'')),
-                                    edges: edges.map(e => e.source + '>' + e.target) });
+      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.borderColor||'')) });
       if (key === lastTopoKey) return;
       lastTopoKey = key;
-      // 首次全量配置 (tooltip/lineStyle/emphasis), 之后增量更新 data/links
-      // — 筛选响应更快 (全量 notMerge 重算开销大)
+      // 首次全量配置, 之后增量更新 data
       if (!chart.__topoInit) {
         chart.setOption({
           backgroundColor: 'transparent',
           tooltip: { trigger: 'item',
-            formatter: (p) => p.dataType === 'edge'
-              ? `${p.data.sourceName} → ${p.data.targetName}`
+            formatter: (p) => p.data?.__pod
+              ? `${p.data.__pod.namespace}/${p.data.__pod.name}\n状态: ${p.data.__pod.status}\n服务: ${p.data.__pod.services.join(',') || '无'}`
               : (p.data.id || p.name) },
           series: [{
-            type: 'graph', layout: 'none', roam: true, draggable: true,
+            type: "graph", layout: "none", roam: false, draggable: false,
             label: { show: true, fontSize: 10, color: '#cbd5e1' },
             animation: false,
-            lineStyle: { color: '#f59e0b', width: 1.5, opacity: 0.7 },
             emphasis: { focus: 'adjacency' },
           }],
         });
         chart.__topoInit = true;
+        // 点击节点 → pod 详情
+        chart.off('click');
+        chart.on('click', (params) => {
+          if (params.data && params.data.__pod) {
+            showPod(params.data.__pod);
+          }
+        });
       }
       chart.setOption({
         legend: { data: groups, textStyle: { color: '#8ea6c8' },
                   bottom: 4, itemWidth: 12, itemHeight: 12 },
         series: [{
-          type: 'graph', layout: 'none', roam: true, draggable: true,
+          type: "graph", layout: "none", roam: false, draggable: false,
           label: { show: true, fontSize: 10, color: '#cbd5e1' },
           animation: false,
           categories: groups.map(n => ({ name: n })),
           data: nodes,
-          links: edges,
+          links: [],
         }],
       });
     }
