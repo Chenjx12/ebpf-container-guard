@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.8] - 2026-08-17
+
+### Added
+- **Attack chain analysis page** (attack-chain flow chart):
+  - `GET /api/attack-chain`: container full-period behavior → phase-aggregated
+    steps (recon/escalation/exploit/C2/exfiltration heuristics + system-comm
+    noise filtering + same-phase merging)
+  - Cross-rotated-file reading (`load_behavior_rotated`) — behavior rotates
+    daily, chain queries may span days
+  - **Flow chart** (ECharts rect boxes + arrows): phase-colored, multi-line
+    label (phase / relative time / key command), click box for event details,
+    move-only roam (label doesn't scale with zoom)
+  - **Container full-period**: same-container multiple alerts merged into one
+    chain (alert tags shown at top), button "查看完整攻击链" from alert detail
+  - Target container profile at top (image/status/privileged/IP/runtime)
+  - Loading state ("攻击链分析中...")
+  - Event dedup (same comm+target merged with ×N count), completeness note
+    ("仅展示最近 10 分钟行为"), adaptive box sizing for many stages
+
+### Fixed
+- Rotated-file behaviors not found (attack chain across days)
+- k8s pod created time now local timezone (was UTC)
+- Sidebar collapse persists on page switch (no auto-expand)
+- ElMessageBox import missing (chain click error)
+
 ## [0.5.7] - 2026-08-16
 
 ### Added
