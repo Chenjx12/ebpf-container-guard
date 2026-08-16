@@ -725,7 +725,14 @@ const EventDetailDialog = {
         <el-descriptions-item v-if="eventDetail.event.event?.daddr || eventDetail.event.daddr" label="目标地址" :span="2">
           <span class="mono">{{ eventDetail.event.event?.daddr || eventDetail.event.daddr }}:{{ eventDetail.event.event?.dport || eventDetail.event.dport || '' }}</span></el-descriptions-item>
       </el-descriptions>
-      <div v-if="eventDetail.event.tier2_narrative" style="margin-top:10px;font-size:13px;color:var(--muted)">
+      <div v-if="eventDetail.event.tier2_confidence" style="margin-top:10px;font-size:13px">
+        <el-tag size="small" type="warning" style="margin-right:8px">行为矩阵</el-tag>
+        置信度 <b>{{ eventDetail.event.tier2_confidence }}%</b>
+        <template v-if="eventDetail.event.tier2_combo">
+          <el-tag size="small" type="danger" style="margin-left:8px">组合加成</el-tag>
+        </template>
+      </div>
+      <div v-if="eventDetail.event.tier2_narrative" style="margin-top:6px;font-size:13px;color:var(--muted)">
         行为矩阵: {{ eventDetail.event.tier2_narrative }}</div>
     </template>
 
