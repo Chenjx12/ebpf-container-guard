@@ -204,13 +204,21 @@ def delete_ai_profile(name: str) -> tuple:
     return True, None
 
 
-def activate_ai_profile(name: str) -> tuple:
-    """切换: 更新 active + 写 ai_config.yaml 快照 (guard 热加载)。"""
+def activate_ai_profile(name: str, thresholds: dict = None) -> tuple:
+    """切换: 更新 active + 写 ai_config.yaml 快照 (guard 热加载)。
+
+    thresholds (v0.5.7): 可选 {auto_response_threshold, pending_review_threshold}
+    — 传入则保存回 profile 存储 (用户确认), 否则用 profile 原值。
+    """
     data = _load_profiles_raw()
     profiles = data.get('profiles', {})
     if name not in profiles:
         return False, f"配置 {name} 不存在"
     data['active'] = name
+    if thresholds:
+        for k in ('auto_response_threshold', 'pending_review_threshold'):
+            if k in thresholds and thresholds[k] is not None:
+                profiles[name][k] = thresholds[k]
     _save_profiles_raw(data)
     cfg = dict(profiles[name])
     cfg.pop('name', None)

@@ -215,6 +215,34 @@ body {
     linear-gradient(160deg, #0b1526 0%, #0e1a30 40%, #12233f 100%);
 }
 
+/* ---------- AI 快捷配置 (v0.5.7) ---------- */
+.ai-quick {
+  margin: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.ai-quick-title { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.ai-quick-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ai-quick-link {
+  display: block;
+  text-align: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+.ai-quick-link:hover { text-decoration: underline; }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 900px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }

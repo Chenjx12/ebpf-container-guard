@@ -1239,6 +1239,27 @@ const App = {
            :class="{ active: route === key && !mustChangePw }" @click="go(key)"
            :title="p.title">{{ sidebarCollapsed ? p.title[0] : p.title }}</a>
       </nav>
+      <!-- v0.5.7: AI 快捷配置 (左下角) -->
+      <div v-if="!sidebarCollapsed" class="ai-quick">
+        <div class="ai-quick-title">🤖 AI 快捷配置</div>
+        <el-select v-model="aiQuick.name" placeholder="选择配置" size="small"
+                   style="width:100%" @change="loadAiQuickThresholds">
+          <el-option v-for="p in aiProfiles" :key="p.name" :label="p.name" :value="p.name" />
+        </el-select>
+        <div class="ai-quick-row">
+          <span>响应阈值</span>
+          <el-input-number v-model="aiQuick.auto_response_threshold" :min="0" :max="100"
+                           size="small" style="width:90px" />
+        </div>
+        <div class="ai-quick-row">
+          <span>审核阈值</span>
+          <el-input-number v-model="aiQuick.pending_review_threshold" :min="0" :max="100"
+                           size="small" style="width:90px" />
+        </div>
+        <el-button type="primary" size="small" style="width:100%;margin-top:8px"
+                   :loading="aiQuickSaving" @click="aiQuickSave">确认切换</el-button>
+        <a class="ai-quick-link" @click="go('settings')">→ 详细配置</a>
+      </div>
     </aside>
     <main class="main">
       <div v-if="mustChangePw" class="panel" style="max-width:480px;margin:60px auto">
@@ -1263,6 +1284,45 @@ const App = {
     const route = ref('overview');
     const allowedPages = ref(pages);
     const sidebarCollapsed = ref(localStorage.getItem('guard_sidebar') === '1');
+    // v0.5.7: AI 快捷配置 (左下角)
+    const aiProfiles = ref([]);
+    const aiQuick = reactive({ name: '', auto_response_threshold: 85, pending_review_threshold: 60 });
+    const aiQuickSaving = ref(false);
+    async function loadAiQuick() {
+      try {
+        const prof = await get('/api/ai/profiles');
+        aiProfiles.value = prof.profiles || [];
+        const active = prof.profiles?.find(p => p.active) || prof.profiles?.[0];
+        if (active) {
+          aiQuick.name = active.name;
+          aiQuick.auto_response_threshold = active.auto_response_threshold ?? 85;
+          aiQuick.pending_review_threshold = active.pending_review_threshold ?? 60;
+        }
+      } catch (e) {}
+    }
+    function loadAiQuickThresholds() {
+      const p = aiProfiles.value.find(x => x.name === aiQuick.name);
+      if (p) {
+        aiQuick.auto_response_threshold = p.auto_response_threshold ?? 85;
+        aiQuick.pending_review_threshold = p.pending_review_threshold ?? 60;
+      }
+    }
+    async function aiQuickSave() {
+      if (!aiQuick.name) { ElMessage.warning('先选择配置'); return; }
+      aiQuickSaving.value = true;
+      try {
+        await post('/api/ai/activate', {
+          name: aiQuick.name,
+          thresholds: {
+            auto_response_threshold: aiQuick.auto_response_threshold,
+            pending_review_threshold: aiQuick.pending_review_threshold,
+          },
+        });
+        ElMessage.success(`已切换到 ${aiQuick.name} (阈值已保存)`);
+        loadAiQuick();
+      } catch (e) { ElMessage.error(e.message); }
+      aiQuickSaving.value = false;
+    }
     function toggleSidebar() {
       sidebarCollapsed.value = !sidebarCollapsed.value;
       localStorage.setItem('guard_sidebar', sidebarCollapsed.value ? '1' : '0');
@@ -1326,11 +1386,13 @@ const App = {
       onHash();
       window.addEventListener('hashchange', onHash);
       refreshMe();
+      loadAiQuick();
     });
     return { authed, me, route, allowedPages, currentComp, go, logout, onLoggedIn,
              themeState, setTheme, sidebarCollapsed, toggleSidebar,
              ROLE_LABELS, ROLE_COLORS, ROLE_TYPES,
-             mustChangePw, pw, savingPw, submitMustChange };
+             mustChangePw, pw, savingPw, submitMustChange,
+             aiProfiles, aiQuick, aiQuickSaving, loadAiQuickThresholds, aiQuickSave };
   },
 };
 

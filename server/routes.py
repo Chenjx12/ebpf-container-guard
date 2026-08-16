@@ -538,7 +538,8 @@ def fetch_ai_models(body: dict, user: dict = write_op):
 @router.post("/ai/activate")
 def activate_profile(body: dict, user: dict = write_op):
     name = (body.get("name") or "").strip()
-    ok, err = common.activate_ai_profile(name)
+    thresholds = body.get("thresholds") or None
+    ok, err = common.activate_ai_profile(name, thresholds)
     if not ok:
         raise HTTPException(status_code=400, detail=err)
     return {"ok": True, "active": name}
