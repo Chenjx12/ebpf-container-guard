@@ -363,6 +363,98 @@ const BehaviorPage = {
 };
 
 /* ================================================================
+ * Assets (v0.5.7) — 资产管理: 按节点分组 + 服务关联
+ * ================================================================ */
+const AssetsPage = {
+  template: `
+  <div>
+    <div class="page-title">资产管理 <span class="sub">监控资产 · 按节点/物理机分组</span></div>
+    <div class="panel" style="display:flex;align-items:center;gap:14px;padding:12px 18px">
+      <el-tag size="small" type="primary">运行时: {{ data.runtime || '—' }}</el-tag>
+      <span style="color:var(--muted);font-size:13px">资产 {{ data.total || 0 }} · 节点 {{ (data.nodes||[]).length }} · 服务 {{ (data.services||[]).length }}</span>
+      <el-tag v-if="data.error" size="small" type="danger" style="margin-left:auto">{{ data.error }}</el-tag>
+    </div>
+
+    <div v-for="node in data.nodes" :key="node.name" class="panel">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <h3 style="margin:0">🖥️ {{ node.name }}</h3>
+        <el-tag size="small" type="info">{{ node.pods.length }} pods</el-tag>
+        <span style="font-size:12px;color:var(--muted)">物理机/VM</span>
+      </div>
+      <el-table :data="node.pods" size="small" stripe @row-click="showPod">
+        <el-table-column label="Pod" min-width="220"><template #default="{row}">
+          <span class="mono">{{ row.namespace }}/{{ row.name }}</span></template></el-table-column>
+        <el-table-column label="镜像" min-width="220"><template #default="{row}">
+          <span class="mono" style="font-size:12px">{{ row.images[0] || '—' }}</span></template></el-table-column>
+        <el-table-column label="状态" width="110"><template #default="{row}">
+          <el-tag size="small" :type="row.status === 'Running' ? 'success' : 'info'">{{ row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="Pod IP" width="120"><template #default="{row}">
+          <span class="mono">{{ row.pod_ip || '—' }}</span></template></el-table-column>
+        <el-table-column label="特权" width="80"><template #default="{row}">
+          <el-tag v-if="row.privileged" size="small" type="danger">是</el-tag>
+          <span v-else style="color:var(--muted)">否</span></template></el-table-column>
+        <el-table-column label="服务" min-width="140"><template #default="{row}">
+          <el-tag v-for="s in row.services" :key="s" size="small" type="warning" style="margin-right:4px">{{ s }}</el-tag>
+          <span v-if="!row.services.length" style="color:var(--muted)">—</span></template></el-table-column>
+        <el-table-column label="Labels" min-width="180"><template #default="{row}">
+          <span style="font-size:12px;color:var(--muted)">{{ Object.entries(row.labels).slice(0,3).map(([k,v]) => k+'='+v).join(' ') || '—' }}</span></template></el-table-column>
+      </el-table>
+    </div>
+
+    <div class="panel">
+      <h3>服务暴露</h3>
+      <el-table :data="data.services" size="small" stripe>
+        <el-table-column prop="name" label="Service" min-width="160" />
+        <el-table-column prop="namespace" label="命名空间" width="140" />
+        <el-table-column prop="type" label="类型" width="120" />
+        <el-table-column prop="cluster_ip" label="Cluster IP" width="140" />
+        <el-table-column label="端口" min-width="140"><template #default="{row}">
+          <span class="mono">{{ row.ports.join(', ') || '—' }}</span></template></el-table-column>
+        <el-table-column label="Selector" min-width="180"><template #default="{row}">
+          <span style="font-size:12px;color:var(--muted)">{{ Object.entries(row.selector).map(([k,v]) => k+'='+v).join(' ') || '—' }}</span></template></el-table-column>
+      </el-table>
+    </div>
+
+    <el-dialog v-model="podDialog.show" :title="podDialog.title" width="560px">
+      <template v-if="podDialog.pod">
+        <el-descriptions :column="2" size="small" border>
+          <el-descriptions-item label="命名空间">{{ podDialog.pod.namespace }}</el-descriptions-item>
+          <el-descriptions-item label="节点">{{ podDialog.pod.node }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag size="small" :type="podDialog.pod.status === 'Running' ? 'success' : 'info'">{{ podDialog.pod.status }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="Pod IP"><span class="mono">{{ podDialog.pod.pod_ip || '—' }}</span></el-descriptions-item>
+          <el-descriptions-item label="特权">{{ podDialog.pod.privileged ? '是' : '否' }}</el-descriptions-item>
+          <el-descriptions-item label="创建">{{ podDialog.pod.created }}</el-descriptions-item>
+          <el-descriptions-item label="镜像" :span="2">
+            <span v-for="img in podDialog.pod.images" :key="img" class="mono" style="display:block;font-size:12px">{{ img }}</span></el-descriptions-item>
+          <el-descriptions-item label="所属服务" :span="2">
+            <el-tag v-for="s in podDialog.pod.services" :key="s" size="small" type="warning" style="margin-right:4px">{{ s }}</el-tag>
+            <span v-if="!podDialog.pod.services.length" style="color:var(--muted)">—</span></el-descriptions-item>
+          <el-descriptions-item label="Labels" :span="2">
+            <div style="font-size:12px;color:var(--muted)">
+              <div v-for="(v,k) in podDialog.pod.labels" :key="k" class="mono">{{ k }} = {{ v }}</div>
+            </div></el-descriptions-item>
+        </el-descriptions>
+      </template>
+    </el-dialog>
+  </div>`,
+  setup() {
+    const data = reactive({ runtime: '', total: 0, nodes: [], services: [], error: '' });
+    const podDialog = reactive({ show: false, pod: null, title: '' });
+    async function load() {
+      try { Object.assign(data, await get('/api/assets')); } catch (e) {}
+    }
+    function showPod(row) {
+      podDialog.pod = row;
+      podDialog.title = row.namespace + '/' + row.name;
+      podDialog.show = true;
+    }
+    usePolling(load, 5000);
+    return { data, podDialog, showPod };
+  },
+};
+
+/* ================================================================
  * Rules
  * ================================================================ */
 const RulesPage = {
@@ -764,6 +856,7 @@ const EventDetailDialog = {
  * ================================================================ */
 const pages = {
   overview: { title: '总览', comp: OverviewPage, roles: ['admin', 'operator', 'analyst'] },
+  assets: { title: '资产管理', comp: AssetsPage, roles: ['admin', 'operator', 'analyst'] },
   alerts: { title: '告警流', comp: AlertsPage, roles: ['admin', 'operator', 'analyst'] },
   review: { title: '人工确认队列', comp: ReviewPage, roles: ['admin', 'operator'] },
   behavior: { title: '行为日志', comp: BehaviorPage, roles: ['admin', 'operator', 'analyst'] },

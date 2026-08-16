@@ -268,6 +268,86 @@ def review_decision(body: dict, user: dict = write_op):
 
 
 # ================================================================
+# Assets (v0.5.7)
+# ================================================================
+
+
+def _k8s_client_v1():
+    """复用 common._k8s_pod_profile 的 k8s client 缓存。"""
+    from server.common import _k8s_pod_profile
+    v1 = getattr(_k8s_pod_profile, '_v1', None)
+    if v1 is None:
+        _k8s_pod_profile('kube-system/dummy-nonexistent')
+        v1 = getattr(_k8s_pod_profile, '_v1', None)
+    return v1
+
+
+@router.get("/assets")
+def assets(user: dict = read_any):
+    """资产管理: k8s pod 按 node 分组 + 服务关联 (v0.5.7)。
+
+    面板连集群 (kubeconfig ~/.kube/config) 拉全量 pod/service。
+    关联维度: 节点归属 (同物理机) / 命名空间 / 服务 selector 匹配
+    labels / 特权状态。
+    """
+    v1 = _k8s_client_v1()
+    if v1 is None:
+        return {"runtime": "k8s", "total": 0, "nodes": [], "services": [],
+                "error": "k8s API 不可用 (kubeconfig 权限?)"}
+    try:
+        pods = v1.list_pod_for_all_namespaces().items
+        svcs = v1.list_service_for_all_namespaces().items
+    except Exception as e:
+        return {"runtime": "k8s", "total": 0, "nodes": [], "services": [],
+                "error": f"k8s API 调用失败: {e}"}
+
+    svc_list = []
+    for s in svcs:
+        sel = dict(s.spec.selector or {})
+        svc_list.append({
+            'name': s.metadata.name,
+            'namespace': s.metadata.namespace,
+            'cluster_ip': s.spec.cluster_ip or '',
+            'type': s.spec.type,
+            'ports': [f"{p.port}/{p.protocol}" for p in (s.spec.ports or [])],
+            'selector': sel,
+        })
+
+    node_map = {}
+    for p in pods:
+        if p.spec.node_name is None:
+            continue
+        containers = [c.image for c in (p.spec.containers or [])]
+        labels = dict(p.metadata.labels or {})
+        pod_services = []
+        for s in svc_list:
+            sel = s['selector']
+            if sel and all(labels.get(k) == v for k, v in sel.items()):
+                pod_services.append(s['name'])
+        entry = {
+            'name': p.metadata.name,
+            'namespace': p.metadata.namespace,
+            'node': p.spec.node_name,
+            'pod_ip': p.status.pod_ip or '',
+            'status': p.status.phase,
+            'images': containers,
+            'privileged': bool(
+                (p.spec.containers[0].security_context.privileged
+                 if p.spec.containers and p.spec.containers[0].security_context
+                 else False)),
+            'labels': labels,
+            'created': str(p.metadata.creation_timestamp or '')[:19],
+            'services': pod_services,
+        }
+        node_map.setdefault(p.spec.node_name, []).append(entry)
+
+    nodes = [{"name": n, "pods": sorted(ps, key=lambda x: x['namespace'])}
+             for n, ps in sorted(node_map.items())]
+    return {"runtime": "k8s", "total": len(pods),
+            "nodes": nodes, "services": svc_list}
+
+
+# ================================================================
 # Behavior log
 # ================================================================
 

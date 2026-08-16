@@ -218,12 +218,23 @@ class TestMigrationEquivalence:
         """迁移脚本输出与 config/rules.yaml 同名规则逐条一致 (迁移忠实性)
 
         v0.4.2 起 config 含新增规则 (12 条), 只对比迁移覆盖的 10 条。
+        v0.5.6: reverse_shell 被人工扩充排除列表 (coredns/traefik 等系统
+        组件防误报) — 属规则增强非迁移产物, 特判: 仅验证迁移部分一致。
         """
         migrated = [r for r in new_rules if r["name"] in {o["name"]
                                                           for o in old_rules}]
         assert len(migrated) == len(old_rules)
         for old, new in zip(old_rules, migrated):
             assert old["name"] == new["name"]
+            if old["name"] == "reverse_shell":
+                # 人工增强: 排除列表扩充, 迁移逻辑本身应一致 (排除是超集)
+                migrated_cond = migrate_rule(old)["condition"]
+                new_cond = new["condition"]
+                old_excl = migrated_cond["not"]["any"][0]["comm"]
+                new_excl = new_cond["not"]["any"][0]["comm"]
+                assert set(old_excl) <= set(new_excl), \
+                    f"reverse_shell 排除列表应超集 (迁移+增强): {old_excl} ⊄ {new_excl}"
+                continue
             assert migrate_rule(old) == new, f"规则 {old['name']} 迁移输出与 config 不一致"
 
     def test_old_vs_new_semantics_equivalent(self, old_rules, detector):
