@@ -485,6 +485,7 @@ def attack_chain(container: str = "", ts: str = "", window: int = 300,
             if merge:
                 steps[-1]['events'].append(ev)
                 steps[-1]['end_rel'] = ev['rel']
+                steps[-1]['abs_end'] = ev['ts']
                 if phase != '其他':
                     steps[-1]['phase'] = phase
                 continue
@@ -492,6 +493,7 @@ def attack_chain(container: str = "", ts: str = "", window: int = 300,
             'phase': phase,
             'color': _PHASE_COLORS.get(phase, '#64748b'),
             'rel': ev['rel'], 'end_rel': ev['rel'],
+            'abs_start': ev['ts'], 'abs_end': ev['ts'],
             'events': [ev],
         })
     # 去掉纯"其他"步骤
