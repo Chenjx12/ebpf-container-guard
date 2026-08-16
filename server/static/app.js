@@ -375,6 +375,15 @@ const AssetsPage = {
       <el-tag v-if="data.error" size="small" type="danger" style="margin-left:auto">{{ data.error }}</el-tag>
     </div>
 
+    <!-- 拓扑图 (v0.5.7): 蓝色星空背景, 节点=pod, 按 node 成簇, 服务关联连线 -->
+    <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden">
+      <div ref="topoRef" style="width:100%;height:420px"></div>
+      <div style="position:absolute;top:12px;left:16px;font-size:13px;color:#8ea6c8;pointer-events:none">
+        <span style="font-weight:600;color:#cbd5e1">资产拓扑</span>
+        <span style="margin-left:10px">● 节点=pod · 按物理机成簇 · 橙线=服务关联</span>
+      </div>
+    </div>
+
     <div v-for="node in data.nodes" :key="node.name" class="panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <h3 style="margin:0">🖥️ {{ node.name }}</h3>
@@ -441,16 +450,94 @@ const AssetsPage = {
   setup() {
     const data = reactive({ runtime: '', total: 0, nodes: [], services: [], error: '' });
     const podDialog = reactive({ show: false, pod: null, title: '' });
+    const topoRef = ref(null);
+    let chart = null;
+
+    // v0.5.7: 拓扑图 — ECharts 关系图 (节点=pod, 按 node 成簇, 服务关联连线)
+    function buildTopo() {
+      if (!topoRef.value || typeof echarts === 'undefined') return;
+      if (!chart) chart = echarts.init(topoRef.value);
+      const nodes = [];
+      const edges = [];
+      const nodeIdx = {};
+      // 节点簇: 每 node 一组, 以 node 为聚类中心
+      const nodeGroups = data.nodes.map(n => n.name);
+      data.nodes.forEach((nd, gi) => {
+        nd.pods.forEach(p => {
+          const key = p.namespace + '/' + p.name;
+          nodeIdx[key] = nodes.length;
+          nodes.push({
+            id: key, name: p.name.split('-')[0],   // 短名显示
+            symbolSize: p.privileged ? 34 : 24,
+            category: gi,
+            itemStyle: { color: p.status === 'Running' ? '#3b82f6' : '#64748b' },
+            label: { show: true, color: '#cbd5e1', fontSize: 10 },
+          });
+        });
+      });
+      // 服务关联边: pod → 所属 service
+      data.nodes.forEach(nd => {
+        nd.pods.forEach(p => {
+          const key = p.namespace + '/' + p.name;
+          p.services.forEach(s => {
+            // 找到该 service 的第一个 pod 作为目标 (简化为星型: service 是中心)
+            const svcPod = nodeIdx[key];
+            if (svcPod !== undefined) {
+              // 指向同 namespace 里随机一个关联 pod
+              const targets = data.nodes.flatMap(n => n.pods)
+                .filter(x => x.services.includes(s) && x.namespace === p.namespace);
+              const t = targets[0];
+              if (t) {
+                const tk = t.namespace + '/' + t.name;
+                if (nodeIdx[tk] !== undefined && nodeIdx[tk] !== svcPod) {
+                  edges.push({ source: svcPod, target: nodeIdx[tk], label: { show: true, formatter: s, fontSize: 8, color: '#f59e0b' } });
+                }
+              }
+            }
+          });
+        });
+      });
+      // 节点分组: 同 node 的 pod 用簇
+      chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'item' },
+        series: [{
+          type: 'graph',
+          layout: 'force',
+          roam: true,
+          draggable: true,
+          label: { show: true, fontSize: 10 },
+          force: { repulsion: 120, edgeLength: 80 },
+          categories: nodeGroups.map(n => ({ name: n })),
+          data: nodes,
+          links: edges,
+          lineStyle: { color: '#f59e0b', width: 1.5, opacity: 0.6 },
+          emphasis: { focus: 'adjacency' },
+        }],
+      });
+    }
+
     async function load() {
-      try { Object.assign(data, await get('/api/assets')); } catch (e) {}
+      try {
+        Object.assign(data, await get('/api/assets'));
+        buildTopo();
+      } catch (e) {}
     }
     function showPod(row) {
       podDialog.pod = row;
       podDialog.title = row.namespace + '/' + row.name;
       podDialog.show = true;
     }
-    usePolling(load, 5000);
-    return { data, podDialog, showPod };
+    onMounted(() => {
+      load();
+      state.timer = setInterval(load, 5000);
+      window.addEventListener('resize', () => chart && chart.resize());
+    });
+    onUnmounted(() => {
+      clearInterval(state.timer);
+      if (chart) { chart.dispose(); chart = null; }
+    });
+    return { data, podDialog, showPod, topoRef };
   },
 };
 
