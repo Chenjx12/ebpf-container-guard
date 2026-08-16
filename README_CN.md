@@ -19,7 +19,7 @@
 - **三层检测管线** — 规则引擎（12 条规则，毫秒级）→ 行为矩阵（行为→CVE 映射，组合评分）→ AI 研判（DeepSeek，置信度分级响应）
 - **6 个 eBPF 探针** — mount、ptrace、execve、connect、openat（内核态路径过滤）
 - **全量行为日志** — 所有 syscall 事件记录到 `behaviors.log`（buffered + 按天轮转，保留 7 天），可开关——事后回溯取证、攻击链分析
-- **7 页面 Streamlit 面板** — 概览、行为日志、判决队列、AI 建议规则、规则管理、实时告警流、设置——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派
+- **9 页面 FastAPI + Vue3 面板**（v0.5.6）— REST API 后端（可接 nginx）+ 零构建 SPA：总览、告警流、人工确认队列、行为日志、规则管理、AI 建议规则、设置、成员管理——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派；Swagger /docs 默认关闭（ENABLE_DOCS=1 开放）
 - **容器身份识别** — PID Map → Cgroup Inode → /proc/cgroup 三级回退 + 后台动态刷新
 - **AI 威胁研判**（已实测）— DeepSeek API 集成，支持攻击确认、手法识别、未知攻击发现；真实 API 调用已验证，能正确区分真实攻击与误报
 - **分级自动化**（人机协同）— 可逆动作自动执行（暂停/隔离/流量阻断）；不可逆裁决（kill/镜像拉黑）进人工判决队列——AI 建议带置信度护栏执行
@@ -103,10 +103,12 @@ docker exec test strace -p 1  # 触发 HIGH 级别告警
 
 # 终端 2：前台启动面板
 ./run.sh --ui
-# 或: streamlit run dashboard/app.py
-# → 浏览器打开 http://localhost:8501
+# 或: make panel
+# → 浏览器打开 http://localhost:8000
 # → 首次启动：初始 admin 密码打印在【面板终端】中（用户名 admin）
 #   登录后请立即修改密码
+# 说明: 单 worker (内存 session)；k8s 容器化 guard 部署时设
+#   GUARD_LOGS_DIR=/var/lib/ebpf-guard
 ```
 
 角色：admin > 运维 > 安全员。admin 管理成员；运维添加规则；

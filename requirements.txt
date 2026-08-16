@@ -2,3 +2,5 @@ pyyaml
 docker
 streamlit
 kubernetes
+fastapi
+uvicorn

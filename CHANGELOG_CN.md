@@ -9,6 +9,35 @@
 
 ---
 
+## [0.5.6] - 2026-08-16
+
+### 新增
+- **面板迁移：Streamlit → FastAPI + Vue3**（`server/`）：
+  - REST API 后端（FastAPI，15+ 端点，RBAC admin/operator/analyst）+ Vue3/Element Plus
+    CDN 零构建 SPA（哈希路由、角色菜单、轮询刷新）——nginx 反代部署就绪
+  - **Swagger /docs 默认关闭**（`ENABLE_DOCS=1` 才开）——安全产品自身暴露面管控（ADR-045）
+  - 内存 session（HttpOnly cookie，8h，不用 JWT——登出即失效）；一次性 token 门控
+    （add_member/add_rule）复用 auth.py 原逻辑
+  - `GUARD_LOGS_DIR` 环境变量 → 指向 k8s DaemonSet guard 日志目录（/var/lib/ebpf-guard）
+  - `make panel` / `./run.sh --ui`（uvicorn，单 worker）
+- **单测**：新增 16 例 API 认证/RBAC（临时 users.yaml + 日志路径隔离），总计 121/121
+
+### 修复
+- **存量 bug：旧面板读不到事件**——dashboard/common.py 读项目根 events.log 而 main.py
+  自 v0.5.2 写 logs/；server/common.py 统一到 logs/（+ 环境变量支持 k8s）
+
+### 验证
+- 判决联动：API POST 判决 → k8s guard DecisionExecutor 2s 内消费
+  （`[K8sExecutor] 无法解析 api-link-test-1`，假 ID 无副作用）
+- GUARD_LOGS_DIR 指向 k8s 目录 → API 读到 5473 条真实告警
+- 全端点 curl 回归（含 401/403 负例）
+
+### 备注
+- `dashboard/` 标记 deprecated（保留至 v0.6.0 供回滚）
+- 测试时 admin 密码已改为 `Guard@2026Admin`
+
+---
+
 ## [0.5.5] - 2026-08-16
 
 ### 新增

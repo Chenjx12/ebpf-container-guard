@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.6] - 2026-08-16
+
+### Added
+- **Panel migration: Streamlit → FastAPI + Vue3** (`server/`):
+  - REST API backend (FastAPI, 15+ endpoints, RBAC admin/operator/analyst),
+    Vue3 + Element Plus CDN zero-build SPA (hash routing, role menus,
+    polling refresh) — nginx-ready architecture
+  - **Swagger /docs disabled by default** (`ENABLE_DOCS=1` to enable) —
+    attack-surface minimization for a security product (ADR-045)
+  - In-memory sessions (HttpOnly cookie, 8h, no JWT — immediate logout),
+    one-time token gating (add_member/add_rule) reused from auth.py
+  - `GUARD_LOGS_DIR` env override → points API at k8s DaemonSet guard's
+    log dir (/var/lib/ebpf-guard)
+  - `make panel` / `./run.sh --ui` (uvicorn, single worker)
+- **Unit tests**: 16 new API auth/RBAC tests (temp users.yaml + log path
+  isolation), total 121/121
+
+### Fixed
+- **Existing bug: old dashboard read no events** — dashboard/common.py read
+  project-root events.log while main.py writes logs/ (since v0.5.2);
+  server/common.py unified to logs/ (+ env override for k8s)
+
+### Verified
+- Decision linkage: API POST decision → k8s guard DecisionExecutor consumed
+  within 2s (`[K8sExecutor] 无法解析 api-link-test-1`, no side effects)
+- GUARD_LOGS_DIR= k8s dir → 5473 real alerts readable via API
+- Full curl regression incl. 401/403 negatives
+
+### Note
+- `dashboard/` deprecated (kept for rollback until v0.6.0)
+- Admin password changed during testing: `Guard@2026Admin`
+
 ## [0.5.5] - 2026-08-16
 
 ### Added

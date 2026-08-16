@@ -17,7 +17,7 @@
 - **3-Tier Detection Pipeline**: Rule engine (12 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
 - **6 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
 - **Behavior Logger**: ALL syscall events recorded to `behaviors.log` (buffered + daily rotation, 7-day retention) with configurable toggle — full behavioral timeline for post-incident analysis and audit
-- **Dashboard**: 7-page Streamlit UI: Overview, Behavior Log, Review Queue, AI Rules, Rule Mgmt, Alerts, Settings — role-based access (admin/operator/analyst), temporary token delegation
+- **Dashboard** (v0.5.6): 9-page FastAPI + Vue3 panel — REST API backend (nginx-ready) + zero-build SPA: Overview, Alerts, Review Queue, Behavior Log, Rules, AI Rules, Settings, Members — role-based access + temporary token delegation; Swagger /docs disabled by default (`ENABLE_DOCS=1`)
 - **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) with background refresh
 - **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — verified with real API calls, correctly distinguishes true positives from false positives
 - **Graded Automation** (human-in-the-loop): reversible actions auto-execute (pause/isolate/network block); irreversible verdicts (kill/image blocklist) queue for human review — AI suggestions execute with confidence guardrails
@@ -54,7 +54,7 @@ sudo python3 main.py
 
 # Terminal 2: start dashboard
 ./run.sh --ui
-# or: streamlit run dashboard/app.py --server.headless true --server.port 8501
+# or: make panel
 ```
 
 ### Option 3: Custom Configuration
@@ -98,8 +98,8 @@ docker exec test strace -p 1  # triggers HIGH alert
 sudo python3 main.py
 
 # Terminal 2: start dashboard (foreground)
-streamlit run dashboard/app.py
-# → open http://localhost:8501
+python3 -m uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 1
+# → open http://localhost:8000
 # → FIRST launch: initial admin password is printed in THIS terminal
 #   (username: admin) — change it immediately after first login
 ```

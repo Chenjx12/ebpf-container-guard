@@ -15,8 +15,10 @@ cd "$(dirname "$0")"
 PROJECT_ROOT="$(pwd)"
 GUARD_PID_FILE="/tmp/ebpf-guard.pid"
 
-# 前端启动命令（更换前端时只改这里）
-UI_CMD="streamlit run dashboard/app.py --server.headless true --server.port 8501"
+# 前端启动命令（v0.5.6: FastAPI + Vue3 面板, 默认 8000 端口）
+# 必须 --workers 1: 内存 session + 一次性 token 多 worker 会丢失
+# ENABLE_DOCS=1 才开放 /docs (Swagger) — 安全产品默认零暴露面
+UI_CMD="python3 -m uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 1"
 
 start_guard() {
     if [ -f "$GUARD_PID_FILE" ] && kill -0 $(cat "$GUARD_PID_FILE") 2>/dev/null; then
@@ -30,8 +32,8 @@ start_guard() {
 }
 
 start_ui() {
-    echo "🟢 启动面板..."
-    echo "   面板地址: http://localhost:8501"
+    echo "🟢 启动安全面板 (FastAPI + Vue3)..."
+    echo "   面板地址: http://localhost:8000"
     echo "   首次启动请查看终端中的初始密码"
     echo ""
     eval "$UI_CMD"
@@ -44,7 +46,8 @@ stop_all() {
         rm -f "$GUARD_PID_FILE"
     fi
     sudo pkill -f "python3 main.py" 2>/dev/null || true
-    kill $(lsof -ti:8501) 2>/dev/null || true
+    kill $(lsof -ti:8000) 2>/dev/null || true
+    kill $(lsof -ti:8501) 2>/dev/null || true   # 旧 streamlit 面板兼容
     echo "✅ 已停止"
 }
 

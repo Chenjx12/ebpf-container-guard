@@ -1,4 +1,8 @@
-.PHONY: help build test run clean deploy logs
+.PHONY: help build test run clean deploy logs panel
+
+panel: ## Start security panel (FastAPI + Vue3, v0.5.6)
+	@echo "🖥️  Starting security panel (FastAPI + Vue3)..."
+	python3 -m uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 1
 
 # v0.4.1: CO-RE 构建链 — vmlinux.h 不入库 (内核版本相关), 生成到 .build/
 BPF_ARCH = x86   # bpf_tracing.h 用 __TARGET_ARCH_x86 代表 x86-64
