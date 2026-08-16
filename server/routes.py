@@ -405,31 +405,45 @@ _PHASE_COLORS = {
 
 
 @router.get("/attack-chain")
-def attack_chain(container: str = "", ts: str = "", window: int = 300,
+def attack_chain(container: str = "", ts: str = "", window: int = 600,
                  user: dict = read_any):
-    """攻击链: 容器告警时间窗的行为序列 → 分阶段步骤 (v0.5.8)。
+    """攻击链: 容器全周期行为 → 分阶段步骤 (v0.5.8)。
 
-    container (ns/pod) + 告警 ts → 前后 window 秒的 syscall →
-    按阶段启发式聚合, 返回 [{phase, color, events: [...], ts}], 时间正序。
+    container (ns/pod) 必填; ts 可选 — 不传时取该容器最近告警为锚点,
+    时间窗 = [最近告警 - window, 最近告警]。返回:
+      {steps: [{phase, rel, events}], alerts: [{ts, rule}], window}
     """
-    if not container or not ts:
-        return {"steps": [], "alert": None, "error": "缺少 container/ts"}
+    if not container:
+        return {"steps": [], "alerts": [], "error": "缺少 container"}
+    import datetime as _dt
+    # 查容器最近告警 (events.log) — ts 未传时定位锚点
+    alerts_df = common.load_events(limit=5000)
+    alerts = []
+    if not alerts_df.empty and 'container_id' in alerts_df.columns:
+        mine = alerts_df[alerts_df['container_id'].astype(str) == container]
+        for _, r in mine.sort_values('timestamp').iterrows():
+            alerts.append({'ts': _norm_ts(r.get('timestamp')),
+                           'rule': str(r.get('rule') or '')})
+    if ts:
+        norm_alert = _norm_ts(ts)
+    elif alerts:
+        norm_alert = alerts[-1]['ts']  # 最近告警
+    else:
+        return {"steps": [], "alerts": [], "error": f"容器 {container} 无告警"}
+
     # v0.5.8: 跨轮转文件全量 (攻击链需完整时间窗, 低频)
     df = common.load_behavior_rotated(limit=0)
     if df.empty:
-        return {"steps": [], "alert": None, "error": "无行为数据"}
-    norm_alert = _norm_ts(ts)
-    import datetime as _dt
-    # 告警时间戳解析 (用于窗口比较)
+        return {"steps": [], "alerts": alerts, "error": "无行为数据"}
     try:
         alert_dt = _dt.datetime.fromisoformat(norm_alert)
     except ValueError:
-        return {"steps": [], "alert": None, "error": "时间戳格式无效"}
+        return {"steps": [], "alerts": alerts, "error": "时间戳格式无效"}
 
     # 过滤容器 + 时间窗 + 系统 comm (runc 初始化/containerd 噪声)
     df = df[df.get('container_id', '').astype(str) == container]
     if df.empty:
-        return {"steps": [], "alert": None, "error": f"容器 {container} 无行为数据"}
+        return {"steps": [], "alerts": alerts, "error": f"容器 {container} 无行为数据"}
 
     _SYS_COMMS = ('runc', 'runc:[2:INIT]', 'containerd', 'containerd-shim',
                   'k3s-server', 'kubelet', 'pause', 'systemd', 'coredns',
@@ -449,7 +463,7 @@ def attack_chain(container: str = "", ts: str = "", window: int = 300,
         if t is None:
             continue
         delta = (t - alert_dt).total_seconds()
-        if abs(delta) > window:
+        if delta > 0 or delta < -window:  # 全周期: 最近告警往前 window 秒
             continue
         # daddr int → IP (v0.5.8: connect 事件显示目标 IP)
         daddr = r.get('daddr')
@@ -498,8 +512,7 @@ def attack_chain(container: str = "", ts: str = "", window: int = 300,
         })
     # 去掉纯"其他"步骤
     steps = [s for s in steps if s['phase'] != '其他']
-    return {"steps": steps, "alert": {"container": container, "ts": norm_alert},
-            "window": window, "error": None}
+    return {"steps": steps, "alerts": alerts, "window": window, "error": None}
 
 
 # ================================================================

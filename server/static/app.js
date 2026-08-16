@@ -722,6 +722,8 @@ const AttackChainPage = {
         <h3 style="margin-bottom:10px">
           🕸️ 攻击链
           <el-tag size="small" type="danger" style="margin-left:8px">{{ steps.length }} 阶段</el-tag>
+          <el-tag v-for="(a, ai) in alerts" :key="ai" size="small" type="warning"
+                  style="margin-left:6px">{{ a.rule }} @ {{ a.ts.slice(5,19).replace('T',' ') }}</el-tag>
         </h3>
         <div ref="chainRef" style="width:100%;height:300px"></div>
         <div style="margin-top:10px;font-size:12px;color:var(--muted)">
@@ -751,6 +753,7 @@ const AttackChainPage = {
   setup() {
     const steps = ref([]);
     const alert = ref({});
+    const alerts = ref([]);   // 容器所有告警 (v0.5.8)
     const err = ref('');
     const target = ref(null);   // 被攻击目标画像 (v0.5.8)
     const chainRef = ref(null);
@@ -762,17 +765,19 @@ const AttackChainPage = {
     let chart = null;
 
     async function load() {
-      // 兼容 #/chain? 与 #chain? 两种 hash
-      const m = location.hash.match(/\/?chain\?container=([^&]+)&ts=([^&]+)/);
+      // 兼容 #/chain?container= 与 #chain?container=
+      const m = location.hash.match(/\/?chain\?container=([^&]+)/);
       if (!m) { err.value = '缺少攻击链参数'; return; }
       const container = decodeURIComponent(m[1]);
-      const ts = decodeURIComponent(m[2]);
       try {
-        const d = await get('/api/attack-chain?container=' + encodeURIComponent(container) +
-                            '&ts=' + encodeURIComponent(ts));
+        // v0.5.8: 容器全周期 — 不传 ts, 后端取最近告警为锚点
+        const d = await get('/api/attack-chain?container=' +
+                            encodeURIComponent(container));
         if (d.error) { err.value = d.error; return; }
         steps.value = d.steps || [];
-        alert.value = d.alert || {};
+        alerts.value = d.alerts || [];
+        alert.value = { container, ts: alerts.value.length
+                        ? alerts.value[alerts.value.length - 1].ts : '' };
         // v0.5.8: 被攻击目标画像
         try {
           const prof = await get('/api/review/profile?container_id=' +
@@ -847,7 +852,7 @@ const AttackChainPage = {
       window.removeEventListener('hashchange', load);
       if (chart) { chart.dispose(); chart = null; }
     });
-    return { steps, alert, err, target, chainRef, phaseColors };
+    return { steps, alert, alerts, err, target, chainRef, phaseColors };
   },
 };
 
@@ -1338,10 +1343,9 @@ const EventDetailDialog = {
     // v0.5.8: 跳转攻击链页面
     function viewChain() {
       const cid = eventDetail.event.container_id;
-      const ts = eventDetail.event.timestamp;
       eventDetail.show = false;  // 跳转攻击链自动关弹窗
-      location.hash = '#/chain?container=' + encodeURIComponent(cid) +
-                      '&ts=' + encodeURIComponent(ts);
+      // v0.5.8: 容器全周期 — 只传 container, 后端取最近告警为锚点
+      location.hash = '#/chain?container=' + encodeURIComponent(cid);
     }
     return { eventDetail, sevTag, fmtTime, viewChain };
   },
