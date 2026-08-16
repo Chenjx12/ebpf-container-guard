@@ -19,9 +19,9 @@
 - **三层检测管线** — 规则引擎（12 条规则，毫秒级）→ 行为矩阵（行为→CVE 映射，组合评分）→ AI 研判（DeepSeek，置信度分级响应）
 - **6 个 eBPF 探针** — mount、ptrace、execve、connect、openat（内核态路径过滤）
 - **全量行为日志** — 所有 syscall 事件记录到 `behaviors.log`（buffered + 按天轮转，保留 7 天），可开关——事后回溯取证、攻击链分析
-- **9 页面 FastAPI + Vue3 面板**（v0.5.6）— REST API 后端（可接 nginx）+ 零构建 SPA：总览、告警流、人工确认队列、行为日志、规则管理、AI 建议规则、设置、成员管理——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派；Swagger /docs 默认关闭（ENABLE_DOCS=1 开放）
+- **10 页面 FastAPI + Vue3 面板**（v0.5.7）— REST API 后端（可接 nginx）+ 零构建 SPA：总览、**资产管理（拓扑图）**、告警流、人工确认队列、行为日志、规则管理、AI 建议规则、设置、成员管理——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派（只能授权给低权限角色）；Swagger /docs 默认关闭（ENABLE_DOCS=1 开放）
 - **容器身份识别** — PID Map → Cgroup Inode → /proc/cgroup 三级回退 + 后台动态刷新
-- **AI 威胁研判**（已实测）— DeepSeek API 集成，支持攻击确认、手法识别、未知攻击发现；真实 API 调用已验证，能正确区分真实攻击与误报
+- **AI 威胁研判**（已实测）— DeepSeek API 集成，支持攻击确认、手法识别、未知攻击发现；**多配置管理**（ai_profiles.yaml，面板获取模型列表 + 命名配置 + 一键切换，左下角快捷面板）；真实 API 调用已验证，能正确区分真实攻击与误报
 - **分级自动化**（人机协同）— 可逆动作自动执行（暂停/隔离/流量阻断）；不可逆裁决（kill/镜像拉黑）进人工判决队列——AI 建议带置信度护栏执行
 - **网络流量阻断** — iptables DROP 已确认的恶意 IP:port（可逆，TTL 自动清理，业务流量保留）
 - **响应升级** — 同镜像重复攻击逐级升级：暂停 → kill（队列）→ 镜像拉黑（队列），阻止攻击循环

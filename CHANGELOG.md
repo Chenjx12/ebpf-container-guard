@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.5.7] - 2026-08-16
+
+### Added
+- **Asset management page** (`GET /api/assets` + sidebar entry):
+  - **Topology graph** (ECharts, starfield background): nodes = pods clustered
+    by physical node, namespace coloring, draggable/zoomable view, click pod
+    for detail dialog
+  - **Service association glow**: public/private service circle toggles
+    (both off by default), private service filter dropdown (select to
+    highlight), legend follows toggles
+  - Asset list grouped by node + service exposure table + pod profile dialog
+- **AI multi-profile management**:
+  - `ai_profiles.yaml` as single config source; `ai_config.yaml` becomes
+    activation snapshot (guard hot-reloads, zero code change)
+  - **Fetch model list**: base_url + key → `{base_url}/models` → model
+    dropdown selection (replaces manual model entry; verified DeepSeek v4)
+  - Startup consistency: deleted ai_config auto-rebuilds / manual edits
+    overwritten back to active / legacy ai_config migrated to default profile
+  - Sidebar bottom-left **AI quick panel**: profile dropdown + threshold
+    sliders + confirm switch + link to settings
+- **Token authorization constraints**: can only issue to lower-privilege
+  roles (frontend filter + backend enforcement), "授权给谁" member dropdown,
+  note reserved for purpose
+- **Sidebar icons** (expand/collapse), fixed viewport height
+- **3-VM multi-node demo guide** (`docs/k8s-multi-node-demo.md`)
+- Templates: `ai_profiles.yaml.example`, updated `ai_config.yaml.example`,
+  configmap sync
+
+### Fixed
+- Sidebar scrolled away on long content (sticky height)
+- AI quick dropdown empty after login (load on login)
+- Token template compile error (stray template tag)
+- Members moved into Settings page (removed internal path from title,
+  role tag colors unified)
+
 ## [0.5.6] - 2026-08-16
 
 ### Added

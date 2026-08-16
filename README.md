@@ -17,9 +17,9 @@
 - **3-Tier Detection Pipeline**: Rule engine (12 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
 - **6 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
 - **Behavior Logger**: ALL syscall events recorded to `behaviors.log` (buffered + daily rotation, 7-day retention) with configurable toggle — full behavioral timeline for post-incident analysis and audit
-- **Dashboard** (v0.5.6): 9-page FastAPI + Vue3 panel — REST API backend (nginx-ready) + zero-build SPA: Overview, Alerts, Review Queue, Behavior Log, Rules, AI Rules, Settings, Members — role-based access + temporary token delegation; Swagger /docs disabled by default (`ENABLE_DOCS=1`)
+- **Dashboard** (v0.5.7): 10-page FastAPI + Vue3 panel — REST API backend (nginx-ready) + zero-build SPA: Overview, **Asset Management (topology graph)**, Alerts, Review Queue, Behavior Log, Rules, AI Rules, Settings, Members — role-based access + temporary token delegation (lower-privilege only); Swagger /docs disabled by default (`ENABLE_DOCS=1`)
 - **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) with background refresh
-- **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — verified with real API calls, correctly distinguishes true positives from false positives
+- **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — **multi-profile management** (ai_profiles.yaml, fetch model list + named configs + one-click switch via sidebar quick panel); verified with real API calls, correctly distinguishes true positives from false positives
 - **Graded Automation** (human-in-the-loop): reversible actions auto-execute (pause/isolate/network block); irreversible verdicts (kill/image blocklist) queue for human review — AI suggestions execute with confidence guardrails
 - **Network Traffic Blocking**: iptables DROP for confirmed malicious IP:port (reversible, TTL cleanup, business traffic preserved)
 - **Response Escalation**: repeated attacks from the same image escalate pause → kill (queued) → image blocklist (queued), stopping attack loops
