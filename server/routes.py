@@ -84,7 +84,8 @@ def overview_stats(user: dict = read_any):
 
 
 @router.get("/alerts")
-def alerts(limit: int = 50, filter: str = "all", user: dict = read_any):
+def alerts(limit: int = 50, filter: str = "all", container: str = "",
+           rule: str = "", severity: str = "", user: dict = read_any):
     events = common.load_events(limit=2000)
     if events.empty:
         return {"events": [], "netblocks": []}
@@ -93,6 +94,15 @@ def alerts(limit: int = 50, filter: str = "all", user: dict = read_any):
         events = events[events['netblocked'].fillna(False).astype(bool)]
     elif filter == "aifp" and 'tier3_ai_verdict' in events.columns:
         events = events[events['tier3_ai_verdict'] == 'false_positive']
+    # v0.5.6: 页面筛选 — 容器/规则/严重度
+    if container and 'container_id' in events.columns:
+        events = events[events['container_id'].astype(str).str.contains(
+            container, na=False)]
+    if rule and 'rule' in events.columns:
+        events = events[events['rule'].astype(str) == rule]
+    if severity and 'severity' in events.columns:
+        events = events[events['severity'].astype(str).str.upper() ==
+                        severity.upper()]
     events = events.sort_values('timestamp', ascending=False).head(limit)
     records = _df_records(events)
     # join human decision (latest per container)

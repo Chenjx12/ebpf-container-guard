@@ -155,6 +155,19 @@ const AlertsPage = {
       <el-tag v-if="curFilter !== 'all'" size="small" closable @close="clearFilter"
               style="margin-left:8px">{{ filterLabel }}</el-tag>
     </span></div>
+    <div class="panel" style="display:flex;gap:12px;align-items:center;padding:12px 18px;flex-wrap:wrap">
+      <el-input v-model="q.container" placeholder="容器搜索 (模糊)" style="width:220px"
+                clearable size="small" @input="load" />
+      <el-select v-model="q.rule" placeholder="规则" clearable size="small" style="width:200px"
+                 @change="load">
+        <el-option v-for="r in ruleOptions" :key="r" :label="r" :value="r" />
+      </el-select>
+      <el-select v-model="q.severity" placeholder="严重度" clearable size="small" style="width:120px"
+                 @change="load">
+        <el-option v-for="s in ['CRITICAL','HIGH','MEDIUM','LOW']" :key="s" :label="s" :value="s" />
+      </el-select>
+      <el-button v-if="q.container || q.rule || q.severity" size="small" @click="resetFilter">清除筛选</el-button>
+    </div>
     <div class="panel">
       <el-table :data="events" size="small" stripe max-height="70vh">
         <el-table-column label="时间" width="170"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
@@ -180,10 +193,21 @@ const AlertsPage = {
     const curFilter = ref('all');
     const filterLabel = computed(() =>
       ({ netblocked: '仅网络阻断', aifp: '仅 AI 误报' }[curFilter.value] || ''));
+    const q = reactive({ container: '', rule: '', severity: '' });
+    const ruleOptions = ref([]);
     async function load() {
       try {
-        const q = curFilter.value !== 'all' ? '?filter=' + curFilter.value : '';
-        events.value = (await get('/api/alerts' + q)).events;
+        const p = new URLSearchParams();
+        if (curFilter.value !== 'all') p.set('filter', curFilter.value);
+        if (q.container) p.set('container', q.container);
+        if (q.rule) p.set('rule', q.rule);
+        if (q.severity) p.set('severity', q.severity);
+        events.value = (await get('/api/alerts?' + p)).events;
+        // 规则下拉选项 (从全量事件收集去重)
+        if (ruleOptions.value.length === 0) {
+          const all = (await get('/api/alerts?limit=200')).events;
+          ruleOptions.value = [...new Set(all.map(e => e.rule))].sort();
+        }
       } catch (e) {}
     }
     function readHash() {
@@ -196,10 +220,15 @@ const AlertsPage = {
       curFilter.value = 'all';
       load();
     }
+    function resetFilter() {
+      q.container = ''; q.rule = ''; q.severity = '';
+      load();
+    }
     onMounted(() => { readHash(); state.timer = setInterval(load, 3000); });
     onUnmounted(() => clearInterval(state.timer));
     window.addEventListener('hashchange', readHash);
-    return { events, curFilter, filterLabel, clearFilter, fmtTime, sevTag };
+    return { events, curFilter, filterLabel, clearFilter, resetFilter, q, ruleOptions,
+             fmtTime, sevTag };
   },
 };
 
