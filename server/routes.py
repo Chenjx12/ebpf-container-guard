@@ -158,7 +158,10 @@ def review_decision(body: dict, user: dict = write_op):
     decision = body.get("decision") or ""
     if decision not in ('confirmed', 'dismissed'):
         raise HTTPException(status_code=400, detail="decision 必须是 confirmed/dismissed")
-    common.record_decision(cid, decision, int(body.get("event_count", 1)))
+    ok, err = common.record_decision(cid, decision,
+                                     int(body.get("event_count", 1)))
+    if not ok:
+        raise HTTPException(status_code=500, detail=err)
     return {"ok": True}
 
 
@@ -259,7 +262,9 @@ def ai_rule_decision(body: dict, user: dict = write_op):
         if not ok:
             raise HTTPException(status_code=400, detail=err)
     # 去重标记 (scope=suggested_rule, container_id=event_ts — 与 streamlit 一致)
-    common.record_decision(event_ts, decision, 1, scope="suggested_rule")
+    ok, err = common.record_decision(event_ts, decision, 1, scope="suggested_rule")
+    if not ok:
+        raise HTTPException(status_code=500, detail=err)
     return {"ok": True}
 
 

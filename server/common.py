@@ -156,6 +156,36 @@ def parse_condition_rows(rows) -> list:
     return nodes
 
 
+# Falco → 自研字段映射 (AI 建议规则兼容层, v0.5.6)
+# AI 输出 Falco 风格字段名, 引擎注册表是自研字段 — 入库前映射否则校验失败
+FALCO_FIELD_MAP = {
+    'proc.name': 'comm',
+    'proc.cmdline': 'target_path',
+    'proc.pid': 'pid',
+    'proc.uid': 'uid',
+    'container.id': 'container_id',
+    'container.name': 'container_id',  # 无单独 name 字段, 映射到容器 ID
+    'fd.name': 'target_path',
+    'fd.type': 'fstype',
+}
+
+
+def _map_falco_fields(node):
+    """递归映射 condition 树里的 Falco 字段名为引擎字段。"""
+    if not isinstance(node, dict):
+        return node
+    out = {}
+    for k, v in node.items():
+        if k in ('all', 'any'):
+            out[k] = [_map_falco_fields(x) for x in v]
+        elif k == 'not':
+            out[k] = _map_falco_fields(v)
+        else:
+            out[FALCO_FIELD_MAP.get(k, k)] = (
+                _map_falco_fields(v) if isinstance(v, dict) else v)
+    return out
+
+
 def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
     """Append a rule to rules.yaml (guard hot-reloads within 3s).
 
@@ -166,6 +196,10 @@ def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
         if src_dir not in sys.path:
             sys.path.insert(0, src_dir)
         from detector.rule_schema import normalize_ai_rule, validate_rule
+
+        # v0.5.6: AI 建议字段映射 (Falco → 引擎字段)
+        if source == "ai_suggestion" and 'condition' in rule:
+            rule['condition'] = _map_falco_fields(rule['condition'])
 
         norm, err = normalize_ai_rule(rule)
         if err is not None:
@@ -183,9 +217,41 @@ def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
         with open(RULES_PATH, 'a') as f:
             f.write("\n" + indented + "\n")
         log_rule_audit("add_rule", rule.get('name', 'unnamed'), source, rule)
+        # v0.5.6: k8s 部署时同步 configmap — 容器 guard 读 configmap,
+        # 只写本地 rules.yaml 不生效 (架构断裂)
+        _sync_rules_to_configmap()
         return True, None
     except Exception as e:
         return False, f"规则写入失败: {e}"
+
+
+def _sync_rules_to_configmap():
+    """面板加规则后同步到 k8s configmap + 重启 guard。
+
+    configmap 更新是 symlink 原子替换, 文件 mtime 不变 → guard 的
+    mtime watch 检测不到 → 必须 rollout restart 让新规则生效。
+    本地部署 (无 kubectl/非 k8s) 自动跳过。
+    """
+    try:
+        import subprocess
+        import json as _json
+        rules = open(RULES_PATH).read()
+        patch = _json.dumps({"data": {"rules.yaml": rules}})
+        r = subprocess.run(
+            ['kubectl', 'patch', 'configmap', 'ebpf-guard-config',
+             '-n', 'kube-system', '--type', 'merge', '-p', patch],
+            capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            print(f"[Panel] configmap 同步失败: {r.stderr.strip()[:120]}")
+            return
+        r2 = subprocess.run(
+            ['kubectl', 'rollout', 'restart', 'ds/ebpf-guard',
+             '-n', 'kube-system'],
+            capture_output=True, text=True, timeout=30)
+        if r2.returncode == 0:
+            print("[Panel] 规则已同步 configmap + guard 重启生效")
+    except Exception as e:
+        print(f"[Panel] configmap 同步失败 (本地部署可忽略): {e}")
 
 
 def log_rule_audit(action: str, rule_name: str, source: str,
@@ -230,7 +296,11 @@ def save_ai_config(cfg: dict) -> tuple:
 
 def record_decision(container_id: str, decision: str, event_count: int = 1,
                     scope: str = "container"):
-    """Append a verdict to decisions.log (DecisionExecutor polls it every 2s)."""
+    """Append a verdict to decisions.log (DecisionExecutor polls it every 2s).
+
+    v0.5.6: 写失败返回 (ok=False, err) — 面板进程可能无权写 k8s 日志目录
+    (root 拥有), 捕获避免 500; 由调用方提示用户。
+    """
     entry = {
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
         'container_id': container_id,
@@ -238,9 +308,16 @@ def record_decision(container_id: str, decision: str, event_count: int = 1,
         'scope': scope,
         'event_count': event_count,
     }
-    DECISIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
-    with open(DECISIONS_LOG, 'a') as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    try:
+        DECISIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(DECISIONS_LOG, 'a') as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        return True, None
+    except PermissionError as e:
+        return False, (f"无权写入判决日志 {DECISIONS_LOG} — "
+                       f"k8s 部署请用 sudo 启动面板或 chmod 目录")
+    except Exception as e:
+        return False, f"判决写入失败: {e}"
 
 
 def get_container_profile(container_id: str):

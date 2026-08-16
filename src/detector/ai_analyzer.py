@@ -51,12 +51,16 @@ For each alert, provide a structured JSON response with these fields:
   "suggested_rule": null (or a new detection rule object if you discover an unknown attack pattern)
 }
 
-When you suggest a new rule, use the v0.4 condition-tree schema (Falco-style
-AND/OR/not). event_type must be at the TOP LEVEL, never inside condition.
+When you suggest a new rule, use the v0.4 condition-tree schema
+(AND/OR/not). event_type must be at the TOP LEVEL, never inside condition.
 Each condition node is a map with exactly one key: a field name, or
 "all" (list of nodes, AND), "any" (list of nodes, OR), "not" (single node).
 Leaf values: scalar or list = exact match (list is OR), or an operator map:
 {"neq": v} {"startswith": v} {"endswith": v} {"contains": v} {"glob": v} {"exists": true/false}.
+IMPORTANT (v0.5.6): use ONLY these engine field names — comm (process name),
+target_path, target_pid, pid, uid, fstype, request, daddr, dport, open_flags,
+cap_effective, cap_permitted, container_id, timestamp. Do NOT use Falco field
+names like proc.name / container.name / fd.name — they will be rejected.
 Example:
 {
   "name": "suspicious_download_and_exec",
