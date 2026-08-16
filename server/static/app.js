@@ -469,14 +469,9 @@ const AssetsPage = {
     //  节点=pod (按命名空间着色) + service (金色菱形)
     //  按 node 成簇; 公共依赖服务 (kube-dns/metrics-server) 默认折叠连线
     //  筛选: 命名空间/节点/仅服务关联
-    const topoFilter = reactive({ ns: '', node: '', showInfra: true, onlyLinked: false });
+    const topoFilter = reactive({ ns: '', node: '', showInfra: false, onlyLinked: false });
     const nsOptions = ref([]);
     const INFRA_SVCS = ['kube-dns', 'metrics-server'];
-    // 服务名 → 圈色 (v0.5.7: 关联 pod 虚线边框用)
-    const svcColorsMap = {
-      'kube-dns': '#f59e0b', 'metrics-server': '#22c55e',
-      'traefik': '#a855f7', 'kubernetes': '#06b6d4',
-    };
     const NS_COLORS = {
       'default': '#3b82f6', 'kube-system': '#22c55e',
       'kube-public': '#f59e0b', 'kube-node-lease': '#a855f7',
@@ -504,18 +499,11 @@ const AssetsPage = {
         nd.pods.forEach(p => {
           const key = p.namespace + '/' + p.name;
           nodeIdx[key] = nodes.length;
-          // 服务关联 pod: 虚线边框 = 服务圈 (不同服务不同边框色)
-          const svcColor = p.services.length
-            ? svcColorsMap[p.services[0]] || '#f59e0b' : '';
           nodes.push({
             id: key, name: p.name.split('-')[0],
             symbolSize: p.privileged ? 34 : 24,
             category: nodeGroups.indexOf(nd.name),
-            itemStyle: {
-              color: NS_COLORS[p.namespace] || '#64748b',
-              ...(svcColor ? { borderColor: svcColor, borderWidth: 2,
-                               borderType: 'dashed' } : {}),
-            },
+            itemStyle: { color: NS_COLORS[p.namespace] || '#64748b' },
             __pod: p,
           });
         });
@@ -555,7 +543,46 @@ const AssetsPage = {
         nodes[idx].x = topoW * 0.5;
         nodes[idx].y = topoH * 0.5;
       });
-      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.borderColor||'')) });
+      // 服务圈 (v0.5.7): 勾选 showInfra 才画 — 圈住关联 pod, 不贴节点
+      // (半径 = 覆盖关联 pod 的包围圆 + 大余量), 不同服务不同色
+      const svcColors = ['#f59e0b', '#22c55e', '#a855f7', '#06b6d4', '#f43f5e'];
+      const graphics = [];
+      let svcGi = 0;
+      if (topoFilter.showInfra) {
+        const svcPodPos = {};
+        filteredNodes.forEach(nd => nd.pods.forEach(p => {
+          p.services.forEach(s => {
+            const sk = p.namespace + '/' + s;
+            const idx = nodeIdx[p.namespace + '/' + p.name];
+            if (idx !== undefined && svcIdx[sk] !== undefined) {
+              (svcPodPos[sk] = svcPodPos[sk] || []).push(
+                { x: nodes[idx].x, y: nodes[idx].y });
+            }
+          });
+        }));
+        Object.entries(svcPodPos).forEach(([sk, posList]) => {
+          if (!posList.length) return;
+          const cx = posList.reduce((a, p) => a + p.x, 0) / posList.length;
+          const cy = posList.reduce((a, p) => a + p.y, 0) / posList.length;
+          const r = Math.max(...posList.map(p =>
+            Math.hypot(p.x - cx, p.y - cy))) + 40;  // 大余量, 不贴节点
+          const color = svcColors[svcGi++ % svcColors.length];
+          const svcName = sk.split('/')[1];
+          graphics.push({
+            type: 'circle', x: cx, y: cy, shape: { r },
+            style: { fill: 'none', stroke: color, lineWidth: 1.5,
+                     lineDash: [6, 4], opacity: 0.8 },
+            z: 1, silent: true,
+          });
+          graphics.push({
+            type: 'text', x: cx, y: cy - r - 8,
+            style: { text: svcName, fill: color, fontSize: 12, fontWeight: 'bold' },
+            silent: true,
+          });
+        });
+      }
+      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.borderColor||'')),
+                                    circles: graphics.map(g => JSON.stringify(g.shape) + g.style.stroke) });
       if (key === lastTopoKey) return;
       lastTopoKey = key;
       // 首次全量配置, 之后增量更新 data
@@ -566,8 +593,9 @@ const AssetsPage = {
             formatter: (p) => p.data?.__pod
               ? `${p.data.__pod.namespace}/${p.data.__pod.name}\n状态: ${p.data.__pod.status}\n服务: ${p.data.__pod.services.join(',') || '无'}`
               : (p.data.id || p.name) },
+          graphic: graphics,
           series: [{
-            type: "graph", layout: "none", roam: false, draggable: false,
+            type: "graph", layout: "none", roam: true, draggable: false,
             label: { show: true, fontSize: 10, color: '#cbd5e1' },
             animation: false,
             emphasis: { focus: 'adjacency' },
@@ -585,8 +613,9 @@ const AssetsPage = {
       chart.setOption({
         legend: { data: groups, textStyle: { color: '#8ea6c8' },
                   bottom: 4, itemWidth: 12, itemHeight: 12 },
+        graphic: graphics,
         series: [{
-          type: "graph", layout: "none", roam: false, draggable: false,
+          type: "graph", layout: "none", roam: true, draggable: false,
           label: { show: true, fontSize: 10, color: '#cbd5e1' },
           animation: false,
           categories: groups.map(n => ({ name: n })),
