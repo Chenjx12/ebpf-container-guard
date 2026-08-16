@@ -920,10 +920,11 @@ const SettingsPage = {
         <el-table-column prop="token" label="Token (前 8 位)" width="130" />
         <el-table-column prop="purpose" label="用途" width="110" />
         <el-table-column prop="grantor" label="签发人" width="100" />
-        <el-table-column prop="note" label="备注" min-width="160">
+        <el-table-column label="备注" min-width="160">
           <template #default="{row}">
+            <span v-if="row.for_user" class="mono" style="margin-right:4px">→{{ row.for_user }}</span>
             <span v-if="row.note" style="color:var(--muted)">{{ row.note }}</span>
-            <span v-else style="color:var(--muted)">—</span>
+            <span v-if="!row.for_user && !row.note" style="color:var(--muted)">—</span>
           </template>
         </el-table-column>
         <el-table-column label="过期" width="200"><template #default="{row}">{{ fmtTs(row.expires) }}</template></el-table-column>
@@ -1051,9 +1052,10 @@ const SettingsPage = {
     }
     async function issueToken() {
       try {
-        // v0.5.7: 授权对象拼进备注 (给{user}: 用途)
-        const note = (tokenFor.value ? `给${tokenFor.value}: ` : '') + tokenNote.value;
-        const r = await post('/api/tokens/issue', { purpose: tokenPurpose.value, ttl: tokenTtl.value, note });
+        // v0.5.7: for_user 独立传后端 (校验权限), note 仅用途
+        const r = await post('/api/tokens/issue', {
+          purpose: tokenPurpose.value, ttl: tokenTtl.value,
+          for_user: tokenFor.value, note: tokenNote.value });
         issuedToken.value = r.token;
         ElMessage.success('Token 已签发 (一次性, 5 分钟内有效)');
         tokenNote.value = '';

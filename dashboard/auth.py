@@ -185,12 +185,13 @@ class TokenManager:
     # ---- grant ----
 
     def generate(self, purpose: str, grantor: str, ttl: int = 180,
-                 note: str = "") -> str:
+                 note: str = "", for_user: str = "") -> str:
         """Generate a temp token. Returns token string or '' on failure.
 
         grantor is a username; permission checked via auth.get_role().
         note (v0.5.6): optional remark shown in the token list (e.g. who
         it was granted for / why) — audited with the grant.
+        for_user (v0.5.7): 授权对象 — 不能授权自己, 不能授权给权限更高者。
         """
         purpose_def = PURPOSES.get(purpose)
         if not purpose_def:
@@ -200,11 +201,19 @@ class TokenManager:
             return ''  # grantor lacks permission for this purpose
         if ttl < 60 or ttl > purpose_def['ttl_max']:
             ttl = 180  # clamp to 1-5 min
+        # v0.5.7: 授权对象约束 — 只能授权给比自己权限低的角色
+        if for_user:
+            for_role = self.auth.get_role(for_user) if self.auth else ''
+            if not for_role:
+                return ''  # 授权对象不存在
+            if ROLE_RANK.get(for_role, 0) >= ROLE_RANK.get(grantor_role, 0):
+                return ''  # 不能授权自己/同级/更高权限
 
         token = secrets.token_urlsafe(16)
         self.tokens[token] = {
             'purpose': purpose,
             'grantor': grantor,
+            'for_user': for_user or '',
             'note': (note or '')[:100],
             'expires': time.time() + ttl,
             'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
@@ -255,7 +264,8 @@ class TokenManager:
         """Active (unused, unexpired) tokens for display."""
         now = time.time()
         return [{'token': k[:8], 'purpose': v['purpose'],
-                 'grantor': v['grantor'], 'note': v.get('note', ''),
+                 'grantor': v['grantor'], 'for_user': v.get('for_user', ''),
+                 'note': v.get('note', ''),
                  'expires': v['expires'], 'used_by': v.get('used_by')}
                 for k, v in self.tokens.items()
                 if now < v['expires'] and not v.get('used_by')]

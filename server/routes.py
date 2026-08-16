@@ -579,10 +579,23 @@ def issue_token(body: dict, user: dict = admin_only):
     purpose = body.get("purpose") or ""
     ttl = int(body.get("ttl", 180))
     note = (body.get("note") or "").strip()[:100]
-    token = common.TOKENS.generate(purpose, user['username'], ttl, note)
+    for_user = (body.get("for_user") or "").strip()
+    # v0.5.7: 授权对象校验 — 只能授权给比自己权限低的角色
+    if for_user:
+        from dashboard.auth import ROLE_RANK
+        grantor_role = common.AUTH.get_role(user['username'])
+        for_role = common.AUTH.get_role(for_user)
+        if not for_role:
+            raise HTTPException(status_code=400, detail=f"授权对象 {for_user} 不存在")
+        if ROLE_RANK.get(for_role, 0) >= ROLE_RANK.get(grantor_role, 0):
+            raise HTTPException(status_code=403,
+                                detail="不能授权给自己/同级/更高权限的账号")
+    token = common.TOKENS.generate(purpose, user['username'], ttl, note,
+                                   for_user)
     if not token:
         raise HTTPException(status_code=403, detail="无权签发该目的 token")
-    return {"token": token, "purpose": purpose, "note": note}
+    return {"token": token, "purpose": purpose, "note": note,
+            "for_user": for_user}
 
 
 @router.post("/tokens/consume")
