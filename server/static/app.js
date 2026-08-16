@@ -886,7 +886,7 @@ const SettingsPage = {
       </div>
     </div>
 
-    <div v-if="isAdmin" class="panel"><h3>成员管理 <span class="sub">config/users.yaml</span></h3>
+    <div v-if="isAdmin" class="panel"><h3>成员管理</h3>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <span style="color:var(--muted)">共 {{ users.length }} 个账号</span>
         <el-button type="primary" size="small" @click="showAdd = true">添加成员</el-button>
@@ -894,8 +894,10 @@ const SettingsPage = {
       <el-table :data="users" size="small" stripe>
         <el-table-column prop="username" label="用户名" min-width="160" />
         <el-table-column label="角色" width="120"><template #default="{row}">
-          <el-tag size="small" :type="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'warning' : 'info'">
-            {{ row.role }}</el-tag></template></el-table-column>
+          <el-tag size="small" :type="ROLE_TYPES[row.role] || 'info'"
+                  :color="ROLE_COLORS[row.role] || ''"
+                  :style="ROLE_COLORS[row.role] ? 'color:#fff;border:none' : ''">
+            {{ ROLE_LABELS[row.role] || row.role }}</el-tag></template></el-table-column>
         <el-table-column prop="created" label="创建时间" width="200" />
       </el-table>
     </div>
@@ -1054,7 +1056,7 @@ const SettingsPage = {
       tokenPurpose, tokenTtl, tokenNote, issuedToken, tokens,
       changePw, fetchModels, saveAiProfile, activateProfile, deleteProfile,
       issueToken, fmtTime, fmtTs,
-      users, showAdd, f, addUser };
+      users, showAdd, f, addUser, ROLE_LABELS, ROLE_COLORS, ROLE_TYPES };
   },
 };
 
