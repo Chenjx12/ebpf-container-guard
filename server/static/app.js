@@ -386,7 +386,10 @@ const AssetsPage = {
       </el-select>
       <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">公共服务圈</el-checkbox>
       <el-checkbox v-model="topoFilter.showPrivate" size="small" @change="buildTopoDebounced">私有服务圈</el-checkbox>
-      <el-checkbox v-model="topoFilter.onlyLinked" size="small" @change="buildTopoDebounced">仅服务关联</el-checkbox>
+      <el-select v-model="topoFilter.svc" placeholder="私有服务筛选" clearable size="small"
+                 style="width:180px" @change="buildTopoDebounced">
+        <el-option v-for="s in privateSvcOptions" :key="s" :label="s" :value="s" />
+      </el-select>
     </div>
     <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
       <div ref="topoRef" style="width:100%;height:420px"></div>
@@ -470,8 +473,9 @@ const AssetsPage = {
     //  节点=pod (按命名空间着色) + service (金色菱形)
     //  按 node 成簇; 公共依赖服务 (kube-dns/metrics-server) 默认折叠连线
     //  筛选: 命名空间/节点/仅服务关联
-    const topoFilter = reactive({ ns: '', node: '', showInfra: false, showPrivate: false, onlyLinked: false });
+    const topoFilter = reactive({ ns: '', node: '', showInfra: false, showPrivate: false, svc: '' });
     const nsOptions = ref([]);
+    const privateSvcOptions = ref([]);
     const INFRA_SVCS = ['kube-dns', 'metrics-server'];
     const NS_COLORS = {
       'default': '#3b82f6', 'kube-system': '#22c55e',
@@ -490,8 +494,7 @@ const AssetsPage = {
         .filter(nd => !topoFilter.node || nd.name === topoFilter.node)
         .map(nd => {
           const pods = nd.pods.filter(p =>
-            (!topoFilter.ns || p.namespace === topoFilter.ns) &&
-            (!topoFilter.onlyLinked || p.services.length > 0));
+            (!topoFilter.ns || p.namespace === topoFilter.ns));
           if (pods.length) nodeGroups.push(nd.name);
           return { name: nd.name, pods };
         })
@@ -526,30 +529,38 @@ const AssetsPage = {
       const groups = filteredNodes.map(nd => nd.name);
       // 服务关联 pod 发光 (跟随节点, 不同服务不同色) — 替代 graphic 圈
       // (graphic circle 坐标系与 roam 变换不同步, 圈不跟随 pod)
-      // v0.5.7: 公共/私有服务独立开关, 都默认不亮
+      // v0.5.7: 公共/私有独立开关 + 私有服务筛选 (svc 选中只高亮该服务)
       const svcColors = ['#f59e0b', '#22c55e', '#a855f7', '#06b6d4', '#f43f5e'];
       const svcColorIdx = {};
+      const privateSvcs = new Set();
       filteredNodes.forEach(nd => nd.pods.forEach(p => {
         if (!p.services.length) return;
         const sk = p.namespace + '/' + p.services[0];
         if (!(sk in svcColorIdx)) svcColorIdx[sk] = Object.keys(svcColorIdx).length;
+        if (!INFRA_SVCS.includes(p.services[0])) privateSvcs.add(p.services[0]);
         const idx = nodeIdx[p.namespace + '/' + p.name];
         if (idx !== undefined) {
           const isInfra = INFRA_SVCS.includes(p.services[0]);
           const show = isInfra ? topoFilter.showInfra : topoFilter.showPrivate;
-          if (show) {
+          // 私有服务筛选: 选中某服务时只高亮该服务的 pod
+          const svcMatch = !topoFilter.svc || p.services[0] === topoFilter.svc;
+          if (show && svcMatch) {
             nodes[idx].itemStyle.shadowColor =
               svcColors[svcColorIdx[sk] % svcColors.length];
             nodes[idx].itemStyle.shadowBlur = 25;
           }
         }
       }));
+      // 私有服务下拉选项
+      privateSvcOptions.value = [...privateSvcs].sort();
       // 服务图例 (左下角, 随开关出现): 只显示被激活的服务
       const legendItems = Object.entries(svcColorIdx).map(([sk, i]) => {
-        const isInfra = INFRA_SVCS.includes(sk.split('/')[1]);
+        const svcName = sk.split('/')[1];
+        const isInfra = INFRA_SVCS.includes(svcName);
         const active = isInfra ? topoFilter.showInfra : topoFilter.showPrivate;
-        return active ? {
-          text: (isInfra ? '公共 ' : '私有 ') + sk.split('/')[1],
+        const svcMatch = !topoFilter.svc || svcName === topoFilter.svc;
+        return (active && svcMatch) ? {
+          text: (isInfra ? '公共 ' : '私有 ') + svcName,
           color: svcColors[i % svcColors.length],
         } : null;
       }).filter(Boolean);
@@ -585,7 +596,8 @@ const AssetsPage = {
         nodes[idx].y = topoH * 0.5;
       });
       const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.shadowColor||'')),
-                                    legend: legendGraphics.map(g => JSON.stringify(g.children)) });
+                                    legend: legendGraphics.map(g => JSON.stringify(g.children)),
+                                    svc: topoFilter.svc });
       if (key === lastTopoKey) return;
       lastTopoKey = key;
       // 首次全量配置, 之后增量更新 data
@@ -660,7 +672,7 @@ const AssetsPage = {
       if (chart) { chart.dispose(); chart = null; }
     });
     return { data, podDialog, showPod, topoRef, topoFilter, nsOptions,
-             buildTopoDebounced };
+             privateSvcOptions, buildTopoDebounced };
   },
 };
 
