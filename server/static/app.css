@@ -116,10 +116,13 @@ body {
   overflow-y: auto;  /* 导航多时内部滚动 */
 }
 .sidebar.collapsed { width: 64px; }
-.sidebar.collapsed .nav a { text-align: center; padding: 10px 0; }
+.sidebar.collapsed .nav a { justify-content: center; padding: 10px 0; }
+.sidebar.collapsed .nav-icon { font-size: 18px; }
 .sidebar .nav { flex: 1; padding: 10px 8px; }
 .sidebar .nav a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 14px;
   margin: 2px 0;
   border-radius: 8px;
@@ -130,6 +133,8 @@ body {
 }
 .sidebar .nav a:hover { background: var(--panel-2); color: var(--text); }
 .sidebar .nav a.active { background: rgba(59,130,246,.15); color: var(--accent); }
+.sidebar .nav-icon { font-size: 15px; line-height: 1; }
+.sidebar .nav-label { font-size: 13px; }
 
 .main { grid-area: main; padding: 24px 28px; overflow-x: hidden; }
 .page-title { font-size: 18px; margin-bottom: 18px; }

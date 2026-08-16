@@ -1174,14 +1174,14 @@ const EventDetailDialog = {
  * 布局 + 哈希路由
  * ================================================================ */
 const pages = {
-  overview: { title: '总览', comp: OverviewPage, roles: ['admin', 'operator', 'analyst'] },
-  assets: { title: '资产管理', comp: AssetsPage, roles: ['admin', 'operator', 'analyst'] },
-  alerts: { title: '告警流', comp: AlertsPage, roles: ['admin', 'operator', 'analyst'] },
-  review: { title: '人工确认队列', comp: ReviewPage, roles: ['admin', 'operator'] },
-  behavior: { title: '行为日志', comp: BehaviorPage, roles: ['admin', 'operator', 'analyst'] },
-  rules: { title: '检测规则', comp: RulesPage, roles: ['admin', 'operator', 'analyst'] },
-  ai_rules: { title: 'AI 建议规则', comp: AiRulesPage, roles: ['admin', 'operator', 'analyst'] },
-  settings: { title: '设置', comp: SettingsPage, roles: ['admin', 'operator', 'analyst'] },
+  overview: { title: '总览', icon: '📊', comp: OverviewPage, roles: ['admin', 'operator', 'analyst'] },
+  assets: { title: '资产管理', icon: '🗄️', comp: AssetsPage, roles: ['admin', 'operator', 'analyst'] },
+  alerts: { title: '告警流', icon: '🚨', comp: AlertsPage, roles: ['admin', 'operator', 'analyst'] },
+  review: { title: '人工确认队列', icon: '🧐', comp: ReviewPage, roles: ['admin', 'operator'] },
+  behavior: { title: '行为日志', icon: '📜', comp: BehaviorPage, roles: ['admin', 'operator', 'analyst'] },
+  rules: { title: '检测规则', icon: '📋', comp: RulesPage, roles: ['admin', 'operator', 'analyst'] },
+  ai_rules: { title: 'AI 建议规则', icon: '🤖', comp: AiRulesPage, roles: ['admin', 'operator', 'analyst'] },
+  settings: { title: '设置', icon: '⚙️', comp: SettingsPage, roles: ['admin', 'operator', 'analyst'] },
 };
 
 /* ================================================================
@@ -1237,7 +1237,10 @@ const App = {
       <nav class="nav">
         <a v-for="(p, key) in allowedPages" :key="key"
            :class="{ active: route === key && !mustChangePw }" @click="go(key)"
-           :title="p.title">{{ sidebarCollapsed ? p.title[0] : p.title }}</a>
+           :title="p.title">
+          <span class="nav-icon">{{ p.icon }}</span>
+          <span v-if="!sidebarCollapsed" class="nav-label">{{ p.title }}</span>
+        </a>
       </nav>
       <!-- v0.5.7: AI 快捷配置 (左下角) -->
       <div v-if="!sidebarCollapsed" class="ai-quick">
