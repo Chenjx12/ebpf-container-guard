@@ -479,7 +479,18 @@ def attack_chain(container: str = "", ts: str = "", window: int = 600,
             'pid': int(r.get('pid') or 0),
         })
 
-    # 阶段聚合: 同阶段连续合并; "其他"作为间隔, 但前后同阶段时合并
+    # 阶段聚合: 同阶段连续合并; 事件同 comm+target 去重计数 (v0.5.8)
+    def _merge_ev(steps, ev):
+        """把 ev 合并进步骤的事件列表 (同 comm+target 合并计数)。"""
+        evs = steps['events']
+        for e in evs:
+            if e['comm'] == ev['comm'] and e['target'] == ev['target'] \
+                    and e['event_type'] == ev['event_type']:
+                e['count'] += 1
+                return
+        evs.append({'event_type': ev['event_type'], 'comm': ev['comm'],
+                    'target': ev['target'], 'rel': ev['rel'], 'count': 1})
+
     steps = []
     for ev in rows:
         phase = next((p for p, fn in _PHASE_RULES if fn(ev)), '其他')
@@ -497,7 +508,7 @@ def attack_chain(container: str = "", ts: str = "", window: int = 600,
                     ev['rel'] - last['end_rel'] <= 3:
                 merge = True
             if merge:
-                steps[-1]['events'].append(ev)
+                _merge_ev(steps[-1], ev)
                 steps[-1]['end_rel'] = ev['rel']
                 steps[-1]['abs_end'] = ev['ts']
                 if phase != '其他':
@@ -508,7 +519,8 @@ def attack_chain(container: str = "", ts: str = "", window: int = 600,
             'color': _PHASE_COLORS.get(phase, '#64748b'),
             'rel': ev['rel'], 'end_rel': ev['rel'],
             'abs_start': ev['ts'], 'abs_end': ev['ts'],
-            'events': [ev],
+            'events': [{'event_type': ev['event_type'], 'comm': ev['comm'],
+                        'target': ev['target'], 'rel': ev['rel'], 'count': 1}],
         })
     # 去掉纯"其他"步骤
     steps = [s for s in steps if s['phase'] != '其他']

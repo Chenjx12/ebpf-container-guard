@@ -724,6 +724,7 @@ const AttackChainPage = {
           <el-tag size="small" type="danger" style="margin-left:8px">{{ steps.length }} 阶段</el-tag>
           <el-tag v-for="(a, ai) in alerts" :key="ai" size="small" type="warning"
                   style="margin-left:6px">{{ a.rule }} @ {{ a.ts.slice(5,19).replace('T',' ') }}</el-tag>
+          <span style="margin-left:10px;font-size:12px;color:var(--muted)">仅展示最近 10 分钟行为</span>
         </h3>
         <div ref="chainRef" style="width:100%;height:300px"></div>
         <div style="margin-top:10px;font-size:12px;color:var(--muted)">
@@ -740,9 +741,9 @@ const AttackChainPage = {
           <el-table-column label="相对时间" width="100"><template #default="{row}">
             <span class="mono">{{ row.rel === row.end_rel ? row.rel + 's' : row.rel + 's ~ ' + row.end_rel + 's' }}</span></template></el-table-column>
           <el-table-column label="关键事件" min-width="300"><template #default="{row}">
-            <div v-for="e in row.events.slice(0,3)" :key="e.ts + e.pid" style="font-size:12px" class="mono">
-              {{ e.event_type }} {{ e.comm }} {{ e.target || '' }}</div>
-            <span v-if="row.events.length > 3" style="font-size:11px;color:var(--muted)">+{{ row.events.length - 3 }} 更多</span>
+            <div v-for="(e, ei) in row.events.slice(0,5)" :key="ei" style="font-size:12px" class="mono">
+              {{ e.event_type }} {{ e.comm }} {{ e.target || '' }}<span v-if="e.count > 1" style="color:var(--warn)"> ×{{ e.count }}</span></div>
+            <span v-if="row.events.length > 5" style="font-size:11px;color:var(--muted)">+{{ row.events.length - 5 }} 更多</span>
           </template></el-table-column>
           <el-table-column label="事件数" width="80"><template #default="{row}">
             <span class="mono">{{ row.events.length }}</span></template></el-table-column>
@@ -806,10 +807,11 @@ const AttackChainPage = {
         return {
           id: 's' + i, name: s.phase,
           symbol: 'rect',
-          symbolSize: [150, 54],   // 长条矩形 (3行)
-          x: 10 + i * 170, y: 40,
+          // v0.5.8: 阶段多时自适应 (方框变窄间距变小, 防横向溢出)
+          symbolSize: [steps.value.length > 5 ? 90 : 150, 54],
+          x: 10 + i * (steps.value.length > 5 ? 100 : 170), y: 40,
           itemStyle: { color: s.color, borderRadius: 4 },
-          label: { show: true, color: '#fff', fontSize: 11,
+          label: { show: true, color: '#fff', fontSize: steps.value.length > 5 ? 10 : 11,
                    formatter: labelLines.join('\n'),
                    lineHeight: 15 },
           __idx: i,
@@ -825,8 +827,9 @@ const AttackChainPage = {
             const s = steps.value[p.data.__idx];
             const relTxt = s.rel === s.end_rel ? `${s.rel}s` : `${s.rel}s~${s.end_rel}s`;
             return `<b>${s.phase}</b> (${relTxt})<br>` +
-              s.events.slice(0, 4).map(e =>
-                `${e.event_type} ${e.comm} ${e.target || ''}`).join('<br>');
+              s.events.slice(0, 5).map(e =>
+                `${e.event_type} ${e.comm} ${e.target || ''}${e.count > 1 ? ' ×' + e.count : ''}`).join('<br>') +
+              (s.events.length > 5 ? '<br>+' + (s.events.length - 5) + ' 更多' : '');
           } },
         series: [{
           type: 'graph', layout: 'none', roam: 'move', draggable: false,
@@ -842,7 +845,7 @@ const AttackChainPage = {
           const s = steps.value[p.data.__idx];
           ElMessageBox.alert(
             s.events.map(e =>
-              `<div class="mono" style="font-size:12px;margin:4px 0">${e.rel}s ${e.event_type} ${e.comm} ${e.target || ''}</div>`
+              `<div class="mono" style="font-size:12px;margin:4px 0">${e.rel}s ${e.event_type} ${e.comm} ${e.target || ''}${e.count > 1 ? ' ×' + e.count : ''}</div>`
             ).join(''),
             `${s.phase} 事件详情 (${s.events.length} 条)`,
             { dangerouslyUseHTMLString: true, confirmButtonText: '关闭' });
