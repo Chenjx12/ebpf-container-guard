@@ -525,6 +525,7 @@ const AssetsPage = {
       const groups = filteredNodes.map(nd => nd.name);
       // 服务关联 pod 发光 (跟随节点, 不同服务不同色) — 替代 graphic 圈
       // (graphic circle 坐标系与 roam 变换不同步, 圈不跟随 pod)
+      // v0.5.7: 所有服务光晕默认隐藏, 勾选"显示公共服务圈"才亮
       const svcColors = ['#f59e0b', '#22c55e', '#a855f7', '#06b6d4', '#f43f5e'];
       const svcColorIdx = {};
       filteredNodes.forEach(nd => nd.pods.forEach(p => {
@@ -532,14 +533,10 @@ const AssetsPage = {
         const sk = p.namespace + '/' + p.services[0];
         if (!(sk in svcColorIdx)) svcColorIdx[sk] = Object.keys(svcColorIdx).length;
         const idx = nodeIdx[p.namespace + '/' + p.name];
-        if (idx !== undefined) {
-          const infra = INFRA_SVCS.includes(p.services[0]);
-          const show = topoFilter.showInfra || !infra;
-          if (show) {
-            nodes[idx].itemStyle.shadowColor =
-              svcColors[svcColorIdx[sk] % svcColors.length];
-            nodes[idx].itemStyle.shadowBlur = 25;
-          }
+        if (idx !== undefined && topoFilter.showInfra) {
+          nodes[idx].itemStyle.shadowColor =
+            svcColors[svcColorIdx[sk] % svcColors.length];
+          nodes[idx].itemStyle.shadowBlur = 25;
         }
       }));
       groups.forEach((g, gi) => {
