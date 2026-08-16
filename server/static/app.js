@@ -689,6 +689,131 @@ const AssetsPage = {
 };
 
 /* ================================================================
+ * Attack Chain (v0.5.8) — 攻击链流程图 (方框箭头, ECharts)
+ * ================================================================ */
+const AttackChainPage = {
+  template: `
+  <div>
+    <div class="page-title">攻击链分析 <span class="sub">行为时间窗 → 分阶段还原攻击步骤</span></div>
+    <div v-if="err" class="panel" style="color:var(--warn)">{{ err }}</div>
+    <div v-else-if="steps.length === 0" class="panel" style="color:var(--muted)">该时间窗无攻击链数据</div>
+    <template v-else>
+      <div class="panel">
+        <h3 style="margin-bottom:10px">
+          🎯 {{ alert.container }}
+          <el-tag size="small" type="danger" style="margin-left:8px">告警 {{ alert.ts }}</el-tag>
+        </h3>
+        <div ref="chainRef" style="width:100%;height:300px"></div>
+        <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+          <el-tag v-for="(c, i) in phaseColors" :key="i" size="small" style="margin-right:8px"
+                  :color="c.color" effect="plain">{{ c.name }}</el-tag>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 style="margin-bottom:10px">阶段详情</h3>
+        <el-table :data="steps" size="small" stripe>
+          <el-table-column label="阶段" width="110"><template #default="{row}">
+            <el-tag size="small" :color="row.color" effect="dark" style="border:none;color:#fff">{{ row.phase }}</el-tag>
+          </template></el-table-column>
+          <el-table-column label="相对时间" width="100"><template #default="{row}">
+            <span class="mono">{{ row.rel }}s ~ {{ row.end_rel }}s</span></template></el-table-column>
+          <el-table-column label="关键事件" min-width="300"><template #default="{row}">
+            <div v-for="e in row.events.slice(0,3)" :key="e.ts + e.pid" style="font-size:12px" class="mono">
+              {{ e.event_type }} {{ e.comm }} {{ e.target || '' }}</div>
+            <span v-if="row.events.length > 3" style="font-size:11px;color:var(--muted)">+{{ row.events.length - 3 }} 更多</span>
+          </template></el-table-column>
+          <el-table-column label="事件数" width="80"><template #default="{row}">
+            <span class="mono">{{ row.events.length }}</span></template></el-table-column>
+        </el-table>
+      </div>
+    </template>
+  </div>`,
+  setup() {
+    const steps = ref([]);
+    const alert = ref({});
+    const err = ref('');
+    const chainRef = ref(null);
+    const phaseColors = [
+      { name: '侦查探测', color: '#3b82f6' }, { name: '提权逃逸', color: '#ef4444' },
+      { name: '利用执行', color: '#f59e0b' }, { name: '外联 C2', color: '#a855f7' },
+      { name: '窃取数据', color: '#06b6d4' },
+    ];
+    let chart = null;
+
+    async function load() {
+      // 兼容 #/chain? 与 #chain? 两种 hash
+      const m = location.hash.match(/\/?chain\?container=([^&]+)&ts=([^&]+)/);
+      if (!m) { err.value = '缺少攻击链参数'; return; }
+      const container = decodeURIComponent(m[1]);
+      const ts = decodeURIComponent(m[2]);
+      try {
+        const d = await get('/api/attack-chain?container=' + encodeURIComponent(container) +
+                            '&ts=' + encodeURIComponent(ts));
+        if (d.error) { err.value = d.error; return; }
+        steps.value = d.steps || [];
+        alert.value = d.alert || {};
+        // v-else 分支渲染后 chainRef 才就绪 — nextTick 再画图
+        Vue.nextTick(() => renderChart());
+      } catch (e) { err.value = e.message; }
+    }
+
+    // 方框箭头流程图: 横向排布, 箭头连接, 阶段着色
+    function renderChart() {
+      if (!chainRef.value || typeof echarts === 'undefined') return;
+      if (!chart) chart = echarts.init(chainRef.value);
+      const nodes = steps.value.map((s, i) => ({
+        id: 's' + i, name: s.phase,
+        symbolSize: 70,
+        x: 15 + i * 70, y: 50,
+        itemStyle: { color: s.color, borderRadius: 6 },
+        label: { show: true, color: '#fff', fontSize: 12 },
+        // 存步骤索引供点击
+        __idx: i,
+      }));
+      const edges = steps.value.slice(1).map((_, i) => ({
+        source: 's' + i, target: 's' + (i + 1),
+      }));
+      chart.setOption({
+        tooltip: { trigger: 'item',
+          formatter: (p) => {
+            if (p.dataType === 'edge') return '';
+            const s = steps.value[p.data.__idx];
+            return `<b>${s.phase}</b> (${s.rel}s~${s.end_rel}s)<br>` +
+              s.events.slice(0, 4).map(e =>
+                `${e.event_type} ${e.comm} ${e.target || ''}`).join('<br>');
+          } },
+        series: [{
+          type: 'graph', layout: 'none', roam: true, draggable: false,
+          label: { show: true },
+          edgeSymbol: ['none', 'arrow'], edgeSymbolSize: 10,
+          lineStyle: { color: '#8ea6c8', width: 2 },
+          data: nodes, links: edges,
+        }],
+      });
+      chart.off('click');
+      chart.on('click', (p) => {
+        if (p.data && p.data.__idx !== undefined) {
+          const s = steps.value[p.data.__idx];
+          ElMessageBox.alert(
+            s.events.map(e =>
+              `<div class="mono" style="font-size:12px;margin:4px 0">${e.rel}s ${e.event_type} ${e.comm} ${e.target || ''}</div>`
+            ).join(''),
+            `${s.phase} 事件详情 (${s.events.length} 条)`,
+            { dangerouslyUseHTMLString: true, confirmButtonText: '关闭' });
+        }
+      });
+    }
+
+    onMounted(() => { load(); window.addEventListener('hashchange', load); });
+    onUnmounted(() => {
+      window.removeEventListener('hashchange', load);
+      if (chart) { chart.dispose(); chart = null; }
+    });
+    return { steps, alert, err, chainRef, phaseColors };
+  },
+};
+
+/* ================================================================
  * Rules
  * ================================================================ */
 const RulesPage = {
@@ -1166,8 +1291,21 @@ const EventDetailDialog = {
     <div v-else-if="eventDetail.event" style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
       <p style="font-size:13px;color:var(--muted)">该事件未触发 AI 研判 (矩阵置信度不在 60-85 区间或 AI 未配置)</p>
     </div>
+    <template #footer>
+      <el-button v-if="eventDetail.event && eventDetail.event.container_id"
+                 type="primary" @click="viewChain">🔗 查看攻击链</el-button>
+    </template>
   </el-dialog>`,
-  setup() { return { eventDetail, sevTag, fmtTime }; },
+  setup() {
+    // v0.5.8: 跳转攻击链页面
+    function viewChain() {
+      const cid = eventDetail.event.container_id;
+      const ts = eventDetail.event.timestamp;
+      location.hash = '#/chain?container=' + encodeURIComponent(cid) +
+                      '&ts=' + encodeURIComponent(ts);
+    }
+    return { eventDetail, sevTag, fmtTime, viewChain };
+  },
 };
 
 /* ================================================================
@@ -1182,6 +1320,7 @@ const pages = {
   rules: { title: '检测规则', icon: '📋', comp: RulesPage, roles: ['admin', 'operator', 'analyst'] },
   ai_rules: { title: 'AI 建议规则', icon: '🤖', comp: AiRulesPage, roles: ['admin', 'operator', 'analyst'] },
   settings: { title: '设置', icon: '⚙️', comp: SettingsPage, roles: ['admin', 'operator', 'analyst'] },
+  chain: { title: '攻击链', icon: '🔗', comp: AttackChainPage, roles: ['admin', 'operator', 'analyst'], hidden: true },
 };
 
 /* ================================================================
@@ -1286,7 +1425,8 @@ const App = {
     const authed = ref(false);
     const me = reactive({ username: '', role: '', must_change_password: false });
     const route = ref('overview');
-    const allowedPages = ref(pages);
+    const allowedPages = ref(Object.fromEntries(
+      Object.entries(pages).filter(([, p]) => !p.hidden)));
     const sidebarCollapsed = ref(localStorage.getItem('guard_sidebar') === '1');
     // v0.5.7: AI 快捷配置 (左下角)
     const aiProfiles = ref([]);

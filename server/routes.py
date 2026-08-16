@@ -378,6 +378,124 @@ def behaviors(container: str = "", syscall: str = "", host_only: bool = False,
 
 
 # ================================================================
+# Attack Chain (v0.5.8) — 行为时间窗 → 阶段聚合 (方框箭头流程图)
+# ================================================================
+
+# 阶段启发式: 事件类型/目标 → 攻击阶段
+_PHASE_RULES = [
+    # (阶段名, 匹配函数) — 按优先级, 第一个命中
+    ('窃取数据', lambda e: e.get('event_type') == 'openat' and
+        any(k in str(e.get('target_path', '')) for k in
+            ('shadow', 'kcore', 'kallsyms', 'docker.sock', 'host_'))),
+    ('外联 C2', lambda e: e.get('event_type') == 'connect' and
+        e.get('daddr', 0) not in (0,)),
+    ('利用执行', lambda e: e.get('event_type') == 'execve' and
+        e.get('comm') in ('sh', 'bash', 'dash', 'curl', 'wget', 'nc',
+                          'ncat', 'python3', 'nsenter', 'mount')),
+    ('提权逃逸', lambda e: e.get('event_type') in ('mount', 'capset') or
+        (e.get('event_type') == 'ptrace')),
+    ('侦察探测', lambda e: e.get('event_type') == 'openat' and
+        any(str(e.get('target_path', '')).startswith(p) for p in
+            ('/etc', '/proc', '/var/run'))),
+]
+_PHASE_COLORS = {
+    '侦查探测': '#3b82f6', '提权逃逸': '#ef4444', '利用执行': '#f59e0b',
+    '外联 C2': '#a855f7', '窃取数据': '#06b6d4',
+}
+
+
+@router.get("/attack-chain")
+def attack_chain(container: str = "", ts: str = "", window: int = 300,
+                 user: dict = read_any):
+    """攻击链: 容器告警时间窗的行为序列 → 分阶段步骤 (v0.5.8)。
+
+    container (ns/pod) + 告警 ts → 前后 window 秒的 syscall →
+    按阶段启发式聚合, 返回 [{phase, color, events: [...], ts}], 时间正序。
+    """
+    if not container or not ts:
+        return {"steps": [], "alert": None, "error": "缺少 container/ts"}
+    # v0.5.8: 跨轮转文件全量 (攻击链需完整时间窗, 低频)
+    df = common.load_behavior_rotated(limit=0)
+    if df.empty:
+        return {"steps": [], "alert": None, "error": "无行为数据"}
+    norm_alert = _norm_ts(ts)
+    import datetime as _dt
+    # 告警时间戳解析 (用于窗口比较)
+    try:
+        alert_dt = _dt.datetime.fromisoformat(norm_alert)
+    except ValueError:
+        return {"steps": [], "alert": None, "error": "时间戳格式无效"}
+
+    # 过滤容器 + 时间窗 + 系统 comm (runc 初始化/containerd 噪声)
+    df = df[df.get('container_id', '').astype(str) == container]
+    if df.empty:
+        return {"steps": [], "alert": None, "error": f"容器 {container} 无行为数据"}
+
+    _SYS_COMMS = ('runc', 'runc:[2:INIT]', 'containerd', 'containerd-shim',
+                  'k3s-server', 'kubelet', 'pause', 'systemd', 'coredns',
+                  'flannel', 'traefik', 'local-path-prov', 'metrics-server')
+    df = df[~df.get('comm', '').astype(str).isin(_SYS_COMMS)]
+
+    def _to_dt(s):
+        try:
+            return _dt.datetime.fromisoformat(_norm_ts(s))
+        except Exception:
+            return None
+
+    df = df.sort_values('timestamp')
+    rows = []
+    for _, r in df.iterrows():
+        t = _to_dt(r.get('timestamp'))
+        if t is None:
+            continue
+        delta = (t - alert_dt).total_seconds()
+        if abs(delta) > window:
+            continue
+        rows.append({
+            'ts': str(r.get('timestamp'))[:23],
+            'rel': int(round(delta)),
+            'event_type': str(r.get('event_type') or ''),
+            'comm': str(r.get('comm') or ''),
+            'target': str(r.get('target_path') or r.get('daddr') or ''),
+            'pid': int(r.get('pid') or 0),
+        })
+
+    # 阶段聚合: 同阶段连续合并; "其他"作为间隔, 但前后同阶段时合并
+    steps = []
+    for ev in rows:
+        phase = next((p for p, fn in _PHASE_RULES if fn(ev)), '其他')
+        if steps:
+            last = steps[-1]
+            # 相邻: 同阶段 或 (前是其他 且 再前同当前阶段) 或 (当前其他 且 前同阶段)
+            merge = False
+            if last['phase'] == phase:
+                merge = True
+            elif last['phase'] == '其他' and len(steps) >= 2 and \
+                    steps[-2]['phase'] == phase and \
+                    ev['rel'] - last['end_rel'] <= 3:
+                merge = True
+            elif phase == '其他' and last['phase'] != '其他' and \
+                    ev['rel'] - last['end_rel'] <= 3:
+                merge = True
+            if merge:
+                steps[-1]['events'].append(ev)
+                steps[-1]['end_rel'] = ev['rel']
+                if phase != '其他':
+                    steps[-1]['phase'] = phase
+                continue
+        steps.append({
+            'phase': phase,
+            'color': _PHASE_COLORS.get(phase, '#64748b'),
+            'rel': ev['rel'], 'end_rel': ev['rel'],
+            'events': [ev],
+        })
+    # 去掉纯"其他"步骤
+    steps = [s for s in steps if s['phase'] != '其他']
+    return {"steps": steps, "alert": {"container": container, "ts": norm_alert},
+            "window": window, "error": None}
+
+
+# ================================================================
 # Rules
 # ================================================================
 

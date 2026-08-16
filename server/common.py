@@ -40,8 +40,13 @@ REFRESH_SECONDS = 3
 # ================================================================
 
 
-def _read_jsonl(path: Path, tail_lines: int = None) -> pd.DataFrame:
-    """Read JSONL into DataFrame. tail_lines: 只解析尾部 N 行 (大文件性能)。"""
+def _read_jsonl(path, tail_lines: int = None) -> pd.DataFrame:
+    """Read JSONL into DataFrame. tail_lines: 只解析尾部 N 行 (大文件性能)。
+
+    path 可为 str (轮转文件 glob) 或 Path。
+    """
+    if isinstance(path, str):
+        path = Path(path)
     if not path.exists():
         return pd.DataFrame()
     rows = []
@@ -92,6 +97,26 @@ def load_behavior_log(limit: int = 0) -> pd.DataFrame:
     """
     df = _read_jsonl(BEHAVIORS_LOG, tail_lines=limit or None)
     if not df.empty and 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    return df
+
+
+def load_behavior_rotated(limit: int = 0) -> pd.DataFrame:
+    """Load behaviors.log 含轮转文件 (v0.5.8 attack-chain 用)。
+
+    行为按天轮转 (behaviors.log.YYYY-MM-DD) — 攻击链查询可能跨天,
+    需读当前文件 + 最近轮转文件。limit=0 全量 (攻击链低频, 需完整
+    时间窗); limit>0 时每文件取尾部 N 行。
+    """
+    import glob as _glob
+    files = [BEHAVIORS_LOG] + sorted(
+        _glob.glob(str(BEHAVIORS_LOG) + ".*"), reverse=True)[:7]
+    frames = [_read_jsonl(p, tail_lines=limit or None) for p in files]
+    frames = [f for f in frames if not f.empty]
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    if 'timestamp' in df.columns:
         df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     return df
 
