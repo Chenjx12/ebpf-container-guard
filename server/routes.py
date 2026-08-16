@@ -27,6 +27,17 @@ write_op = Depends(require_role("operator"))
 admin_only = Depends(require_role("admin"))
 
 
+def _norm_ts(ts) -> str:
+    """归一化时间戳: events.log(空格+微秒) 与 ai_results( T+毫秒) 统一
+    到 'YYYY-MM-DDTHH:MM:SS.mmm' 可比较格式。"""
+    s = str(ts).strip()
+    s = s.replace(' ', 'T')
+    if '.' in s:
+        head, frac = s.split('.', 1)
+        return head + '.' + frac[:3]
+    return s
+
+
 def _df_records(df, **fill):
     """pandas DataFrame → JSON-safe records (NaN/Inf → None).
 
@@ -92,8 +103,20 @@ def alerts(limit: int = 50, filter: str = "all", container: str = "",
     # v0.5.6: KPI 下钻筛选 — netblocked / aifp / all
     if filter == "netblocked" and 'netblocked' in events.columns:
         events = events[events['netblocked'].fillna(False).astype(bool)]
-    elif filter == "aifp" and 'tier3_ai_verdict' in events.columns:
-        events = events[events['tier3_ai_verdict'] == 'false_positive']
+    elif filter == "aifp":
+        # v0.5.6 修复: events.log 的 tier3_ai_verdict 恒为 null (AI 结果
+        # 异步写 ai_results.log 不回写 events) — 筛选必须按 event_ts 关联
+        # ai_results.log, 与 KPI 统计同口径 (此前筛不出与 KPI 39 不一致)
+        ai = common.load_ai_results()
+        fp_ts = set()
+        if not ai.empty and 'ai_verdict' in ai.columns and 'event_ts' in ai.columns:
+            fp_ts = {_norm_ts(t) for t in
+                     ai[ai['ai_verdict'] == 'false_positive']['event_ts']}
+        if fp_ts:
+            events = events[events['timestamp'].astype(str).map(_norm_ts)
+                            .isin(fp_ts)]
+        else:
+            events = events.iloc[0:0]
     # v0.5.6: 页面筛选 — 容器/规则/严重度
     if container and 'container_id' in events.columns:
         events = events[events['container_id'].astype(str).str.contains(
