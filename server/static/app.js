@@ -788,16 +788,25 @@ const AttackChainPage = {
     function renderChart() {
       if (!chainRef.value || typeof echarts === 'undefined') return;
       if (!chart) chart = echarts.init(chainRef.value);
-      const nodes = steps.value.map((s, i) => ({
-        id: 's' + i, name: s.phase,
-        symbol: 'rect',
-        symbolSize: [110, 40],   // 长条矩形
-        x: 10 + i * 130, y: 45,
-        itemStyle: { color: s.color, borderRadius: 4 },
-        label: { show: true, color: '#fff', fontSize: 12,
-                 formatter: s.phase + '\n' + (s.rel === s.end_rel ? `${s.rel}s` : `${s.rel}s~${s.end_rel}s`) },
-        __idx: i,
-      }));
+      const nodes = steps.value.map((s, i) => {
+        // 关键命令: 该阶段第一个非空 comm+target
+        const first = s.events[0] || {};
+        const cmd = `${first.comm || ''} ${(first.target || '').slice(0, 20)}`.trim();
+        const timeTxt = s.rel === s.end_rel ? `${s.rel}s` : `${s.rel}s~${s.end_rel}s`;
+        const labelLines = [s.phase, timeTxt];
+        if (cmd) labelLines.push(cmd);
+        return {
+          id: 's' + i, name: s.phase,
+          symbol: 'rect',
+          symbolSize: [140, 54],   // 长条矩形
+          x: 10 + i * 160, y: 40,
+          itemStyle: { color: s.color, borderRadius: 4 },
+          label: { show: true, color: '#fff', fontSize: 11,
+                   formatter: labelLines.join('\n'),
+                   lineHeight: 16 },
+          __idx: i,
+        };
+      });
       const edges = steps.value.slice(1).map((_, i) => ({
         source: 's' + i, target: 's' + (i + 1),
       }));

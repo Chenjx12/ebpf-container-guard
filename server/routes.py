@@ -399,8 +399,8 @@ _PHASE_RULES = [
             ('/etc', '/proc', '/var/run'))),
 ]
 _PHASE_COLORS = {
-    '侦查探测': '#3b82f6', '提权逃逸': '#ef4444', '利用执行': '#f59e0b',
-    '外联 C2': '#a855f7', '窃取数据': '#06b6d4',
+    '侦查探测': '#4a7dbd', '提权逃逸': '#c25e5e', '利用执行': '#c98a3d',
+    '外联 C2': '#8b6bbd', '窃取数据': '#4a9e8a',
 }
 
 
@@ -451,12 +451,17 @@ def attack_chain(container: str = "", ts: str = "", window: int = 300,
         delta = (t - alert_dt).total_seconds()
         if abs(delta) > window:
             continue
+        # daddr int → IP (v0.5.8: connect 事件显示目标 IP)
+        daddr = r.get('daddr')
+        if isinstance(daddr, int) and daddr > 0:
+            daddr = (f"{(daddr >> 24) & 0xFF}.{(daddr >> 16) & 0xFF}."
+                     f"{(daddr >> 8) & 0xFF}.{daddr & 0xFF}")
         rows.append({
             'ts': str(r.get('timestamp'))[:23],
             'rel': int(round(delta)),
             'event_type': str(r.get('event_type') or ''),
             'comm': str(r.get('comm') or ''),
-            'target': str(r.get('target_path') or r.get('daddr') or ''),
+            'target': str(r.get('target_path') or daddr or ''),
             'pid': int(r.get('pid') or 0),
         })
 
