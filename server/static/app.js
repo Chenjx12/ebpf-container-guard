@@ -735,7 +735,7 @@ const AttackChainPage = {
             <el-tag size="small" :color="row.color" effect="dark" style="border:none;color:#fff">{{ row.phase }}</el-tag>
           </template></el-table-column>
           <el-table-column label="相对时间" width="100"><template #default="{row}">
-            <span class="mono">{{ row.rel }}s ~ {{ row.end_rel }}s</span></template></el-table-column>
+            <span class="mono">{{ row.rel === row.end_rel ? row.rel + 's' : row.rel + 's ~ ' + row.end_rel + 's' }}</span></template></el-table-column>
           <el-table-column label="关键事件" min-width="300"><template #default="{row}">
             <div v-for="e in row.events.slice(0,3)" :key="e.ts + e.pid" style="font-size:12px" class="mono">
               {{ e.event_type }} {{ e.comm }} {{ e.target || '' }}</div>
@@ -804,7 +804,8 @@ const AttackChainPage = {
           formatter: (p) => {
             if (p.dataType === 'edge') return '';
             const s = steps.value[p.data.__idx];
-            return `<b>${s.phase}</b> (${s.rel}s~${s.end_rel}s)<br>` +
+            const relTxt = s.rel === s.end_rel ? `${s.rel}s` : `${s.rel}s~${s.end_rel}s`;
+            return `<b>${s.phase}</b> (${relTxt})<br>` +
               s.events.slice(0, 4).map(e =>
                 `${e.event_type} ${e.comm} ${e.target || ''}`).join('<br>');
           } },
