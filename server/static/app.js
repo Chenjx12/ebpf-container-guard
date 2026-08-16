@@ -384,7 +384,8 @@ const AssetsPage = {
       <el-select v-model="topoFilter.node" placeholder="节点" clearable size="small" style="width:180px" @change="buildTopoDebounced">
         <el-option v-for="nd in data.nodes" :key="nd.name" :label="nd.name" :value="nd.name" />
       </el-select>
-      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">显示公共服务圈 (kube-dns/metrics-server)</el-checkbox>
+      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">公共服务圈 (kube-dns/metrics-server)</el-checkbox>
+      <el-checkbox v-model="topoFilter.showPrivate" size="small" @change="buildTopoDebounced">私有服务圈 (traefik 等)</el-checkbox>
       <el-checkbox v-model="topoFilter.onlyLinked" size="small" @change="buildTopoDebounced">仅服务关联</el-checkbox>
     </div>
     <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
@@ -469,7 +470,7 @@ const AssetsPage = {
     //  节点=pod (按命名空间着色) + service (金色菱形)
     //  按 node 成簇; 公共依赖服务 (kube-dns/metrics-server) 默认折叠连线
     //  筛选: 命名空间/节点/仅服务关联
-    const topoFilter = reactive({ ns: '', node: '', showInfra: false, onlyLinked: false });
+    const topoFilter = reactive({ ns: '', node: '', showInfra: false, showPrivate: false, onlyLinked: false });
     const nsOptions = ref([]);
     const INFRA_SVCS = ['kube-dns', 'metrics-server'];
     const NS_COLORS = {
@@ -525,7 +526,7 @@ const AssetsPage = {
       const groups = filteredNodes.map(nd => nd.name);
       // 服务关联 pod 发光 (跟随节点, 不同服务不同色) — 替代 graphic 圈
       // (graphic circle 坐标系与 roam 变换不同步, 圈不跟随 pod)
-      // v0.5.7: 所有服务光晕默认隐藏, 勾选"显示公共服务圈"才亮
+      // v0.5.7: 公共/私有服务独立开关, 都默认不亮
       const svcColors = ['#f59e0b', '#22c55e', '#a855f7', '#06b6d4', '#f43f5e'];
       const svcColorIdx = {};
       filteredNodes.forEach(nd => nd.pods.forEach(p => {
@@ -533,10 +534,14 @@ const AssetsPage = {
         const sk = p.namespace + '/' + p.services[0];
         if (!(sk in svcColorIdx)) svcColorIdx[sk] = Object.keys(svcColorIdx).length;
         const idx = nodeIdx[p.namespace + '/' + p.name];
-        if (idx !== undefined && topoFilter.showInfra) {
-          nodes[idx].itemStyle.shadowColor =
-            svcColors[svcColorIdx[sk] % svcColors.length];
-          nodes[idx].itemStyle.shadowBlur = 25;
+        if (idx !== undefined) {
+          const isInfra = INFRA_SVCS.includes(p.services[0]);
+          const show = isInfra ? topoFilter.showInfra : topoFilter.showPrivate;
+          if (show) {
+            nodes[idx].itemStyle.shadowColor =
+              svcColors[svcColorIdx[sk] % svcColors.length];
+            nodes[idx].itemStyle.shadowBlur = 25;
+          }
         }
       }));
       groups.forEach((g, gi) => {
