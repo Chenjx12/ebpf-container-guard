@@ -100,7 +100,7 @@ const OverviewPage = {
     <div class="page-title">总览 <span class="sub">实时检测统计</span></div>
     <div class="kpi-row">
       <div class="kpi-card clickable" @click="goAlerts('all')"><div class="label">总告警</div><div class="value accent">{{ s.total_alerts }}</div></div>
-      <div class="kpi-card clickable" @click="go('#/review')"><div class="label">待人工判决</div><div class="value warn">{{ s.pending_review }}</div></div>
+      <div class="kpi-card clickable" @click="goPage('review')"><div class="label">待人工判决</div><div class="value warn">{{ s.pending_review }}</div></div>
       <div class="kpi-card clickable" @click="goAlerts('netblocked')"><div class="label">网络阻断</div><div class="value warn">{{ s.netblocked }}</div></div>
       <div class="kpi-card clickable" @click="goAlerts('aifp')"><div class="label">AI 误报</div><div class="value ok">{{ s.ai_false_positives }}</div></div>
       <div class="kpi-card clickable" @click="goAlerts('all')"><div class="label">已冻结容器</div><div class="value danger">{{ s.frozen }}</div></div>
@@ -135,9 +135,13 @@ const OverviewPage = {
     async function load() {
       try { Object.assign(s, await get('/api/overview/stats')); } catch (e) {}
     }
-    function goAlerts(f) { location.hash = '#/alerts?filter=' + f; }
+    function goAlerts(f) {
+      // OverviewPage 作用域无 route — 只改 hash, App 的 onHash 负责切页
+      location.hash = '#/alerts?filter=' + f;
+    }
+    function goPage(key) { location.hash = '#' + key; }
     usePolling(load, 3000);
-    return { s, fmtTime, sevTag, goAlerts };
+    return { s, fmtTime, sevTag, goAlerts, goPage };
   },
 };
 
@@ -777,7 +781,9 @@ const App = {
       savingPw.value = false;
     }
     function onHash() {
-      const key = location.hash.replace('#', '') || 'overview';
+      // 兼容 #/alerts 与 #alerts 两种格式: 去 # 和 前导斜杠, 剥 ?filter=
+      const raw = location.hash.replace('#', '').replace(/^\//, '') || 'overview';
+      const key = raw.split('?')[0];
       route.value = pages[key] ? key : 'overview';
     }
     async function logout() {
