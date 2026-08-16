@@ -167,23 +167,39 @@ FALCO_FIELD_MAP = {
     'container.name': 'container_id',  # 无单独 name 字段, 映射到容器 ID
     'fd.name': 'target_path',
     'fd.type': 'fstype',
+    'fd': 'target_path',  # 裸 fd → target_path (近似; 校验失败兜底)
 }
+# 引擎不认识的 Falco 字段 — 丢弃该条件节点 (宁可简化不让入库失败)
+FALCO_DROP_FIELDS = ('evt.type', 'evt.arg', 'proc.anomaly', 'user.name',
+                     'user.uid', 'group.name', 'group.uid')
 
 
 def _map_falco_fields(node):
-    """递归映射 condition 树里的 Falco 字段名为引擎字段。"""
+    """递归映射 condition 树里的 Falco 字段名为引擎字段。
+
+    v0.5.6: 无法映射的字段丢弃节点 (如 fd.startswith("0:") 对 connect
+    事件无语义) — AI 建议规则宁可简化, 不让校验失败阻塞入库。
+    """
     if not isinstance(node, dict):
         return node
     out = {}
     for k, v in node.items():
         if k in ('all', 'any'):
-            out[k] = [_map_falco_fields(x) for x in v]
+            mapped = [_map_falco_fields(x) for x in v]
+            out[k] = [x for x in mapped if x is not None]
         elif k == 'not':
-            out[k] = _map_falco_fields(v)
+            mapped = _map_falco_fields(v)
+            out[k] = mapped if mapped is not None else {}
         else:
-            out[FALCO_FIELD_MAP.get(k, k)] = (
-                _map_falco_fields(v) if isinstance(v, dict) else v)
-    return out
+            field = FALCO_FIELD_MAP.get(k, k)
+            if field in FALCO_DROP_FIELDS or (k != field and field not in
+                    ('comm', 'target_path', 'pid', 'uid', 'container_id',
+                     'fstype', 'daddr', 'dport', 'target_pid', 'request',
+                     'open_flags', 'cap_effective', 'cap_permitted',
+                     'timestamp', 'event_type')):
+                continue  # 未知字段丢弃
+            out[field] = _map_falco_fields(v) if isinstance(v, dict) else v
+    return out if out else None
 
 
 def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
