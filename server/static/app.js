@@ -698,10 +698,29 @@ const AttackChainPage = {
     <div v-if="err" class="panel" style="color:var(--warn)">{{ err }}</div>
     <div v-else-if="steps.length === 0" class="panel" style="color:var(--muted)">该时间窗无攻击链数据</div>
     <template v-else>
+      <!-- v0.5.8: 被攻击目标画像 -->
+      <div class="panel" style="margin-bottom:14px">
+        <h3 style="margin-bottom:10px">🎯 被攻击目标 <span class="sub" style="font-size:12px;color:var(--muted)">容器/服务画像</span></h3>
+        <el-descriptions v-if="target" :column="4" size="small" border>
+          <el-descriptions-item label="容器"><span class="mono">{{ target.name }}</span></el-descriptions-item>
+          <el-descriptions-item label="镜像">{{ target.image }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag size="small" :type="target.status === 'Running' ? 'success' : 'info'">{{ target.status }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="特权">{{ target.privileged ? '是' : '否' }}</el-descriptions-item>
+          <el-descriptions-item label="IP/端口"><span class="mono">{{ target.ports }}</span></el-descriptions-item>
+          <el-descriptions-item label="运行时">
+            <el-tag size="small" :type="target.runtime === 'k8s' ? 'primary' : 'success'">{{ target.runtime }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="创建">{{ target.created }}</el-descriptions-item>
+          <el-descriptions-item label="告警时间"><span class="mono">{{ alert.ts }}</span></el-descriptions-item>
+        </el-descriptions>
+        <p v-else style="font-size:12px;color:var(--muted)">目标容器画像不可用 (已删除或无法查询)</p>
+      </div>
       <div class="panel">
         <h3 style="margin-bottom:10px">
-          🎯 {{ alert.container }}
-          <el-tag size="small" type="danger" style="margin-left:8px">告警 {{ alert.ts }}</el-tag>
+          🕸️ 攻击链
+          <el-tag size="small" type="danger" style="margin-left:8px">{{ steps.length }} 阶段</el-tag>
         </h3>
         <div ref="chainRef" style="width:100%;height:300px"></div>
         <div style="margin-top:10px;font-size:12px;color:var(--muted)">
@@ -732,6 +751,7 @@ const AttackChainPage = {
     const steps = ref([]);
     const alert = ref({});
     const err = ref('');
+    const target = ref(null);   // 被攻击目标画像 (v0.5.8)
     const chainRef = ref(null);
     const phaseColors = [
       { name: '侦查探测', color: '#3b82f6' }, { name: '提权逃逸', color: '#ef4444' },
@@ -752,6 +772,12 @@ const AttackChainPage = {
         if (d.error) { err.value = d.error; return; }
         steps.value = d.steps || [];
         alert.value = d.alert || {};
+        // v0.5.8: 被攻击目标画像
+        try {
+          const prof = await get('/api/review/profile?container_id=' +
+                                 encodeURIComponent(container));
+          target.value = prof.profile;
+        } catch (e) { target.value = null; }
         // v-else 分支渲染后 chainRef 才就绪 — nextTick 再画图
         Vue.nextTick(() => renderChart());
       } catch (e) { err.value = e.message; }
@@ -809,7 +835,7 @@ const AttackChainPage = {
       window.removeEventListener('hashchange', load);
       if (chart) { chart.dispose(); chart = null; }
     });
-    return { steps, alert, err, chainRef, phaseColors };
+    return { steps, alert, err, target, chainRef, phaseColors };
   },
 };
 
