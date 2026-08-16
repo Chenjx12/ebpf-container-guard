@@ -735,11 +735,8 @@ const AttackChainPage = {
           <el-table-column label="阶段" width="110"><template #default="{row}">
             <el-tag size="small" :color="row.color" effect="dark" style="border:none;color:#fff">{{ row.phase }}</el-tag>
           </template></el-table-column>
-          <el-table-column label="相对时间" width="120"><template #default="{row}">
-            <div class="mono">{{ row.rel === row.end_rel ? row.rel + 's' : row.rel + 's ~ ' + row.end_rel + 's' }}</div>
-            <div class="mono" style="font-size:11px;color:var(--muted)">
-              {{ (row.abs_start || '').replace('T',' ').slice(5,19) }}</div>
-          </template></el-table-column>
+          <el-table-column label="相对时间" width="100"><template #default="{row}">
+            <span class="mono">{{ row.rel === row.end_rel ? row.rel + 's' : row.rel + 's ~ ' + row.end_rel + 's' }}</span></template></el-table-column>
           <el-table-column label="关键事件" min-width="300"><template #default="{row}">
             <div v-for="e in row.events.slice(0,3)" :key="e.ts + e.pid" style="font-size:12px" class="mono">
               {{ e.event_type }} {{ e.comm }} {{ e.target || '' }}</div>
@@ -796,15 +793,12 @@ const AttackChainPage = {
         const first = s.events[0] || {};
         const cmd = `${first.comm || ''} ${(first.target || '').slice(0, 20)}`.trim();
         const timeTxt = s.rel === s.end_rel ? `${s.rel}s` : `${s.rel}s~${s.end_rel}s`;
-        // 本地绝对时间 (behaviors 时间戳已是本地)
-        const absTxt = (s.abs_start || '').replace('T', ' ').slice(5, 19);
         const labelLines = [s.phase, timeTxt];
-        if (absTxt) labelLines.push(absTxt);
         if (cmd) labelLines.push(cmd);
         return {
           id: 's' + i, name: s.phase,
           symbol: 'rect',
-          symbolSize: [150, 66],   // 长条矩形 (容纳4行)
+          symbolSize: [150, 54],   // 长条矩形 (3行)
           x: 10 + i * 170, y: 40,
           itemStyle: { color: s.color, borderRadius: 4 },
           label: { show: true, color: '#fff', fontSize: 11,
@@ -827,7 +821,7 @@ const AttackChainPage = {
                 `${e.event_type} ${e.comm} ${e.target || ''}`).join('<br>');
           } },
         series: [{
-          type: 'graph', layout: 'none', roam: true, draggable: false,
+          type: 'graph', layout: 'none', roam: 'move', draggable: false,
           label: { show: true },
           edgeSymbol: ['none', 'arrow'], edgeSymbolSize: 10,
           lineStyle: { color: '#8ea6c8', width: 2 },
