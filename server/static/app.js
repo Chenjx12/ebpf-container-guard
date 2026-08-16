@@ -860,6 +860,20 @@ const SettingsPage = {
       </el-form>
     </div>
 
+    <div v-if="isAdmin" class="panel"><h3>成员管理 <span class="sub">config/users.yaml</span></h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="color:var(--muted)">共 {{ users.length }} 个账号</span>
+        <el-button type="primary" size="small" @click="showAdd = true">添加成员</el-button>
+      </div>
+      <el-table :data="users" size="small" stripe>
+        <el-table-column prop="username" label="用户名" min-width="160" />
+        <el-table-column label="角色" width="120"><template #default="{row}">
+          <el-tag size="small" :type="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'warning' : 'info'">
+            {{ row.role }}</el-tag></template></el-table-column>
+        <el-table-column prop="created" label="创建时间" width="200" />
+      </el-table>
+    </div>
+
     <div v-if="isAdmin" class="panel"><h3>临时授权 Token</h3>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
         <el-select v-model="tokenPurpose" style="width:150px" size="small">
@@ -881,6 +895,23 @@ const SettingsPage = {
         <el-table-column label="过期" width="200"><template #default="{row}">{{ fmtTs(row.expires) }}</template></el-table-column>
       </el-table>
     </div>
+
+    <el-dialog v-model="showAdd" title="添加成员" width="400px">
+      <el-form label-width="80px" size="small">
+        <el-form-item label="用户名"><el-input v-model="f.username" /></el-form-item>
+        <el-form-item label="密码"><el-input v-model="f.password" type="password" show-password placeholder="至少 6 位" /></el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="f.role" style="width:160px">
+            <el-option label="管理员 admin" value="admin" />
+            <el-option label="运维 operator" value="operator" />
+            <el-option label="分析员 analyst" value="analyst" /></el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="showAdd = false">取消</el-button>
+        <el-button type="primary" size="small" @click="addUser">创建 (首登需改密)</el-button>
+      </template>
+    </el-dialog>
   </div>`,
   setup() {
     const me = JSON.parse(localStorage.getItem('guard_me') || '{}');
@@ -893,6 +924,10 @@ const SettingsPage = {
     const tokenNote = ref('');
     const issuedToken = ref('');
     const tokens = ref([]);
+    // 成员管理 (v0.5.7: 从独立页并入设置)
+    const users = ref([]);
+    const showAdd = ref(false);
+    const f = reactive({ username: '', password: '', role: 'analyst' });
 
     async function load() {
       try {
@@ -903,7 +938,19 @@ const SettingsPage = {
         if (cfg.auto_response_threshold) ai.auto_response_threshold = cfg.auto_response_threshold;
         if (cfg.pending_review_threshold) ai.pending_review_threshold = cfg.pending_review_threshold;
       } catch (e) {}
-      if (isAdmin.value) { try { tokens.value = (await get('/api/tokens/list')).tokens; } catch (e) {} }
+      if (isAdmin.value) {
+        try { tokens.value = (await get('/api/tokens/list')).tokens; } catch (e) {}
+        try { users.value = (await get('/api/members')).users; } catch (e) {}
+      }
+    }
+    async function addUser() {
+      try {
+        await post('/api/members', { ...f });
+        ElMessage.success('成员已创建 (首登强制改密)');
+        showAdd.value = false;
+        f.username = f.password = '';
+        load();
+      } catch (e) { ElMessage.error(e.message); }
     }
     async function changePw() {
       if (pw.new1 !== pw.new2) { ElMessage.warning('两次新密码不一致'); return; }
@@ -937,67 +984,14 @@ const SettingsPage = {
     }
     onMounted(load);
     return { me, isAdmin, pw, ai, masked, tokenPurpose, tokenTtl, tokenNote, issuedToken, tokens,
-      changePw, saveAi, issueToken, fmtTime, fmtTs };
+      changePw, saveAi, issueToken, fmtTime, fmtTs,
+      users, showAdd, f, addUser };
   },
 };
 
 /* ================================================================
  * Members
  * ================================================================ */
-const MembersPage = {
-  template: `
-  <div>
-    <div class="page-title">成员管理 <span class="sub">config/users.yaml</span></div>
-    <div class="panel" style="display:flex;justify-content:space-between;align-items:center">
-      <span style="color:var(--muted)">共 {{ users.length }} 个账号</span>
-      <el-button type="primary" size="small" @click="showAdd = true">添加成员</el-button>
-    </div>
-    <div class="panel">
-      <el-table :data="users" size="small" stripe>
-        <el-table-column prop="username" label="用户名" min-width="160" />
-        <el-table-column label="角色" width="120"><template #default="{row}">
-          <el-tag size="small" :type="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'warning' : 'info'">
-            {{ row.role }}</el-tag></template></el-table-column>
-        <el-table-column prop="created" label="创建时间" width="200" />
-      </el-table>
-    </div>
-    <el-dialog v-model="showAdd" title="添加成员" width="400px">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="用户名"><el-input v-model="f.username" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="f.password" type="password" show-password placeholder="至少 6 位" /></el-form-item>
-        <el-form-item label="角色">
-          <el-select v-model="f.role" style="width:160px">
-            <el-option label="管理员 admin" value="admin" />
-            <el-option label="运维 operator" value="operator" />
-            <el-option label="分析员 analyst" value="analyst" /></el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button size="small" @click="showAdd = false">取消</el-button>
-        <el-button type="primary" size="small" @click="addUser">创建 (首登需改密)</el-button>
-      </template>
-    </el-dialog>
-  </div>`,
-  setup() {
-    const users = ref([]);
-    const showAdd = ref(false);
-    const f = reactive({ username: '', password: '', role: 'analyst' });
-    async function load() {
-      try { users.value = (await get('/api/members')).users; } catch (e) {}
-    }
-    async function addUser() {
-      try {
-        await post('/api/members', { ...f });
-        ElMessage.success('成员已创建 (首登强制改密)');
-        showAdd.value = false;
-        f.username = f.password = '';
-        load();
-      } catch (e) { ElMessage.error(e.message); }
-    }
-    onMounted(load);
-    return { users, showAdd, f, addUser };
-  },
-};
 
 /* ================================================================
  * 事件详情弹窗 (v0.5.6) — 全局共用: 告警流/总览/行为日志
@@ -1095,7 +1089,6 @@ const pages = {
   rules: { title: '检测规则', comp: RulesPage, roles: ['admin', 'operator', 'analyst'] },
   ai_rules: { title: 'AI 建议规则', comp: AiRulesPage, roles: ['admin', 'operator', 'analyst'] },
   settings: { title: '设置', comp: SettingsPage, roles: ['admin', 'operator', 'analyst'] },
-  members: { title: '成员管理', comp: MembersPage, roles: ['admin'] },
 };
 
 /* ================================================================
