@@ -908,8 +908,11 @@ const SettingsPage = {
           <el-option label="add_member" value="add_member" />
           <el-option label="add_rule" value="add_rule" />
         </el-select>
+        <el-select v-model="tokenFor" placeholder="授权给谁" clearable size="small" style="width:150px">
+          <el-option v-for="u in users" :key="u.username" :label="u.username" :value="u.username" />
+        </el-select>
         <el-input-number v-model="tokenTtl" :min="60" :max="300" :step="30" size="small" />
-        <el-input v-model="tokenNote" placeholder="备注 (给谁/为什么)" size="small" style="width:220px" clearable />
+        <el-input v-model="tokenNote" placeholder="备注 (用途说明)" size="small" style="width:220px" clearable />
         <el-button type="primary" size="small" @click="issueToken">签发</el-button>
         <el-input v-model="issuedToken" readonly size="small" style="width:240px" placeholder="签发后显示" />
       </div>
@@ -917,8 +920,11 @@ const SettingsPage = {
         <el-table-column prop="token" label="Token (前 8 位)" width="130" />
         <el-table-column prop="purpose" label="用途" width="110" />
         <el-table-column prop="grantor" label="签发人" width="100" />
-        <el-table-column prop="note" label="备注" min-width="140">
-          <template #default="{row}">{{ row.note || '—' }}</template>
+        <el-table-column prop="note" label="备注" min-width="160">
+          <template #default="{row}">
+            <span v-if="row.note" style="color:var(--muted)">{{ row.note }}</span>
+            <span v-else style="color:var(--muted)">—</span>
+          </template>
         </el-table-column>
         <el-table-column label="过期" width="200"><template #default="{row}">{{ fmtTs(row.expires) }}</template></el-table-column>
       </el-table>
@@ -952,6 +958,7 @@ const SettingsPage = {
     const loadingModels = ref(false);
     const tokenPurpose = ref('add_member');
     const tokenTtl = ref(180);
+    const tokenFor = ref('');   // 授权给谁 (成员下拉)
     const tokenNote = ref('');
     const issuedToken = ref('');
     const tokens = ref([]);
@@ -1044,16 +1051,19 @@ const SettingsPage = {
     }
     async function issueToken() {
       try {
-        const r = await post('/api/tokens/issue', { purpose: tokenPurpose.value, ttl: tokenTtl.value, note: tokenNote.value });
+        // v0.5.7: 授权对象拼进备注 (给{user}: 用途)
+        const note = (tokenFor.value ? `给${tokenFor.value}: ` : '') + tokenNote.value;
+        const r = await post('/api/tokens/issue', { purpose: tokenPurpose.value, ttl: tokenTtl.value, note });
         issuedToken.value = r.token;
         ElMessage.success('Token 已签发 (一次性, 5 分钟内有效)');
         tokenNote.value = '';
+        tokenFor.value = '';
         load();
       } catch (e) { ElMessage.error(e.message); }
     }
     onMounted(load);
     return { me, isAdmin, pw, ai, masked, profiles, modelOptions, loadingModels,
-      tokenPurpose, tokenTtl, tokenNote, issuedToken, tokens,
+      tokenPurpose, tokenTtl, tokenFor, tokenNote, issuedToken, tokens,
       changePw, fetchModels, saveAiProfile, activateProfile, deleteProfile,
       issueToken, fmtTime, fmtTs,
       users, showAdd, f, addUser, ROLE_LABELS, ROLE_COLORS, ROLE_TYPES };
