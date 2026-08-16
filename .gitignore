@@ -43,6 +43,7 @@ vmlinux.h
 
 # Config (contains API keys)
 config/ai_config.yaml
+config/ai_profiles.yaml
 config/ai_config.yaml.bak
 
 # Logs

@@ -1,0 +1,30 @@
+# AI Profiles — 多配置管理 (v0.5.7)
+# 复制为 ai_profiles.yaml 并填入你的 API key
+# ai_profiles.yaml 是 gitignored — 切勿提交到仓库
+#
+# 这是 AI 配置的【唯一存储 + 编辑入口】。
+# ai_config.yaml 仅作激活快照 (guard 热加载), 由面板切换自动生成,
+# 不要手动编辑 ai_config.yaml。
+#
+# 面板设置页支持: 填 name/base_url/api_key → 点「获取模型」→ 从模型
+# 下拉选择 model → 保存配置 → 激活切换 (guard 3s 热加载生效)。
+
+active: "default"
+
+profiles:
+  default:
+    base_url: "https://api.deepseek.com/v1"
+    api_key: "sk-your-api-key-here"
+    model: "deepseek-chat"
+    # Confidence thresholds for graded response
+    auto_response_threshold: 85    # Confidence > 85% → auto execute response
+    pending_review_threshold: 60   # Confidence 60-85% → queue for human review
+                                   # Confidence < 60% → log only
+
+  # 示例: 更多配置 (OpenAI / vLLM / Ollama 任意 OpenAI 兼容端点)
+  # openai:
+  #   base_url: "https://api.openai.com/v1"
+  #   api_key: "sk-..."
+  #   model: "gpt-4o"
+  #   auto_response_threshold: 85
+  #   pending_review_threshold: 60

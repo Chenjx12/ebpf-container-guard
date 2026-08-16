@@ -33,6 +33,9 @@ if _initial:
         print(f"   用户名: {_u}   密码: {_p}")
     print()
 
+# v0.5.7: AI profiles → ai_config.yaml 快照同步 (启动一致性)
+common.sync_ai_snapshot()
+
 app = FastAPI(
     title="eBPF Container Guard API",
     version="0.5.6",

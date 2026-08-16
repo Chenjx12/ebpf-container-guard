@@ -326,25 +326,14 @@ data:
     blocked_images:
     - ebpf-test:mount
   ai_config.yaml.example: |
-    # AI Configuration — OpenAI-compatible API
-    # Copy this file to ai_config.yaml and fill in your API key
-    # ai_config.yaml is gitignored — never commit it to the repo
-
-    api_key: "sk-your-api-key-here"
+    # AI Configuration — 激活快照 (v0.5.7)
+    # 由面板从 ai_profiles.yaml 的 active profile 生成 (guard 热加载),
+    # 不要手动编辑。k8s 部署: key 由 Secret AI_API_KEY 注入。
+    api_key: ""
     model: "deepseek-chat"
-
-    # Any OpenAI-compatible endpoint (works with DeepSeek / OpenAI / vLLM / Ollama)
-    # DeepSeek:  https://api.deepseek.com/v1
-    # OpenAI:    https://api.openai.com/v1
-    # Local vLLM: http://localhost:8000/v1
     base_url: "https://api.deepseek.com/v1"
-
-    # Confidence thresholds for graded response
-    auto_response_threshold: 85    # Confidence > 85% → auto execute response
-    pending_review_threshold: 60   # Confidence 60-85% → queue for human review
-                                   # Confidence < 60% → log only
-  # v0.5.6: 真实 ai_config.yaml (key 留空, 由 Secret env AI_API_KEY 注入 —
-  # key 不进 configmap 也不进 git, 安全设计)
+    auto_response_threshold: 85
+    pending_review_threshold: 60
   ai_config.yaml: |
     api_key: ""
     model: "deepseek-chat"

@@ -497,6 +497,54 @@ def put_ai_config(body: dict, user: dict = write_op):
 
 
 # ================================================================
+# AI Profiles (v0.5.7) — 多配置管理
+# ================================================================
+
+
+@router.get("/ai/profiles")
+def ai_profiles(user: dict = read_any):
+    return common.load_ai_profiles()
+
+
+@router.post("/ai/profiles")
+def save_profile(body: dict, user: dict = write_op):
+    name = (body.get("name") or "").strip()
+    cfg = {k: body.get(k) for k in
+           ('base_url', 'api_key', 'model', 'auto_response_threshold',
+            'pending_review_threshold')}
+    ok, err = common.save_ai_profile(name, cfg)
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+    return {"ok": True}
+
+
+@router.delete("/ai/profiles/{name}")
+def delete_profile(name: str, user: dict = write_op):
+    ok, err = common.delete_ai_profile(name)
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+    return {"ok": True}
+
+
+@router.post("/ai/models")
+def fetch_ai_models(body: dict, user: dict = write_op):
+    models, err = common.fetch_models(body.get("base_url", ""),
+                                      body.get("api_key", ""))
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return {"models": models}
+
+
+@router.post("/ai/activate")
+def activate_profile(body: dict, user: dict = write_op):
+    name = (body.get("name") or "").strip()
+    ok, err = common.activate_ai_profile(name)
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+    return {"ok": True, "active": name}
+
+
+# ================================================================
 # Members
 # ================================================================
 

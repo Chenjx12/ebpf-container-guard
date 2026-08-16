@@ -1,17 +1,15 @@
-# AI Configuration — OpenAI-compatible API
-# Copy this file to ai_config.yaml and fill in your API key
-# ai_config.yaml is gitignored — never commit it to the repo
+# AI Configuration — 激活快照 (v0.5.7)
+# ⚠️ 此文件由面板从 ai_profiles.yaml 的 active profile 自动生成,
+#    仅作 guard 热加载快照 — 不要手动编辑!
+#
+# 编辑 AI 配置请使用面板设置页或 ai_profiles.yaml:
+#   config/ai_profiles.yaml.example  →  ai_profiles.yaml (gitignored)
+#
+# 结构 (与 ai_profiles.yaml 的 profile 一致):
+#   api_key / model / base_url / auto_response_threshold / pending_review_threshold
 
 api_key: "sk-your-api-key-here"
 model: "deepseek-chat"
-
-# Any OpenAI-compatible endpoint (works with DeepSeek / OpenAI / vLLM / Ollama)
-# DeepSeek:  https://api.deepseek.com/v1
-# OpenAI:    https://api.openai.com/v1
-# Local vLLM: http://localhost:8000/v1
 base_url: "https://api.deepseek.com/v1"
-
-# Confidence thresholds for graded response
-auto_response_threshold: 85    # Confidence > 85% → auto execute response
-pending_review_threshold: 60   # Confidence 60-85% → queue for human review
-                               # Confidence < 60% → log only
+auto_response_threshold: 85
+pending_review_threshold: 60

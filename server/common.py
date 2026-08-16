@@ -131,6 +131,153 @@ def load_ai_config() -> dict:
 
 
 # ================================================================
+# AI Profiles (v0.5.7) — 多配置管理 (方案 B: profiles 是源,
+# ai_config.yaml 仅激活快照, guard 热加载零改动)
+# ================================================================
+
+AI_PROFILES_PATH = SCRIPT_DIR / "config" / "ai_profiles.yaml"
+
+
+def _load_profiles_raw() -> dict:
+    if not AI_PROFILES_PATH.exists():
+        return {}
+    try:
+        import yaml
+        with open(AI_PROFILES_PATH, 'r') as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _save_profiles_raw(data: dict):
+    import yaml
+    AI_PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(AI_PROFILES_PATH, 'w') as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+
+def load_ai_profiles() -> dict:
+    """返回 {active, profiles: [{name, base_url, model, thresholds, api_key_masked}]}"""
+    data = _load_profiles_raw()
+    active = data.get('active', '')
+    profiles = data.get('profiles', {})
+    out = []
+    for name, cfg in profiles.items():
+        entry = dict(cfg)
+        if entry.get('api_key'):
+            entry['api_key_masked'] = entry['api_key'][:4] + "****"
+            entry.pop('api_key', None)
+        entry['name'] = name
+        entry['active'] = (name == active)
+        out.append(entry)
+    return {'active': active, 'profiles': out}
+
+
+def save_ai_profile(name: str, cfg: dict) -> tuple:
+    """保存命名配置 (key 留空时保留原 key)。"""
+    if not name or not cfg.get('base_url'):
+        return False, "配置名和 base_url 必填"
+    data = _load_profiles_raw()
+    profiles = data.setdefault('profiles', {})
+    old = profiles.get(name, {})
+    merged = dict(cfg)
+    if not merged.get('api_key'):
+        merged['api_key'] = old.get('api_key', '')
+    merged.pop('name', None)
+    merged.pop('active', None)
+    profiles[name] = merged
+    if not data.get('active'):
+        data['active'] = name
+    _save_profiles_raw(data)
+    return True, None
+
+
+def delete_ai_profile(name: str) -> tuple:
+    data = _load_profiles_raw()
+    profiles = data.get('profiles', {})
+    if name not in profiles:
+        return False, f"配置 {name} 不存在"
+    del profiles[name]
+    if data.get('active') == name:
+        data['active'] = next(iter(profiles), '')
+    _save_profiles_raw(data)
+    return True, None
+
+
+def activate_ai_profile(name: str) -> tuple:
+    """切换: 更新 active + 写 ai_config.yaml 快照 (guard 热加载)。"""
+    data = _load_profiles_raw()
+    profiles = data.get('profiles', {})
+    if name not in profiles:
+        return False, f"配置 {name} 不存在"
+    data['active'] = name
+    _save_profiles_raw(data)
+    cfg = dict(profiles[name])
+    cfg.pop('name', None)
+    ok, err = save_ai_config(cfg)
+    if not ok:
+        return False, f"快照写入失败: {err}"
+    return True, None
+
+
+def sync_ai_snapshot():
+    """启动一致性 (v0.5.7): profiles 是源, ai_config.yaml 仅快照。
+
+    - 无 profiles 且 ai_config.yaml 存在 → 迁移为 default profile
+    - profiles 有 active → 覆盖写 ai_config.yaml (空/被手动改都收敛)
+    """
+    data = _load_profiles_raw()
+    profiles = data.get('profiles', {})
+    active = data.get('active', '')
+    if not profiles:
+        # 存量迁移: ai_config.yaml → default profile
+        cfg = load_ai_config()  # masked — 需原始 key
+        raw = {}
+        try:
+            import yaml
+            with open(AI_CONFIG_PATH, 'r') as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            pass
+        if raw.get('base_url') or raw.get('api_key'):
+            raw.pop('api_key_masked', None)
+            raw.setdefault('model', 'deepseek-chat')
+            data['profiles'] = {'default': raw}
+            data['active'] = 'default'
+            _save_profiles_raw(data)
+            print("[AI Profiles] 已从 ai_config.yaml 迁移为 default profile")
+        return
+    if active not in profiles:
+        active = next(iter(profiles))
+        data['active'] = active
+        _save_profiles_raw(data)
+    ok, err = activate_ai_profile(active)
+    if ok:
+        print(f"[AI Profiles] 快照已同步: active={active} → ai_config.yaml")
+
+
+def fetch_models(base_url: str, api_key: str) -> tuple:
+    """GET {base_url}/models (OpenAI 兼容, Bearer 鉴权) → 模型 id 列表。
+
+    Returns (models_list, error_msg)。
+    """
+    import urllib.request
+    base = (base_url or '').rstrip('/')
+    if not base:
+        return [], "base_url 必填"
+    try:
+        req = urllib.request.Request(
+            f"{base}/models",
+            headers={"Authorization": f"Bearer {api_key}"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        models = [m.get('id') for m in data.get('data', []) if m.get('id')]
+        return models, None
+    except Exception as e:
+        return [], f"获取模型失败: {e}"
+
+
+# ================================================================
 # Actions
 # ================================================================
 

@@ -848,16 +848,42 @@ const SettingsPage = {
       </el-form>
     </div>
 
-    <div class="panel"><h3>AI 研判配置 <span class="sub">guard 3s 热加载</span></h3>
-      <el-form :model="ai" label-width="120px" size="small" style="max-width:560px">
-        <el-form-item label="模型"><el-input v-model="ai.model" placeholder="deepseek-chat" /></el-form-item>
+    <div class="panel"><h3>AI 研判配置 <span class="sub">多配置管理 · 获取模型后下拉选择 · 激活切换 (guard 3s 热加载)</span></h3>
+      <el-form label-width="120px" size="small" style="max-width:640px">
+        <el-form-item label="配置名"><el-input v-model="ai.name" placeholder="如 deepseek / qwen / gpt" /></el-form-item>
         <el-form-item label="Base URL"><el-input v-model="ai.base_url" placeholder="https://api.deepseek.com/v1" /></el-form-item>
         <el-form-item label="API Key"><el-input v-model="ai.api_key" type="password" show-password
-          :placeholder="masked || '留空保持现有'" /></el-form-item>
+          :placeholder="masked || '留空保留现有'" /></el-form-item>
+        <el-form-item label="模型">
+          <div style="display:flex;gap:8px;width:100%">
+            <el-input v-model="ai.model" placeholder="deepseek-chat" style="flex:1" />
+            <el-button size="small" :loading="loadingModels" @click="fetchModels">获取模型</el-button>
+          </div>
+          <el-select v-if="modelOptions.length" v-model="ai.model" placeholder="选择模型" size="small"
+                     style="width:100%;margin-top:6px" @change="ai.model = $event">
+            <el-option v-for="m in modelOptions" :key="m" :label="m" :value="m" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="自动响应阈值"><el-input-number v-model="ai.auto_response_threshold" :min="0" :max="100" /></el-form-item>
         <el-form-item label="待审阈值"><el-input-number v-model="ai.pending_review_threshold" :min="0" :max="100" /></el-form-item>
-        <el-button type="primary" size="small" @click="saveAi">保存 (3s 热加载)</el-button>
+        <el-button type="primary" size="small" @click="saveAiProfile">保存配置</el-button>
+        <span style="margin-left:10px;font-size:12px;color:var(--muted)">保存后可在下方列表激活</span>
       </el-form>
+
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+        <h4 style="margin-bottom:10px">已保存配置</h4>
+        <el-table :data="profiles" size="small" stripe>
+          <el-table-column label="名称" min-width="120"><template #default="{row}">
+            <span class="mono" style="font-weight:600">{{ row.name }}</span>
+            <el-tag v-if="row.active" size="small" type="success" style="margin-left:8px">当前使用</el-tag></template></el-table-column>
+          <el-table-column prop="base_url" label="Base URL" min-width="200" />
+          <el-table-column prop="model" label="模型" width="150" />
+          <el-table-column prop="api_key_masked" label="Key" width="100" />
+          <el-table-column label="操作" width="160"><template #default="{row}">
+            <el-button v-if="!row.active" size="small" type="primary" @click="activateProfile(row)">激活</el-button>
+            <el-button size="small" type="danger" @click="deleteProfile(row)">删除</el-button></template></el-table-column>
+        </el-table>
+      </div>
     </div>
 
     <div v-if="isAdmin" class="panel"><h3>成员管理 <span class="sub">config/users.yaml</span></h3>
@@ -917,8 +943,11 @@ const SettingsPage = {
     const me = JSON.parse(localStorage.getItem('guard_me') || '{}');
     const isAdmin = computed(() => me.role === 'admin');
     const pw = reactive({ old: '', new1: '', new2: '' });
-    const ai = reactive({ model: '', base_url: '', api_key: '', auto_response_threshold: 85, pending_review_threshold: 60 });
+    const ai = reactive({ name: '', model: '', base_url: '', api_key: '', auto_response_threshold: 85, pending_review_threshold: 60 });
     const masked = ref('');
+    const profiles = ref([]);
+    const modelOptions = ref([]);
+    const loadingModels = ref(false);
     const tokenPurpose = ref('add_member');
     const tokenTtl = ref(180);
     const tokenNote = ref('');
@@ -931,17 +960,67 @@ const SettingsPage = {
 
     async function load() {
       try {
-        const cfg = await get('/api/config/ai');
-        ai.model = cfg.model || 'deepseek-chat';
-        ai.base_url = cfg.base_url || 'https://api.deepseek.com/v1';
-        masked.value = cfg.api_key_masked || '';
-        if (cfg.auto_response_threshold) ai.auto_response_threshold = cfg.auto_response_threshold;
-        if (cfg.pending_review_threshold) ai.pending_review_threshold = cfg.pending_review_threshold;
+        // v0.5.7: 从 profiles 加载 (源), ai_config 仅快照
+        const prof = await get('/api/ai/profiles');
+        profiles.value = prof.profiles || [];
+        const active = prof.profiles?.find(p => p.active) || prof.profiles?.[0];
+        if (active) {
+          ai.name = active.name;
+          ai.model = active.model || '';
+          ai.base_url = active.base_url || '';
+          masked.value = active.api_key_masked || '';
+          if (active.auto_response_threshold) ai.auto_response_threshold = active.auto_response_threshold;
+          if (active.pending_review_threshold) ai.pending_review_threshold = active.pending_review_threshold;
+        }
       } catch (e) {}
       if (isAdmin.value) {
         try { tokens.value = (await get('/api/tokens/list')).tokens; } catch (e) {}
         try { users.value = (await get('/api/members')).users; } catch (e) {}
       }
+    }
+    // v0.5.7: 获取模型列表
+    async function fetchModels() {
+      if (!ai.base_url) { ElMessage.warning('先填 Base URL'); return; }
+      loadingModels.value = true;
+      try {
+        const r = await post('/api/ai/models', { base_url: ai.base_url, api_key: ai.api_key || '' });
+        modelOptions.value = r.models || [];
+        if (modelOptions.value.length) {
+          ElMessage.success(`获取到 ${modelOptions.value.length} 个模型，请选择`);
+        } else {
+          ElMessage.warning('未获取到模型');
+        }
+      } catch (e) { ElMessage.error(e.message); modelOptions.value = []; }
+      loadingModels.value = false;
+    }
+    // v0.5.7: 保存配置 (profiles)
+    async function saveAiProfile() {
+      if (!ai.name || !ai.base_url) { ElMessage.warning('配置名和 Base URL 必填'); return; }
+      try {
+        await post('/api/ai/profiles', {
+          name: ai.name, base_url: ai.base_url, api_key: ai.api_key,
+          model: ai.model, auto_response_threshold: ai.auto_response_threshold,
+          pending_review_threshold: ai.pending_review_threshold,
+        });
+        ElMessage.success('配置已保存');
+        ai.api_key = '';
+        load();
+      } catch (e) { ElMessage.error(e.message); }
+    }
+    // v0.5.7: 激活切换
+    async function activateProfile(row) {
+      try {
+        await post('/api/ai/activate', { name: row.name });
+        ElMessage.success(`已切换到 ${row.name} (guard 3s 热加载)`);
+        load();
+      } catch (e) { ElMessage.error(e.message); }
+    }
+    async function deleteProfile(row) {
+      try {
+        await fetch('/api/ai/profiles/' + encodeURIComponent(row.name), { method: 'DELETE', credentials: 'same-origin' });
+        ElMessage.success('配置已删除');
+        load();
+      } catch (e) { ElMessage.error(e.message); }
     }
     async function addUser() {
       try {
@@ -961,18 +1040,6 @@ const SettingsPage = {
         localStorage.setItem('guard_me', JSON.stringify({ ...me, must_change_password: false }));
       } catch (e) { ElMessage.error(e.message); }
     }
-    async function saveAi() {
-      try {
-        const body = { model: ai.model, base_url: ai.base_url,
-          auto_response_threshold: ai.auto_response_threshold,
-          pending_review_threshold: ai.pending_review_threshold };
-        if (ai.api_key) body.api_key = ai.api_key;
-        await put('/api/config/ai', body);
-        ElMessage.success('AI 配置已保存 (3s 热加载)');
-        ai.api_key = '';
-        load();
-      } catch (e) { ElMessage.error(e.message); }
-    }
     async function issueToken() {
       try {
         const r = await post('/api/tokens/issue', { purpose: tokenPurpose.value, ttl: tokenTtl.value, note: tokenNote.value });
@@ -983,8 +1050,10 @@ const SettingsPage = {
       } catch (e) { ElMessage.error(e.message); }
     }
     onMounted(load);
-    return { me, isAdmin, pw, ai, masked, tokenPurpose, tokenTtl, tokenNote, issuedToken, tokens,
-      changePw, saveAi, issueToken, fmtTime, fmtTs,
+    return { me, isAdmin, pw, ai, masked, profiles, modelOptions, loadingModels,
+      tokenPurpose, tokenTtl, tokenNote, issuedToken, tokens,
+      changePw, fetchModels, saveAiProfile, activateProfile, deleteProfile,
+      issueToken, fmtTime, fmtTs,
       users, showAdd, f, addUser };
   },
 };
