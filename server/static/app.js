@@ -376,11 +376,22 @@ const AssetsPage = {
     </div>
 
     <!-- 拓扑图 (v0.5.7): 蓝色星空背景, 节点=pod, 按 node 成簇, 服务关联连线 -->
-    <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden">
+    <div class="panel" style="display:flex;align-items:center;gap:12px;padding:10px 18px;flex-wrap:wrap;margin-bottom:0;border-bottom:none;border-radius:10px 10px 0 0">
+      <span style="font-size:13px;color:var(--muted)">拓扑筛选:</span>
+      <el-select v-model="topoFilter.ns" placeholder="命名空间" clearable size="small" style="width:150px" @change="buildTopo">
+        <el-option v-for="ns in nsOptions" :key="ns" :label="ns" :value="ns" />
+      </el-select>
+      <el-select v-model="topoFilter.node" placeholder="节点" clearable size="small" style="width:180px" @change="buildTopo">
+        <el-option v-for="nd in data.nodes" :key="nd.name" :label="nd.name" :value="nd.name" />
+      </el-select>
+      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopo">显示公共依赖连线 (kube-dns/metrics-server)</el-checkbox>
+      <el-checkbox v-model="topoFilter.onlyLinked" size="small" @change="buildTopo">仅服务关联</el-checkbox>
+    </div>
+    <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
       <div ref="topoRef" style="width:100%;height:420px"></div>
       <div style="position:absolute;top:12px;left:16px;font-size:13px;color:#8ea6c8;pointer-events:none">
         <span style="font-weight:600;color:#cbd5e1">资产拓扑</span>
-        <span style="margin-left:10px">● 节点=pod · 按物理机成簇 · 橙线=服务关联</span>
+        <span style="margin-left:10px">● 节点=pod · 按物理机成簇 · 橙线=服务关联 · 命名空间着色</span>
       </div>
     </div>
 
@@ -454,7 +465,18 @@ const AssetsPage = {
     let chart = null;
     let lastTopoKey = '';  // 轮询去重: 数据未变不重建图 (布局稳定)
 
-    // v0.5.7: 拓扑图 — ECharts 关系图 (节点=pod+service, 按 node 成簇, 服务关联连线)
+    // v0.5.7: 拓扑图 — ECharts 关系图
+    //  节点=pod (按命名空间着色) + service (金色菱形)
+    //  按 node 成簇; 公共依赖服务 (kube-dns/metrics-server) 默认折叠连线
+    //  筛选: 命名空间/节点/仅服务关联
+    const topoFilter = reactive({ ns: '', node: '', showInfra: false, onlyLinked: false });
+    const nsOptions = ref([]);
+    const INFRA_SVCS = ['kube-dns', 'metrics-server'];
+    const NS_COLORS = {
+      'default': '#3b82f6', 'kube-system': '#22c55e',
+      'kube-public': '#f59e0b', 'kube-node-lease': '#a855f7',
+    };
+
     function buildTopo() {
       if (!topoRef.value || typeof echarts === 'undefined') return;
       if (!chart) chart = echarts.init(topoRef.value);
@@ -462,20 +484,32 @@ const AssetsPage = {
       const edges = [];
       const nodeIdx = {};
       const svcIdx = {};
-      const nodeGroups = data.nodes.map(n => n.name);
-      data.nodes.forEach((nd, gi) => {
+      // 筛选: 过滤 pod
+      const nodeGroups = [];
+      const filteredNodes = data.nodes
+        .filter(nd => !topoFilter.node || nd.name === topoFilter.node)
+        .map(nd => {
+          const pods = nd.pods.filter(p =>
+            (!topoFilter.ns || p.namespace === topoFilter.ns) &&
+            (!topoFilter.onlyLinked || p.services.length > 0));
+          if (pods.length) nodeGroups.push(nd.name);
+          return { name: nd.name, pods };
+        })
+        .filter(nd => nd.pods.length > 0);
+      filteredNodes.forEach(nd => {
         nd.pods.forEach(p => {
           const key = p.namespace + '/' + p.name;
           nodeIdx[key] = nodes.length;
           nodes.push({
             id: key, name: p.name.split('-')[0],
             symbolSize: p.privileged ? 34 : 24,
-            category: gi,
-            itemStyle: { color: p.status === 'Running' ? '#3b82f6' : '#64748b' },
+            category: nodeGroups.indexOf(nd.name),
+            itemStyle: { color: NS_COLORS[p.namespace] || '#64748b' },
           });
         });
       });
       data.services.forEach(s => {
+        if (topoFilter.ns && s.namespace !== topoFilter.ns) return;
         const sk = s.namespace + '/' + s.name;
         svcIdx[sk] = nodes.length;
         nodes.push({
@@ -484,12 +518,14 @@ const AssetsPage = {
           itemStyle: { color: '#f59e0b' },
         });
       });
-      data.nodes.forEach(nd => {
+      filteredNodes.forEach(nd => {
         nd.pods.forEach(p => {
           const key = p.namespace + '/' + p.name;
           const src = nodeIdx[key];
           if (src === undefined) return;
           p.services.forEach(s => {
+            // 公共依赖折叠: 基础设施服务连线默认隐藏
+            if (INFRA_SVCS.includes(s) && !topoFilter.showInfra) return;
             const tk = p.namespace + '/' + s;
             if (svcIdx[tk] !== undefined) {
               edges.push({ source: src, target: svcIdx[tk] });
@@ -497,7 +533,6 @@ const AssetsPage = {
           });
         });
       });
-      // 轮询去重: 数据未变不重建 (否则 force 布局每 5s 重算, 图一直动)
       const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'')),
                                     edges: edges.map(e => e.source + '>' + e.target) });
       if (key === lastTopoKey) return;
@@ -508,6 +543,8 @@ const AssetsPage = {
           formatter: (p) => p.dataType === 'edge'
             ? `${p.data.sourceName} → ${p.data.targetName}`
             : (p.data.id || p.name) },
+        legend: { data: nodeGroups, textStyle: { color: '#8ea6c8' },
+                  bottom: 4, itemWidth: 12, itemHeight: 12 },
         series: [{
           type: 'graph',
           layout: 'force',
@@ -529,6 +566,10 @@ const AssetsPage = {
     async function load() {
       try {
         Object.assign(data, await get('/api/assets'));
+        // 命名空间选项
+        const nss = new Set();
+        data.nodes.forEach(nd => nd.pods.forEach(p => nss.add(p.namespace)));
+        nsOptions.value = [...nss].sort();
         buildTopo();
       } catch (e) {}
     }
@@ -546,7 +587,7 @@ const AssetsPage = {
       clearInterval(state.timer);
       if (chart) { chart.dispose(); chart = null; }
     });
-    return { data, podDialog, showPod, topoRef };
+    return { data, podDialog, showPod, topoRef, topoFilter, nsOptions };
   },
 };
 
