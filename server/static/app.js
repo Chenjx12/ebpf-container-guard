@@ -618,7 +618,7 @@ const AssetsPage = {
           graphic: legendGraphics,
           series: [{
             type: "graph", layout: "none", roam: true, draggable: false,
-            label: { show: true, fontSize: 10, color: '#cbd5e1' },
+            label: { show: true, fontSize: 10, color: "#cbd5e1" },
             animation: false,
             emphasis: { focus: 'adjacency' },
           }],
@@ -638,7 +638,7 @@ const AssetsPage = {
         graphic: legendGraphics,
         series: [{
           type: "graph", layout: "none", roam: true, draggable: false,
-          label: { show: true, fontSize: 10, color: '#cbd5e1' },
+          label: { show: true, fontSize: 10, color: "#cbd5e1" },
           animation: false,
           categories: groups.map(n => ({ name: n })),
           data: nodes,
