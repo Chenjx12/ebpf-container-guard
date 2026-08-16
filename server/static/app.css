@@ -110,9 +110,10 @@ body {
   display: flex;
   flex-direction: column;
   transition: width .2s ease;
-  min-height: calc(100vh - 54px);
+  height: calc(100vh - 54px);  /* 固定视口高度 — 内容滚动时侧边栏始终可见 */
   position: sticky;
   top: 54px;
+  overflow-y: auto;  /* 导航多时内部滚动 */
 }
 .sidebar.collapsed { width: 64px; }
 .sidebar.collapsed .nav a { text-align: center; padding: 10px 0; }
