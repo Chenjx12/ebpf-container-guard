@@ -4,6 +4,7 @@
  */
 const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
 const ElMessage = ElementPlus.ElMessage;
+const ElMessageBox = ElementPlus.ElMessageBox;
 
 /* ================================================================
  * API 封装
@@ -783,17 +784,18 @@ const AttackChainPage = {
       } catch (e) { err.value = e.message; }
     }
 
-    // 方框箭头流程图: 横向排布, 箭头连接, 阶段着色
+    // 方框箭头流程图: 长条矩形横向排布, 箭头连接, 阶段着色
     function renderChart() {
       if (!chainRef.value || typeof echarts === 'undefined') return;
       if (!chart) chart = echarts.init(chainRef.value);
       const nodes = steps.value.map((s, i) => ({
         id: 's' + i, name: s.phase,
-        symbolSize: 70,
-        x: 15 + i * 70, y: 50,
-        itemStyle: { color: s.color, borderRadius: 6 },
-        label: { show: true, color: '#fff', fontSize: 12 },
-        // 存步骤索引供点击
+        symbol: 'rect',
+        symbolSize: [110, 40],   // 长条矩形
+        x: 10 + i * 130, y: 45,
+        itemStyle: { color: s.color, borderRadius: 4 },
+        label: { show: true, color: '#fff', fontSize: 12,
+                 formatter: s.phase + '\n' + (s.rel === s.end_rel ? `${s.rel}s` : `${s.rel}s~${s.end_rel}s`) },
         __idx: i,
       }));
       const edges = steps.value.slice(1).map((_, i) => ({
@@ -1328,6 +1330,7 @@ const EventDetailDialog = {
     function viewChain() {
       const cid = eventDetail.event.container_id;
       const ts = eventDetail.event.timestamp;
+      eventDetail.show = false;  // 跳转攻击链自动关弹窗
       location.hash = '#/chain?container=' + encodeURIComponent(cid) +
                       '&ts=' + encodeURIComponent(ts);
     }
