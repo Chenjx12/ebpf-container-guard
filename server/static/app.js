@@ -1517,10 +1517,9 @@ const App = {
       sidebarCollapsed.value = !sidebarCollapsed.value;
       localStorage.setItem('guard_sidebar', sidebarCollapsed.value ? '1' : '0');
     }
-    // 收起时切页自动展开 (避免图标导航盲点)
+    // v0.5.8: 切页保持收起状态 (图标+tooltip 可导航, 不自动展开)
     function go(key) {
       location.hash = '#' + key;
-      if (sidebarCollapsed.value) { sidebarCollapsed.value = false; localStorage.setItem('guard_sidebar', '0'); }
     }
 
     async function refreshMe() {
