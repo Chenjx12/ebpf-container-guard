@@ -571,7 +571,14 @@ def _k8s_pod_profile(container_id: str):
             if cs.name == c.name:
                 cstatus = cs.state
                 break
+        # v0.5.8: creation_timestamp 是 UTC — 转本地时区显示
         created = str(p.metadata.creation_timestamp or '')[:19]
+        try:
+            from datetime import datetime as _dt
+            created = (_dt.fromisoformat(created + '+00:00')
+                       .astimezone().strftime('%Y-%m-%d %H:%M:%S'))
+        except Exception:
+            pass
         privileged = False
         if c.security_context:
             privileged = bool(c.security_context.privileged)
