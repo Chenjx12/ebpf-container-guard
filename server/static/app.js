@@ -1244,7 +1244,8 @@ const App = {
         <div class="ai-quick-title">🤖 AI 快捷配置</div>
         <el-select v-model="aiQuick.name" placeholder="选择配置" size="small"
                    style="width:100%" @change="loadAiQuickThresholds">
-          <el-option v-for="p in aiProfiles" :key="p.name" :label="p.name" :value="p.name" />
+          <el-option v-for="p in aiProfiles" :key="p.name"
+                     :label="p.name + (p.active ? ' (当前)' : '')" :value="p.name" />
         </el-select>
         <div class="ai-quick-row">
           <span>响应阈值</span>
@@ -1378,7 +1379,8 @@ const App = {
       location.hash = '#/login';
     }
     // 登录成功后立即刷新认证状态 (authed → true → 主界面渲染, 无需强制刷新)
-    const onLoggedIn = () => refreshMe();
+    // 登录成功后立即刷新认证状态 + 加载 AI 配置 (authed 前 API 会 401)
+    const onLoggedIn = () => { refreshMe(); loadAiQuick(); };
 
     const currentComp = computed(() => pages[route.value]?.comp || OverviewPage);
 
