@@ -47,6 +47,8 @@ const sevTag = (s) => {
 const ROLE_LABELS = { admin: '管理员', operator: '运维', analyst: '安全员' };
 const ROLE_COLORS = { admin: '', operator: '#722ed1', analyst: '' };
 const ROLE_TYPES = { admin: 'warning', operator: 'danger', analyst: 'primary' };
+// 角色等级 (与后端 ROLE_RANK 一致, 用于授权对象过滤)
+const ROLE_RANK = { admin: 3, operator: 2, analyst: 1 };
 
 function usePolling(fn, ms) {
   onMounted(() => { fn(); state.timer = setInterval(fn, ms); });
@@ -909,7 +911,7 @@ const SettingsPage = {
           <el-option label="add_rule" value="add_rule" />
         </el-select>
         <el-select v-model="tokenFor" placeholder="授权给谁" clearable size="small" style="width:150px">
-          <el-option v-for="u in users" :key="u.username" :label="u.username" :value="u.username" />
+          <el-option v-for="u in eligibleUsers" :key="u.username" :label="u.username" :value="u.username" />
         </el-select>
         <el-input-number v-model="tokenTtl" :min="60" :max="300" :step="30" size="small" />
         <el-input v-model="tokenNote" placeholder="备注 (用途说明)" size="small" style="width:220px" clearable />
@@ -965,6 +967,13 @@ const SettingsPage = {
     const tokens = ref([]);
     // 成员管理 (v0.5.7: 从独立页并入设置)
     const users = ref([]);
+    // v0.5.7: 可授权对象 = 排除自己 + 同/高权限角色 (后端仍校验兜底)
+    const eligibleUsers = computed(() => {
+      const myRole = me.role;
+      return users.value.filter(u =>
+        u.username !== me.username &&
+        ROLE_RANK[u.role] < ROLE_RANK[myRole]);
+    });
     const showAdd = ref(false);
     const f = reactive({ username: '', password: '', role: 'analyst' });
 
@@ -1068,7 +1077,8 @@ const SettingsPage = {
       tokenPurpose, tokenTtl, tokenFor, tokenNote, issuedToken, tokens,
       changePw, fetchModels, saveAiProfile, activateProfile, deleteProfile,
       issueToken, fmtTime, fmtTs,
-      users, showAdd, f, addUser, ROLE_LABELS, ROLE_COLORS, ROLE_TYPES };
+      users, showAdd, f, addUser, ROLE_LABELS, ROLE_COLORS, ROLE_TYPES,
+      eligibleUsers };
   },
 };
 
