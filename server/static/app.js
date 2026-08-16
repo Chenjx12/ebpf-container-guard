@@ -523,6 +523,25 @@ const AssetsPage = {
       const topoW = topoRef.value.clientWidth || 800;
       const topoH = topoRef.value.clientHeight || 420;
       const groups = filteredNodes.map(nd => nd.name);
+      // 服务关联 pod 发光 (跟随节点, 不同服务不同色) — 替代 graphic 圈
+      // (graphic circle 坐标系与 roam 变换不同步, 圈不跟随 pod)
+      const svcColors = ['#f59e0b', '#22c55e', '#a855f7', '#06b6d4', '#f43f5e'];
+      const svcColorIdx = {};
+      filteredNodes.forEach(nd => nd.pods.forEach(p => {
+        if (!p.services.length) return;
+        const sk = p.namespace + '/' + p.services[0];
+        if (!(sk in svcColorIdx)) svcColorIdx[sk] = Object.keys(svcColorIdx).length;
+        const idx = nodeIdx[p.namespace + '/' + p.name];
+        if (idx !== undefined) {
+          const infra = INFRA_SVCS.includes(p.services[0]);
+          const show = topoFilter.showInfra || !infra;
+          if (show) {
+            nodes[idx].itemStyle.shadowColor =
+              svcColors[svcColorIdx[sk] % svcColors.length];
+            nodes[idx].itemStyle.shadowBlur = 25;
+          }
+        }
+      }));
       groups.forEach((g, gi) => {
         const pods = filteredNodes[gi].pods;
         const angle = (2 * Math.PI * gi) / Math.max(groups.length, 1) - Math.PI / 2;
@@ -543,46 +562,7 @@ const AssetsPage = {
         nodes[idx].x = topoW * 0.5;
         nodes[idx].y = topoH * 0.5;
       });
-      // 服务圈 (v0.5.7): 勾选 showInfra 才画 — 圈住关联 pod, 不贴节点
-      // (半径 = 覆盖关联 pod 的包围圆 + 大余量), 不同服务不同色
-      const svcColors = ['#f59e0b', '#22c55e', '#a855f7', '#06b6d4', '#f43f5e'];
-      const graphics = [];
-      let svcGi = 0;
-      if (topoFilter.showInfra) {
-        const svcPodPos = {};
-        filteredNodes.forEach(nd => nd.pods.forEach(p => {
-          p.services.forEach(s => {
-            const sk = p.namespace + '/' + s;
-            const idx = nodeIdx[p.namespace + '/' + p.name];
-            if (idx !== undefined && svcIdx[sk] !== undefined) {
-              (svcPodPos[sk] = svcPodPos[sk] || []).push(
-                { x: nodes[idx].x, y: nodes[idx].y });
-            }
-          });
-        }));
-        Object.entries(svcPodPos).forEach(([sk, posList]) => {
-          if (!posList.length) return;
-          const cx = posList.reduce((a, p) => a + p.x, 0) / posList.length;
-          const cy = posList.reduce((a, p) => a + p.y, 0) / posList.length;
-          const r = Math.max(...posList.map(p =>
-            Math.hypot(p.x - cx, p.y - cy))) + 40;  // 大余量, 不贴节点
-          const color = svcColors[svcGi++ % svcColors.length];
-          const svcName = sk.split('/')[1];
-          graphics.push({
-            type: 'circle', x: cx, y: cy, shape: { r },
-            style: { fill: 'none', stroke: color, lineWidth: 1.5,
-                     lineDash: [6, 4], opacity: 0.8 },
-            z: 1, silent: true,
-          });
-          graphics.push({
-            type: 'text', x: cx, y: cy - r - 8,
-            style: { text: svcName, fill: color, fontSize: 12, fontWeight: 'bold' },
-            silent: true,
-          });
-        });
-      }
-      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.borderColor||'')),
-                                    circles: graphics.map(g => JSON.stringify(g.shape) + g.style.stroke) });
+      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.shadowColor||'')) });
       if (key === lastTopoKey) return;
       lastTopoKey = key;
       // 首次全量配置, 之后增量更新 data
@@ -593,7 +573,6 @@ const AssetsPage = {
             formatter: (p) => p.data?.__pod
               ? `${p.data.__pod.namespace}/${p.data.__pod.name}\n状态: ${p.data.__pod.status}\n服务: ${p.data.__pod.services.join(',') || '无'}`
               : (p.data.id || p.name) },
-          graphic: graphics,
           series: [{
             type: "graph", layout: "none", roam: true, draggable: false,
             label: { show: true, fontSize: 10, color: '#cbd5e1' },
@@ -613,7 +592,6 @@ const AssetsPage = {
       chart.setOption({
         legend: { data: groups, textStyle: { color: '#8ea6c8' },
                   bottom: 4, itemWidth: 12, itemHeight: 12 },
-        graphic: graphics,
         series: [{
           type: "graph", layout: "none", roam: true, draggable: false,
           label: { show: true, fontSize: 10, color: '#cbd5e1' },
