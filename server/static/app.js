@@ -350,8 +350,17 @@ const RulesPage = {
           <span class="mono">{{ row.event_type }}</span></template></el-table-column>
         <el-table-column label="攻击向量" width="140"><template #default="{row}">
           <span class="mono">{{ row.attack_vector }}</span></template></el-table-column>
-        <el-table-column label="描述" min-width="240"><template #default="{row}">{{ row.description }}</template></el-table-column>
-        <el-table-column label="动作" width="120"><template #default="{row}">
+        <el-table-column label="描述" min-width="200"><template #default="{row}">{{ row.description }}</template></el-table-column>
+        <el-table-column label="来源" width="130"><template #default="{row}">
+          <el-tag v-if="row.added_source === 'ai_suggestion'" size="small" type="primary">AI 建议</el-tag>
+          <el-tag v-else-if="row.added_source === 'manual'" size="small" type="warning">手动</el-tag>
+          <span v-else style="color:var(--muted)">—</span>
+        </template></el-table-column>
+        <el-table-column label="操作者" width="110"><template #default="{row}">
+          <span class="mono">{{ row.added_by }}</span></template></el-table-column>
+        <el-table-column label="入库时间" width="160"><template #default="{row}">
+          <span style="color:var(--muted)">{{ row.added_at }}</span></template></el-table-column>
+        <el-table-column label="动作" width="110"><template #default="{row}">
           <span class="mono">{{ row.action }}</span></template></el-table-column>
       </el-table>
     </div>

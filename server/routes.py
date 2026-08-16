@@ -202,7 +202,23 @@ def behaviors(container: str = "", syscall: str = "", host_only: bool = False,
 
 @router.get("/rules")
 def rules(user: dict = read_any):
-    return {"rules": common.load_rules()}
+    rule_list = common.load_rules()
+    # v0.5.6: join 审计 — 每条规则的来源/操作者/时间 (初始内置规则无审计 → '-')
+    audit = common.load_rule_audit()
+    by_name = {}
+    if not audit.empty and 'rule_name' in audit.columns:
+        for _, r in audit.iterrows():
+            name = r.get('rule_name')
+            if name:
+                by_name.setdefault(name, []).append(r.to_dict())
+    for rule in rule_list:
+        name = rule.get('name')
+        entries = by_name.get(name, [])
+        latest = entries[-1] if entries else {}
+        rule['added_by'] = latest.get('user') or '-'
+        rule['added_at'] = latest.get('timestamp') or '-'
+        rule['added_source'] = latest.get('source') or '-'
+    return {"rules": rule_list}
 
 
 @router.get("/rules/audit")
@@ -216,7 +232,7 @@ def add_rule(body: dict, user: dict = write_op):
     source = body.get("source", "manual")
     if not rule:
         raise HTTPException(status_code=400, detail="缺少 rule")
-    ok, err = common.append_rule_to_yaml(rule, source)
+    ok, err = common.append_rule_to_yaml(rule, source, user['username'])
     if not ok:
         raise HTTPException(status_code=400, detail=err)
     return {"ok": True}
@@ -258,7 +274,8 @@ def ai_rule_decision(body: dict, user: dict = write_op):
     if decision == 'confirmed':
         if not rule:
             raise HTTPException(status_code=400, detail="缺少 rule")
-        ok, err = common.append_rule_to_yaml(rule, "ai_suggestion")
+        ok, err = common.append_rule_to_yaml(rule, "ai_suggestion",
+                                             user['username'])
         if not ok:
             raise HTTPException(status_code=400, detail=err)
     # 去重标记 (scope=suggested_rule, container_id=event_ts — 与 streamlit 一致)

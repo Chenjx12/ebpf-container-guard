@@ -202,7 +202,8 @@ def _map_falco_fields(node):
     return out if out else None
 
 
-def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
+def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion",
+                        user: str = "") -> bool:
     """Append a rule to rules.yaml (guard hot-reloads within 3s).
 
     Returns (ok, error_msg). Audits to rules_audit.log.
@@ -232,7 +233,8 @@ def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
         indented = "  - " + block.replace("\n", "\n    ").strip()
         with open(RULES_PATH, 'a') as f:
             f.write("\n" + indented + "\n")
-        log_rule_audit("add_rule", rule.get('name', 'unnamed'), source, rule)
+        log_rule_audit("add_rule", rule.get('name', 'unnamed'), source,
+                       rule, user)
         # v0.5.6: k8s 部署时同步 configmap — 容器 guard 读 configmap,
         # 只写本地 rules.yaml 不生效 (架构断裂)
         _sync_rules_to_configmap()
@@ -271,13 +273,18 @@ def _sync_rules_to_configmap():
 
 
 def log_rule_audit(action: str, rule_name: str, source: str,
-                   rule_content: dict):
-    """Record a rule change to rules_audit.log (audit trail)."""
+                   rule_content: dict, user: str = ""):
+    """Record a rule change to rules_audit.log (audit trail).
+
+    v0.5.6: user 字段 — 记录操作者 (API 从登录会话传入), 规则页溯源
+    "谁在什么时候允许规则入库"; 初始内置规则无审计条目显示 '-'.
+    """
     entry = {
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
         'action': action,
         'rule_name': rule_name,
         'source': source,
+        'user': user,
         'rule': rule_content,
     }
     with open(RULES_AUDIT_LOG, 'a') as f:
