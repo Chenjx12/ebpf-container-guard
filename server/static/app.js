@@ -694,7 +694,7 @@ const AssetsPage = {
  * ================================================================ */
 const AttackChainPage = {
   template: `
-  <div>
+  <div v-loading="loading" element-loading-text="攻击链分析中..." style="min-height:300px">
     <div class="page-title">攻击链分析 <span class="sub">行为时间窗 → 分阶段还原攻击步骤</span></div>
     <div v-if="err" class="panel" style="color:var(--warn)">{{ err }}</div>
     <div v-else-if="steps.length === 0" class="panel" style="color:var(--muted)">该时间窗无攻击链数据</div>
@@ -757,6 +757,7 @@ const AttackChainPage = {
     const err = ref('');
     const target = ref(null);   // 被攻击目标画像 (v0.5.8)
     const chainRef = ref(null);
+    const loading = ref(false);   // 攻击链分析 loading
     const phaseColors = [
       { name: '侦查探测', color: '#3b82f6' }, { name: '提权逃逸', color: '#ef4444' },
       { name: '利用执行', color: '#f59e0b' }, { name: '外联 C2', color: '#a855f7' },
@@ -769,11 +770,12 @@ const AttackChainPage = {
       const m = location.hash.match(/\/?chain\?container=([^&]+)/);
       if (!m) { err.value = '缺少攻击链参数'; return; }
       const container = decodeURIComponent(m[1]);
+      loading.value = true;
       try {
         // v0.5.8: 容器全周期 — 不传 ts, 后端取最近告警为锚点
         const d = await get('/api/attack-chain?container=' +
                             encodeURIComponent(container));
-        if (d.error) { err.value = d.error; return; }
+        if (d.error) { err.value = d.error; loading.value = false; return; }
         steps.value = d.steps || [];
         alerts.value = d.alerts || [];
         alert.value = { container, ts: alerts.value.length
@@ -787,6 +789,7 @@ const AttackChainPage = {
         // v-else 分支渲染后 chainRef 才就绪 — nextTick 再画图
         Vue.nextTick(() => renderChart());
       } catch (e) { err.value = e.message; }
+      loading.value = false;
     }
 
     // 方框箭头流程图: 长条矩形横向排布, 箭头连接, 阶段着色
@@ -852,7 +855,7 @@ const AttackChainPage = {
       window.removeEventListener('hashchange', load);
       if (chart) { chart.dispose(); chart = null; }
     });
-    return { steps, alert, alerts, err, target, chainRef, phaseColors };
+    return { steps, alert, alerts, err, target, chainRef, phaseColors, loading };
   },
 };
 
@@ -1336,7 +1339,7 @@ const EventDetailDialog = {
     </div>
     <template #footer>
       <el-button v-if="eventDetail.event && eventDetail.event.container_id"
-                 type="primary" @click="viewChain">🔗 查看攻击链</el-button>
+                 type="primary" @click="viewChain">🔗 查看完整攻击链</el-button>
     </template>
   </el-dialog>`,
   setup() {
