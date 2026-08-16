@@ -384,8 +384,8 @@ const AssetsPage = {
       <el-select v-model="topoFilter.node" placeholder="节点" clearable size="small" style="width:180px" @change="buildTopoDebounced">
         <el-option v-for="nd in data.nodes" :key="nd.name" :label="nd.name" :value="nd.name" />
       </el-select>
-      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">公共服务圈 (kube-dns/metrics-server)</el-checkbox>
-      <el-checkbox v-model="topoFilter.showPrivate" size="small" @change="buildTopoDebounced">私有服务圈 (traefik 等)</el-checkbox>
+      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">公共服务圈</el-checkbox>
+      <el-checkbox v-model="topoFilter.showPrivate" size="small" @change="buildTopoDebounced">私有服务圈</el-checkbox>
       <el-checkbox v-model="topoFilter.onlyLinked" size="small" @change="buildTopoDebounced">仅服务关联</el-checkbox>
     </div>
     <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
@@ -544,6 +544,25 @@ const AssetsPage = {
           }
         }
       }));
+      // 服务图例 (左下角, 随开关出现): 只显示被激活的服务
+      const legendItems = Object.entries(svcColorIdx).map(([sk, i]) => {
+        const isInfra = INFRA_SVCS.includes(sk.split('/')[1]);
+        const active = isInfra ? topoFilter.showInfra : topoFilter.showPrivate;
+        return active ? {
+          text: (isInfra ? '公共 ' : '私有 ') + sk.split('/')[1],
+          color: svcColors[i % svcColors.length],
+        } : null;
+      }).filter(Boolean);
+      const legendGraphics = legendItems.map((it, i) => ({
+        type: 'group',
+        left: 12 + i * 150, bottom: 8,
+        children: [
+          { type: 'circle', shape: { r: 4 },
+            style: { fill: it.color }, left: 0, top: 2 },
+          { type: 'text', left: 10, top: 0,
+            style: { text: it.text, fill: '#8ea6c8', fontSize: 11 } },
+        ],
+      }));
       groups.forEach((g, gi) => {
         const pods = filteredNodes[gi].pods;
         const angle = (2 * Math.PI * gi) / Math.max(groups.length, 1) - Math.PI / 2;
@@ -564,7 +583,8 @@ const AssetsPage = {
         nodes[idx].x = topoW * 0.5;
         nodes[idx].y = topoH * 0.5;
       });
-      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.shadowColor||'')) });
+      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.shadowColor||'')),
+                                    legend: legendGraphics.map(g => JSON.stringify(g.children)) });
       if (key === lastTopoKey) return;
       lastTopoKey = key;
       // 首次全量配置, 之后增量更新 data
@@ -575,6 +595,7 @@ const AssetsPage = {
             formatter: (p) => p.data?.__pod
               ? `${p.data.__pod.namespace}/${p.data.__pod.name}\n状态: ${p.data.__pod.status}\n服务: ${p.data.__pod.services.join(',') || '无'}`
               : (p.data.id || p.name) },
+          graphic: legendGraphics,
           series: [{
             type: "graph", layout: "none", roam: true, draggable: false,
             label: { show: true, fontSize: 10, color: '#cbd5e1' },
@@ -594,6 +615,7 @@ const AssetsPage = {
       chart.setOption({
         legend: { data: groups, textStyle: { color: '#8ea6c8' },
                   bottom: 4, itemWidth: 12, itemHeight: 12 },
+        graphic: legendGraphics,
         series: [{
           type: "graph", layout: "none", roam: true, draggable: false,
           label: { show: true, fontSize: 10, color: '#cbd5e1' },
