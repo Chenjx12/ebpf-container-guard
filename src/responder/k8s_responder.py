@@ -5,7 +5,7 @@ K8s 主动防御响应引擎 (v0.5.2) — 与 docker_responder 同接口, 双轨
 动作映射 (决策 #41):
   pause_container  → cgroup.freeze (内核 v2 freezer, 与 docker pause 同机制)
                      + patch annotation guard/frozen=true
-  isolate_network  → iptables FORWARD DROP Pod IP (断 C2/横移)
+  isolate_network  → IsolationBackend (v0.6.0: CNI 探测 → NetworkPolicy / iptables)
                      + patch annotation guard/isolated=true
   kill_process     → 原样保留 (宿主 PID os.kill, 与运行时无关)
   kill_container   → delete pod (Deployment/RS 先 scale 0 防控制器重建)
@@ -47,6 +47,13 @@ class K8sResponseEngine:
 
         self.cooldown = {}
         self.cooldown_period = 600
+
+        # v0.6.0: 网络隔离后端 (CNI 探测 + 自动选择)
+        from core.netpol_detect import detect_cni, get_isolation_backend
+        cni_mode = detect_cni()
+        self._isolation_backend = get_isolation_backend(cni_mode)
+        print(f"  [K8sResponseEngine] CNI={cni_mode.value}, "
+              f"隔离后端={type(self._isolation_backend).__name__}")
 
     # -----------------------------------------------------------
     # Helpers
@@ -212,44 +219,6 @@ class K8sResponseEngine:
         except Exception:
             return False
 
-    def _iptables_available(self):
-        """iptables 是否可用。
-
-        容器化: nsenter 进宿主 netns 执行宿主 iptables (宿主 glibc 兼容);
-        宿主机: 直接 iptables (PATH)。
-        """
-        import shutil
-        return shutil.which('nsenter') is not None or \
-            shutil.which('iptables') is not None
-
-    def _iptables_cmd(self):
-        """返回 iptables 命令前缀。
-
-        K8s 容器化: nsenter -t 1 -n (进宿主 netns, 宿主 iptables);
-        宿主机: 直接 iptables。
-        """
-        if os.path.exists('/var/run/secrets/kubernetes.io/serviceaccount'):
-            # 容器内 (有 serviceaccount = in_cluster):
-            # nsenter -m -n 进宿主 mount+netns, 用宿主的 iptables (glibc 兼容)
-            return 'nsenter -t 1 -m -n iptables'
-        return 'iptables'
-
-    def _iptables_block(self, pod_ip):
-        """iptables FORWARD DROP 源=Pod IP (断出向 C2/横移)"""
-        if not pod_ip:
-            return False
-        ipt = self._iptables_cmd()
-        os.system(f"{ipt} -C FORWARD -s {pod_ip} -j DROP 2>/dev/null "
-                  f"|| {ipt} -I FORWARD 1 -s {pod_ip} -j DROP")
-        return True
-
-    def _iptables_unblock(self, pod_ip):
-        if not pod_ip:
-            return False
-        ipt = self._iptables_cmd()
-        os.system(f"{ipt} -D FORWARD -s {pod_ip} -j DROP 2>/dev/null")
-        return True
-
     def _owner_controller(self, ns, pod):
         """pod → 控制器 (Deployment/StatefulSet/RS); 裸 pod 返回 None"""
         try:
@@ -328,23 +297,21 @@ class K8sResponseEngine:
                 if not ns or not pod:
                     ns, pod = self._parse_ns_pod(container_id)
                 pod_ip = self._pod_ip(ns, pod)
-                if self._iptables_available():
-                    success = self._iptables_block(pod_ip)
-                    if success:
-                        self._patch_annotation(
-                            ns, pod, 'guard/isolated',
-                            datetime.now().isoformat())
-                        print(f"✅ Pod {container_id} ISOLATED "
-                              f"(iptables DROP {pod_ip})")
-                else:
-                    # 兜底 (v0.5.4 hostNetwork 下容器内 iptables 可用,
-                    # 此处仅在未来 kube-router 接管等异常时触发)
+                success = self._isolation_backend.isolate(ns, pod, pod_ip)
+                if success:
                     self._patch_annotation(
                         ns, pod, 'guard/isolated',
                         datetime.now().isoformat())
-                    print(f"⚠️ Pod {container_id} 降级 annotation-only "
-                          f"(iptables 不可用)")
-                    success = True
+                    backend_name = type(self._isolation_backend).__name__
+                    print(f"✅ Pod {container_id} ISOLATED "
+                          f"({backend_name})")
+                else:
+                    # 后端降级也写 annotation (让 Dashboard 可见)
+                    self._patch_annotation(
+                        ns, pod, 'guard/isolated',
+                        datetime.now().isoformat())
+                    print(f"⚠️ Pod {container_id} 隔离降级 "
+                          f"(annotation-only)")
             elif action == 'kill_process':
                 self.kill_process(container_id, event_pid)
             elif action == 'kill_container':

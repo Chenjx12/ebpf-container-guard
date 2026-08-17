@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.0] - 2026-08-17
+
+### Added
+- **NetworkPolicy isolation backend**: CNI auto-detection (config filename + host interface + iptables chain → flannel/calico/cilium/kube-router), IsolationBackend interface with dual implementation
+  - `NsenterIptablesBackend` (flannel/unknown): extracted from k8s_responder into standalone class, behavior unchanged
+  - `NetworkPolicyBackend` (calico/cilium/kube-router): create/delete deny-all NetworkPolicy via K8s API, auto-fallback to iptables on API failure
+- **Tests**: 25 unit tests covering CNI detection multi-signal voting + backend routing
+- **RBAC**: `networking.k8s.io/networkpolicies` (create/delete/get/list)
+
+### Changed
+- **License**: MIT → Apache-2.0 (v0.6.0+; releases ≤ v0.5.x remain MIT)
+  - LICENSE file replaced, README badges updated, migration note added
+- `k8s_responder.py`: isolate_network branch → IsolationBackend routing
+- `k8s_decision_executor.py`: dismissed branch → IsolationBackend.unisolate (includes NetworkPolicy cleanup)
+
+### Fixed
+- `_iptables_available/_cmd/_block/_unblock` removed from k8s_responder (moved to isolation_backend.py); K8sDecisionExecutor no longer uses raw `os.system("iptables ...")`
+
 ## [0.5.8] - 2026-08-17
 
 ### Added

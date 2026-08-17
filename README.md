@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.4-green.svg)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -270,7 +270,7 @@ ebpf-container-guard/
 ├── setup.sh                         # Environment setup (idempotent, v0.3.11)
 ├── main.py                          # Entry point
 ├── requirements.txt                 # Python dependencies
-├── LICENSE                          # MIT License
+├── LICENSE                          # Apache-2.0 License
 ├── README.md                        # This file (English)
 ├── README_CN.md                     # Chinese version / 中文版
 ├── CHANGELOG.md                     # Version changelog
@@ -439,7 +439,12 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |       | ↳ v0.5.1 — K8s container discovery + identity | ✅ Stable |
 |       | ↳ v0.5.2 — K8s responder (response loop) | ✅ Stable |
 |       | ↳ v0.5.3 — DaemonSet deployment (guard containerized on k3s) | ✅ Stable |
-|       | ↳ v0.5.4 — Network blocking (nsenter real isolation + adapt blueprint) | ✅ Current |
+|       | ↳ v0.5.4 — Network blocking (nsenter real isolation + adapt blueprint) | ⏹ Archived |
+|       | ↳ v0.5.5 — K8s E2E scripting | ⏹ Archived |
+|       | ↳ v0.5.6 — Panel migration (Streamlit→FastAPI+Vue3) | ⏹ Archived |
+|       | ↳ v0.5.7 — Asset mgmt + topology + AI multi-config | ⏹ Archived |
+|       | ↳ v0.5.8 — Attack chain analysis page | ⏹ Archived |
+|       | ↳ **v0.6.0 — NetworkPolicy isolation + Apache-2.0 license** | ✅ **Current** |
 | v0.4.x | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 
@@ -508,9 +513,13 @@ sudo python3 main.py --verbose
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Licensed under the Apache License, Version 2.0.
+
+> **License History**: Versions ≤ v0.5.x are MIT Licensed.
+> Versions ≥ v0.6.0 are Apache-2.0 Licensed.
+> See the [LICENSE](LICENSE) file for details.
 
 ---
 

@@ -9,6 +9,24 @@
 
 ---
 
+## [0.6.0] - 2026-08-17
+
+### 新增
+- **NetworkPolicy 隔离后端**：CNI 自动探测（配置文件名 + 宿主接口 + iptables 链 → flannel/calico/cilium/kube-router），IsolationBackend 接口 + 双实现
+  - `NsenterIptablesBackend`（flannel/unknown）：从 k8s_responder 提取到独立类，行为不变
+  - `NetworkPolicyBackend`（calico/cilium/kube-router）：通过 K8s API 创建/删除 deny-all NetworkPolicy，API 失败自动降级 iptables
+- **测试**：25 单测覆盖 CNI 探测多信号表决 + 后端路由
+- **RBAC**：`networking.k8s.io/networkpolicies`（create/delete/get/list）
+
+### 变更
+- **许可证**：MIT → Apache-2.0（v0.6.0+；v0.5.x 及之前版本保持 MIT）
+  - LICENSE 文件替换，README 徽章更新，迁移说明添加
+- `k8s_responder.py`：isolate_network 分支 → IsolationBackend 路由
+- `k8s_decision_executor.py`：dismissed 分支 → IsolationBackend.unisolate（含 NetworkPolicy 清理）
+
+### 修复
+- `_iptables_available/_cmd/_block/_unblock` 从 k8s_responder 移除（迁移到 isolation_backend.py）；K8sDecisionExecutor 不再直接 `os.system("iptables ...")`
+
 ## [0.5.8] - 2026-08-17
 
 ### 新增

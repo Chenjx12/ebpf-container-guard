@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.4-green.svg)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -297,7 +297,7 @@ ebpf-container-guard/
 ├── setup.sh                        # 环境初始化（幂等，v0.3.11）
 ├── main.py                          # 主入口
 ├── requirements.txt                 # Python 依赖
-├── LICENSE                          # MIT 许可证
+├── LICENSE                          # Apache-2.0 许可证
 ├── README.md                        # 英文文档
 ├── README_CN.md                     # 中文文档（本文件）
 ├── CHANGELOG.md                     # 版本迭代记录
@@ -466,7 +466,7 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |       | ↳ v0.5.1 — K8s 容器发现 + 身份识别 | ✅ 稳定版 |
 |       | ↳ v0.5.2 — K8s responder（响应闭环） | ✅ 稳定版 |
 |       | ↳ v0.5.3 — DaemonSet 部署（guard 容器化上 k3s） | ✅ 稳定版 |
-|       | ↳ v0.5.4 — 网络阻断补全（nsenter 真实断网 + 适配蓝图） | ✅ 当前版本 |
+|       | ↳ v0.5.4 — 网络阻断补全（nsenter 真实断网 + 适配蓝图） | ⏹ 历史版本 |\n|       | ↳ v0.5.5 — K8s E2E 脚本化 | ⏹ 历史版本 |\n|       | ↳ v0.5.6 — 面板迁移（Streamlit→FastAPI+Vue3） | ⏹ 历史版本 |\n|       | ↳ v0.5.7 — 资产管理+拓扑+AI 多配置 | ⏹ 历史版本 |\n|       | ↳ v0.5.8 — 攻击链分析页面 | ⏹ 历史版本 |\n|       | ↳ **v0.6.0 — NetworkPolicy 隔离 + Apache-2.0 许可证** | ✅ **当前版本** |
 | v0.4.x | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 

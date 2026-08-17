@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-K8s decision executor — human-in-the-loop on K8s (v0.5.2).
+K8s decision executor — human-in-the-loop on K8s (v0.5.2, v0.6.0).
 
 同 DecisionExecutor 的 decisions.log 协议, 执行换成 K8s 动作:
   confirmed → delete pod (Deployment/RS 先 scale 0, 防控制器重建)
-  dismissed → 恢复 (cgroup.freeze=0 + iptables -D Pod IP + 清 annotation)
+  dismissed → 恢复 (cgroup.freeze=0 + IsolationBackend.unisolate + 清 annotation)
 
 container_id 语义: 'ns/pod' (ADR-040 格式)。
 """
@@ -31,6 +31,11 @@ class K8sDecisionExecutor:
         self._processed = set()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, daemon=True)
+
+        # v0.6.0: 网络隔离后端 (CNI 探测 + 自动选择)
+        from core.netpol_detect import detect_cni, get_isolation_backend
+        cni_mode = detect_cni()
+        self._isolation_backend = get_isolation_backend(cni_mode)
 
     def start(self):
         self._seed_processed()
@@ -170,10 +175,6 @@ class K8sDecisionExecutor:
         except Exception:
             return None
 
-    def _iptables_unblock(self, pod_ip):
-        if pod_ip:
-            os.system(f"iptables -D FORWARD -s {pod_ip} -j DROP 2>/dev/null")
-
     def _clear_annotation(self, ns, pod, key):
         try:
             body = {"metadata": {"annotations": {key: None}}}
@@ -213,12 +214,14 @@ class K8sDecisionExecutor:
         elif decision == 'dismissed':
             # 人工驳回 → 恢复 (解冻 + 解除隔离 + 清 annotation)
             ok = True
+            backend = self._isolation_backend
             cg = self._pod_cgroup_path(ns, pod)
             if self._set_freeze(cg, False):
                 print(f"  ✅ [K8sExecutor] {container_id} 已解冻")
             pod_ip = self._pod_ip(ns, pod)
-            self._iptables_unblock(pod_ip)
-            print(f"  ✅ [K8sExecutor] {container_id} 已解除隔离")
+            backend.unisolate(ns, pod, pod_ip)
+            print(f"  ✅ [K8sExecutor] {container_id} 已解除隔离"
+                  f" ({type(backend).__name__})")
             self._clear_annotation(ns, pod, 'guard/frozen')
             self._clear_annotation(ns, pod, 'guard/isolated')
             return ok
