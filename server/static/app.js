@@ -1208,6 +1208,8 @@ const SettingsPage = {
         ElMessage.success('配置已保存');
         ai.api_key = '';
         load();
+        // v0.6.0: 同步左下角 AI 快捷配置
+        if (window.loadAiQuick) window.loadAiQuick();
       } catch (e) { ElMessage.error(e.message); }
     }
     // v0.5.7: 激活切换
@@ -1216,6 +1218,7 @@ const SettingsPage = {
         await post('/api/ai/activate', { name: row.name });
         ElMessage.success(`已切换到 ${row.name} (guard 3s 热加载)`);
         load();
+        if (window.loadAiQuick) window.loadAiQuick();
       } catch (e) { ElMessage.error(e.message); }
     }
     async function deleteProfile(row) {
@@ -1223,6 +1226,7 @@ const SettingsPage = {
         await fetch('/api/ai/profiles/' + encodeURIComponent(row.name), { method: 'DELETE', credentials: 'same-origin' });
         ElMessage.success('配置已删除');
         load();
+        if (window.loadAiQuick) window.loadAiQuick();
       } catch (e) { ElMessage.error(e.message); }
     }
     async function addUser() {
@@ -1256,7 +1260,7 @@ const SettingsPage = {
         load();
       } catch (e) { ElMessage.error(e.message); }
     }
-    onMounted(load);
+    onMounted(() => {\n      load();\n      window.loadSettingsData = load;  // v0.6.0: 暴露给左下角 AI 快捷切换\n    });
     return { me, isAdmin, pw, ai, masked, profiles, modelOptions, loadingModels,
       tokenPurpose, tokenTtl, tokenFor, tokenNote, issuedToken, tokens,
       changePw, fetchModels, saveAiProfile, activateProfile, deleteProfile,
@@ -1523,6 +1527,8 @@ const App = {
         });
         ElMessage.success(`已切换到 ${aiQuick.name} (阈值已保存)`);
         loadAiQuick();
+        // v0.6.0: 同步设置页 AI 配置列表
+        if (window.loadSettingsData) window.loadSettingsData();
       } catch (e) { ElMessage.error(e.message); }
       aiQuickSaving.value = false;
     }
@@ -1590,6 +1596,7 @@ const App = {
       window.addEventListener('hashchange', onHash);
       refreshMe();
       loadAiQuick();
+      window.loadAiQuick = loadAiQuick;  // v0.6.0: 暴露给设置页组件
     });
     return { authed, me, route, allowedPages, currentComp, go, logout, onLoggedIn,
              themeState, setTheme, sidebarCollapsed, toggleSidebar,
