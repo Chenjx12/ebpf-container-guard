@@ -76,7 +76,7 @@ def main():
     subprocess.run(["python3", "-c", "open('/etc/passwd').read(10)"],
                    capture_output=True)
     # openat: cgroup release_agent 写入 (v0.4.2 basename+flags 检测)
-    cg = "/home/chenjx12/ebpf/bpf_testdir"  # 已存在, 沙箱可写
+    from pathlib import Path as _Path\n    cg = str(_Path(__file__).resolve().parent.parent / "bpf_testdir")  # 项目同级沙箱
     os.makedirs(cg, exist_ok=True)
     subprocess.run(["sh", "-c", f"cd {cg} && echo x > release_agent"],
                    capture_output=True)
