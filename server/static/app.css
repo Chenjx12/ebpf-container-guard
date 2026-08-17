@@ -183,7 +183,7 @@ body {
 /* ---------- 判决按钮 ---------- */
 .decide-btn { margin-right: 8px; }
 
-/* ---------- 拓扑图 (v0.5.7): 蓝色星空背景 (密集星点) ---------- */
+/* ---------- 拓扑图 (v0.5.7): 星空背景 (亮暗自适应, v0.6.0) ---------- */
 .topo-stars {
   background:
     radial-gradient(ellipse at 20% 30%, rgba(59,130,246,.12) 0%, transparent 55%),
@@ -217,7 +217,15 @@ body {
     radial-gradient(1px 1px at 55% 95%, rgba(255,255,255,.45) 0, transparent 100%),
     radial-gradient(1.5px 1.5px at 75% 8%, rgba(255,255,255,.55) 0, transparent 100%),
     radial-gradient(1px 1px at 88% 48%, rgba(255,255,255,.4) 0, transparent 100%),
-    linear-gradient(160deg, #0b1526 0%, #0e1a30 40%, #12233f 100%);
+    var(--stars-bg, linear-gradient(160deg, #0b1526 0%, #0e1a30 40%, #12233f 100%));
+}
+
+/* 暗色主题 (默认): 深蓝星空底 */
+:root { --stars-bg: linear-gradient(160deg, #0b1526 0%, #0e1a30 40%, #12233f 100%); }
+
+/* 亮色主题: 浅蓝星空底 */
+[data-theme="light"] {
+  --stars-bg: linear-gradient(160deg, #dce8f5 0%, #e5eef8 40%, #edf3fc 100%);
 }
 
 /* ---------- AI 快捷配置 (v0.5.7) ---------- */

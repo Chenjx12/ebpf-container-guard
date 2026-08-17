@@ -227,6 +227,13 @@ def review_queue(user: dict = read_any):
     if events.empty or 'state' not in events.columns:
         return {"groups": []}
     pend = events[events['state'] == 'pending_review']
+    # v0.6.0: 排除已判决的容器 (decisions.log 有记录的不再显示)
+    decisions = common.load_decisions()
+    decided_cids = set()
+    if not decisions.empty and 'container_id' in decisions.columns:
+        decided_cids = set(decisions['container_id'].dropna().astype(str))
+    if decided_cids:
+        pend = pend[~pend['container_id'].astype(str).isin(decided_cids)]
     groups = []
     for cid, grp in pend.groupby('container_id'):
         items = []

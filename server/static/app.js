@@ -296,7 +296,14 @@ const ReviewPage = {
     const groups = ref([]);
     const openNames = ref([]);  // 默认全部收起, 点击展开
     async function load() {
-      try { groups.value = (await get('/api/review/queue')).groups; } catch (e) {}
+      try {
+        const raw = (await get('/api/review/queue')).groups || [];
+        // v0.6.0: 保留已展开的画像 (轮询覆盖不掉)
+        const oldMap = {};
+        for (const g of groups.value) if (g.profile) oldMap[g.container_id] = g.profile;
+        for (const g of raw) if (oldMap[g.container_id]) g.profile = oldMap[g.container_id];
+        groups.value = raw;
+      } catch (e) {}
     }
     // v0.5.6: 展开才加载画像 (k8s API 慢, 收起态零调用)
     async function onExpand(names) {
@@ -417,7 +424,7 @@ const AssetsPage = {
         <el-table-column label="镜像" min-width="220"><template #default="{row}">
           <span class="mono" style="font-size:12px">{{ row.images[0] || '—' }}</span></template></el-table-column>
         <el-table-column label="状态" width="110"><template #default="{row}">
-          <el-tag size="small" :type="row.status === 'Running' || row.status === 'Succeeded' ? 'success' : row.status === 'Failed' ? 'danger' : row.status === 'Pending' ? 'warning' : 'info'">{{ row.status }}</el-tag></template></el-table-column>
+          <el-tag size="small" :type="row.status === 'Running' ? 'success' : row.status === 'Succeeded' ? 'info' : row.status === 'Failed' ? 'danger' : row.status === 'Pending' ? 'warning' : 'info'">{{ row.status }}</el-tag></template></el-table-column>
         <el-table-column label="Pod IP" width="120"><template #default="{row}">
           <span class="mono">{{ row.pod_ip || '—' }}</span></template></el-table-column>
         <el-table-column label="特权" width="80"><template #default="{row}">
@@ -451,7 +458,7 @@ const AssetsPage = {
           <el-descriptions-item label="命名空间">{{ podDialog.pod.namespace }}</el-descriptions-item>
           <el-descriptions-item label="节点">{{ podDialog.pod.node }}</el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag size="small" :type="podDialog.pod.status === 'Running' || podDialog.pod.status === 'Succeeded' ? 'success' : podDialog.pod.status === 'Failed' ? 'danger' : podDialog.pod.status === 'Pending' ? 'warning' : 'info'">{{ podDialog.pod.status }}</el-tag></el-descriptions-item>
+            <el-tag size="small" :type="podDialog.pod.status === 'Running' ? 'success' : podDialog.pod.status === 'Succeeded' ? 'info' : podDialog.pod.status === 'Failed' ? 'danger' : podDialog.pod.status === 'Pending' ? 'warning' : 'info'">{{ podDialog.pod.status }}</el-tag></el-descriptions-item>
           <el-descriptions-item label="Pod IP"><span class="mono">{{ podDialog.pod.pod_ip || '—' }}</span></el-descriptions-item>
           <el-descriptions-item label="特权">
             <el-tag size="small" :type="podDialog.pod.privileged ? 'danger' : 'primary'">{{ podDialog.pod.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
@@ -708,7 +715,7 @@ const AttackChainPage = {
           <el-descriptions-item label="容器"><span class="mono">{{ target.name }}</span></el-descriptions-item>
           <el-descriptions-item label="镜像">{{ target.image }}</el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag size="small" :type="target.status === 'Running' || target.status === 'Succeeded' ? 'success' : target.status === 'Failed' ? 'danger' : target.status === 'Pending' ? 'warning' : 'info'">{{ target.status }}</el-tag>
+            <el-tag size="small" :type="target.status === 'Running' ? 'success' : target.status === 'Succeeded' ? 'info' : target.status === 'Failed' ? 'danger' : target.status === 'Pending' ? 'warning' : 'info'">{{ target.status }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="特权">
             <el-tag size="small" :type="target.privileged ? 'danger' : 'primary'">{{ target.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
