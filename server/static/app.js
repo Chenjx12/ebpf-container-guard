@@ -267,7 +267,8 @@ const ReviewPage = {
                       style="margin-left:6px">{{ g.profile.runtime === 'k8s' ? 'k8s' : 'docker' }}</el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="状态">{{ g.profile.status }}</el-descriptions-item>
-            <el-descriptions-item label="特权">{{ g.profile.privileged }}</el-descriptions-item>
+            <el-descriptions-item label="特权">
+            <el-tag size="small" :type="g.profile.privileged ? 'danger' : 'primary'">{{ g.profile.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
             <el-descriptions-item label="端口/IP">{{ g.profile.ports }}</el-descriptions-item>
             <el-descriptions-item label="创建">{{ g.profile.created }}</el-descriptions-item>
             <el-descriptions-item label="PID">{{ g.profile.pid }}</el-descriptions-item>
@@ -416,12 +417,12 @@ const AssetsPage = {
         <el-table-column label="镜像" min-width="220"><template #default="{row}">
           <span class="mono" style="font-size:12px">{{ row.images[0] || '—' }}</span></template></el-table-column>
         <el-table-column label="状态" width="110"><template #default="{row}">
-          <el-tag size="small" :type="row.status === 'Running' ? 'success' : 'info'">{{ row.status }}</el-tag></template></el-table-column>
+          <el-tag size="small" :type="row.status === 'Running' || row.status === 'Succeeded' ? 'success' : row.status === 'Failed' ? 'danger' : row.status === 'Pending' ? 'warning' : 'info'">{{ row.status }}</el-tag></template></el-table-column>
         <el-table-column label="Pod IP" width="120"><template #default="{row}">
           <span class="mono">{{ row.pod_ip || '—' }}</span></template></el-table-column>
         <el-table-column label="特权" width="80"><template #default="{row}">
           <el-tag v-if="row.privileged" size="small" type="danger">是</el-tag>
-          <span v-else style="color:var(--muted)">否</span></template></el-table-column>
+          <el-tag v-else size="small" type="primary">否</el-tag></template></el-table-column>
         <el-table-column label="服务" min-width="140"><template #default="{row}">
           <el-tag v-for="s in row.services" :key="s" size="small" type="warning" style="margin-right:4px">{{ s }}</el-tag>
           <span v-if="!row.services.length" style="color:var(--muted)">—</span></template></el-table-column>
@@ -450,9 +451,10 @@ const AssetsPage = {
           <el-descriptions-item label="命名空间">{{ podDialog.pod.namespace }}</el-descriptions-item>
           <el-descriptions-item label="节点">{{ podDialog.pod.node }}</el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag size="small" :type="podDialog.pod.status === 'Running' ? 'success' : 'info'">{{ podDialog.pod.status }}</el-tag></el-descriptions-item>
+            <el-tag size="small" :type="podDialog.pod.status === 'Running' || podDialog.pod.status === 'Succeeded' ? 'success' : podDialog.pod.status === 'Failed' ? 'danger' : podDialog.pod.status === 'Pending' ? 'warning' : 'info'">{{ podDialog.pod.status }}</el-tag></el-descriptions-item>
           <el-descriptions-item label="Pod IP"><span class="mono">{{ podDialog.pod.pod_ip || '—' }}</span></el-descriptions-item>
-          <el-descriptions-item label="特权">{{ podDialog.pod.privileged ? '是' : '否' }}</el-descriptions-item>
+          <el-descriptions-item label="特权">
+            <el-tag size="small" :type="podDialog.pod.privileged ? 'danger' : 'primary'">{{ podDialog.pod.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
           <el-descriptions-item label="创建">{{ podDialog.pod.created }}</el-descriptions-item>
           <el-descriptions-item label="镜像" :span="2">
             <span v-for="img in podDialog.pod.images" :key="img" class="mono" style="display:block;font-size:12px">{{ img }}</span></el-descriptions-item>
@@ -706,9 +708,10 @@ const AttackChainPage = {
           <el-descriptions-item label="容器"><span class="mono">{{ target.name }}</span></el-descriptions-item>
           <el-descriptions-item label="镜像">{{ target.image }}</el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag size="small" :type="target.status === 'Running' ? 'success' : 'info'">{{ target.status }}</el-tag>
+            <el-tag size="small" :type="target.status === 'Running' || target.status === 'Succeeded' ? 'success' : target.status === 'Failed' ? 'danger' : target.status === 'Pending' ? 'warning' : 'info'">{{ target.status }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="特权">{{ target.privileged ? '是' : '否' }}</el-descriptions-item>
+          <el-descriptions-item label="特权">
+            <el-tag size="small" :type="target.privileged ? 'danger' : 'primary'">{{ target.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
           <el-descriptions-item label="IP/端口"><span class="mono">{{ target.ports }}</span></el-descriptions-item>
           <el-descriptions-item label="运行时">
             <el-tag size="small" :type="target.runtime === 'k8s' ? 'primary' : 'success'">{{ target.runtime }}</el-tag>
