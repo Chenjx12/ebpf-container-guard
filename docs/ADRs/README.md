@@ -23,6 +23,10 @@
 | [041](041-k8s-responder.md) | K8s responder：动作映射与降级 | Accepted | v0.5.2 |
 | [042](042-daemonset-deployment.md) | DaemonSet 容器化部署（in_cluster + 降级） | Accepted | v0.5.3 |
 | [043](043-nsenter-netblock.md) | 网络阻断补全（nsenter 宿主 iptables + 适配蓝图） | Accepted | v0.5.4 |
+| [044](044-k8s-e2e-scripted.md) | K8s E2E 全量脚本化与六重 bug 修复 | Accepted | v0.5.5 |
+| [045](045-panel-fastapi-vue3.md) | 面板迁移：Streamlit → FastAPI + Vue3 | Accepted | v0.5.6 |
+| [046](046-ai-profiles-assets-topo.md) | AI 多配置管理 + 资产拓扑图 | Accepted | v0.5.7 |
+| [047](047-attack-chain-analysis.md) | 攻击链分析页面（阶段聚合 + 流程图） | Accepted | v0.5.8 |
 
 ## 格式
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [Unreleased]
+
+### Fixed
+- **Dashboard status colors**: asset table & attack-chain target status now Succeeded=green / Failed=red / Pending=yellow; privileged column tags (否=blue, 是=red) (post-v0.6.0)
+- **Dashboard review queue**: polling no longer overwrites expanded container profiles; decided containers (decisions.log) excluded from pending queue (post-v0.6.0)
+- **Dashboard AI config sync**: save/activate/delete syncs sidebar quick panel; aiQuickSave syncs settings page (post-v0.6.0)
+- **bpf_smoke.py**: removed hardcoded absolute path — now resolves via `Path(__file__)` (post-v0.6.0)
+- **Topology starfield**: CSS-variable based, theme-adaptive (dark=deep navy, light=light blue)
+
 ## [0.6.0] - 2026-08-17
 
 ### Added
@@ -398,14 +407,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 10 rules loaded correctly (8 original + 2 new)
 - Exclude `runc:[2:INIT]` now correctly matches (both null-strip and fnmatch fix)
 - CVE-2019-5736 PoC testing: `privileged_exec` and `sensitive_file_access` rules trigger correctly
-
-## [Unreleased]
-
-### Planned
-- Kubernetes native support (v0.4, DaemonSet + NetworkPolicy)
-- New probes/rules (cgroup file-write for CVE-2022-0492, cap_sys_admin coverage)
-- Custom frontend dashboard (CSAI-style, decision record #17)
-- Performance benchmarking & systemd deployment
 
 ## [0.3.10] - 2026-08-11
 

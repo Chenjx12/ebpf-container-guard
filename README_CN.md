@@ -17,16 +17,16 @@
 ## 🎯 核心特性
 
 - **三层检测管线** — 规则引擎（12 条规则，毫秒级）→ 行为矩阵（行为→CVE 映射，组合评分）→ AI 研判（DeepSeek，置信度分级响应）
-- **6 个 eBPF 探针** — mount、ptrace、execve、connect、openat（内核态路径过滤）
+- **6 个 eBPF 探针** — mount、ptrace、execve、connect、capset、openat（内核态路径过滤）
 - **全量行为日志** — 所有 syscall 事件记录到 `behaviors.log`（buffered + 按天轮转，保留 7 天），可开关——事后回溯取证、**攻击链分析**（告警详情跳转方框箭头流程图，还原攻击步骤）
-- **11 页面 FastAPI + Vue3 面板**（v0.5.8）— REST API 后端（可接 nginx）+ 零构建 SPA：总览、资产管理（拓扑图）、告警流、人工确认队列、行为日志、规则管理、AI 建议规则、**攻击链分析**、设置、成员管理——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派（只能授权给低权限角色）；Swagger /docs 默认关闭（ENABLE_DOCS=1 开放）
+- **11 页面 FastAPI + Vue3 面板**（v0.6.0）— REST API 后端（可接 nginx）+ 零构建 SPA：总览、资产管理（拓扑图）、告警流、人工确认队列、行为日志、规则管理、AI 建议规则、**攻击链分析**、设置、成员管理——RBAC 角色权限（admin/运维/安全员）+ 临时 token 委派（只能授权给低权限角色）；Swagger /docs 默认关闭（ENABLE_DOCS=1 开放）
 - **容器身份识别** — PID Map → Cgroup Inode → /proc/cgroup 三级回退 + 后台动态刷新
 - **AI 威胁研判**（已实测）— DeepSeek API 集成，支持攻击确认、手法识别、未知攻击发现；**多配置管理**（ai_profiles.yaml，面板获取模型列表 + 命名配置 + 一键切换，左下角快捷面板）；真实 API 调用已验证，能正确区分真实攻击与误报
 - **分级自动化**（人机协同）— 可逆动作自动执行（暂停/隔离/流量阻断）；不可逆裁决（kill/镜像拉黑）进人工判决队列——AI 建议带置信度护栏执行
 - **网络流量阻断** — iptables DROP 已确认的恶意 IP:port（可逆，TTL 自动清理，业务流量保留）
 - **响应升级** — 同镜像重复攻击逐级升级：暂停 → kill（队列）→ 镜像拉黑（队列），阻止攻击循环
 - **事件状态机** — 每个事件追踪 new → quarantine → pending_review → resolved（v0.3 判决面板的数据基础）
-- **可配置** — 10 条检测规则 + 响应策略 + 监控范围（include/exclude 容器），YAML 定义，支持热加载
+- **可配置** — 12 条检测规则 + 响应策略 + 监控范围（include/exclude 容器），YAML 定义，支持热加载
 
 ---
 
@@ -72,7 +72,7 @@ sudo python3 main.py --rules my_rules.yaml --responses my_responses.yaml
 
 ### systemd 部署（单机/边缘/政企内网，v0.4.3）
 
-适合**无 K8s 集群**的环境（隔离内网/边缘单机）；集群内请用 DaemonSet（v0.4.4 规划）。
+适合**无 K8s 集群**的环境（隔离内网/边缘单机）；集群内请用 DaemonSet（v0.5.3+）。
 
 ```bash
 sudo make build                                    # 预编译 CO-RE 探针（首次）
@@ -247,7 +247,8 @@ AI 正确识别了这条误报——规则引擎匹配了模式，但 AI 理解�
 │  └────────────────────────────────────────┘   │
 │  ┌────────────────────────────────────────┐   │
 │  │  engine.py — Tier 1 规则引擎（12 条）     │   │
-│  │  ├─ mount/ptrace/execve/connect/openat   │   │
+│  │  ├─ mount/ptrace/execve/connect/openat/  │   │
+│  │  │   capset — 6 个攻击面                  │   │
 │  │  ├─ 索引匹配 + 白名单 + fnmatch 排除     │   │
 │  │  └─ 告警分级: CRITICAL / HIGH           │   │
 │  ├────────────────────────────────────────┤   │
@@ -260,9 +261,10 @@ AI 正确识别了这条误报——规则引擎匹配了模式，但 AI 理解�
 │  │  ├─ DeepSeek API 置信度分级              │   │
 │  │  └─ 未知攻击 → 建议新规则                  │   │
 │  │  ┌────────────────────────────────────┐ │   │
-│  │  │  docker_responder.py — 响应引擎     │ │   │
+│  │  │  响应引擎（Docker + K8s 双轨）      │ │   │
 │  │  │  ├─ pause/isolate/kill/log          │ │   │
-│  │  │  └─ 10min 冷却 + JSON 审计           │ │   │
+│  │  │  ├─ 10min 冷却 + JSON 审计           │ │   │
+│  │  │  └─ CNI 感知: iptables / NetworkPolicy│ │   │
 │  │  └────────────────────────────────────┘ │   │
 │  └────────────────────────────────────────┘   │
 ├──────────────────────────────────────────────┤
@@ -305,6 +307,8 @@ ebpf-container-guard/
 ├── Makefile                         # 构建/部署自动化
 ├── src/
 │   ├── core/                        # 基础设施
+│   │   ├── bpf_runtime.py           # CO-RE 加载层（vmlinux.h + 自研 ctypes）
+│   │   ├── libbpf.py                # libbpf.so.1 绑定（ctypes）
 │   │   ├── identity.py              # 容器身份管理（三级回退 + 后台刷新）
 │   │   ├── event_log.py             # 结构化 JSON 事件日志
 │   │   ├── behavior_logger.py       # 全量 syscall → behaviors.log (v0.3.10)
@@ -312,26 +316,40 @@ ebpf-container-guard/
 │   │   ├── escalation.py            # 响应升级（暂停 → kill → 镜像拉黑）
 │   │   ├── netblock.py              # iptables FORWARD DROP（可逆）
 │   │   ├── netblock_xdp.py          # XDP 入站阻断 + 混合后端
-│   │   └── decision_executor.py     # 执行人工裁决（来自 decisions.log）
+│   │   ├── decision_executor.py     # 执行人工裁决（来自 decisions.log）
+│   │   ├── k8s_decision_executor.py # K8s 裁决执行（confirmed→删除 / dismissed→恢复）
+│   │   ├── kube_utils.py            # 集群内 kubeconfig 解析（SA 优先 + 回退）
+│   │   └── netpol_detect.py         # CNI 自动探测（v0.6.0，多信号表决）
 │   ├── ebpf/
-│   │   ├── escape-detect.bpf.c      # eBPF 内核探针（5 个 tracepoint）
+│   │   ├── escape-detect.bpf.c      # eBPF 内核探针（6 个 tracepoint）
 │   │   └── xdp-block.bpf.c          # XDP 包过滤程序 (v0.3.9)
 │   ├── detector/
 │   │   ├── __init__.py
+│   │   ├── rule_schema.py           # 规则 schema 校验（Falco 风格条件树）
 │   │   ├── engine.py                # Tier 1: YAML 规则引擎（热加载）
-│   │   ├── attack_matrix.py         # Tier 2: 行为→CVE 矩阵（8 向量）
+│   │   ├── attack_matrix.py         # Tier 2: 行为→CVE 矩阵（10 向量 × 8 组合）
 │   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI 研判（异步）
 │   └── responder/
 │       ├── __init__.py
-│       └── docker_responder.py      # Docker 响应引擎（分级自动化）
+│       ├── docker_responder.py      # Docker 响应引擎（分级自动化）
+│       ├── k8s_responder.py         # K8s 响应引擎（冻结/隔离/删 Pod）
+│       ├── isolation_backend.py     # IsolationBackend 接口 + NsenterIptablesBackend
+│       └── k8s_network_policy.py    # NetworkPolicyBackend（deny-all，CNI 感知，v0.6.0）
 ├── config/
-│   ├── rules.yaml                   # 10 条检测规则
+│   ├── rules.yaml                   # 12 条检测规则
 │   ├── responses.yaml               # 4 级响应策略
 │   ├── monitor.yaml                 # 监控范围 + netblock 后端 + behavior_log 开关
+│   ├── ai_profiles.yaml             # AI 多配置（唯一编辑入口）
 │   ├── ai_config.yaml.example       # DeepSeek API 密钥模板
 │   ├── users.yaml.example           # RBAC 用户配置模板
 │   └── blocklist.yaml               # 已拉黑镜像列表
-├── dashboard/                       # Streamlit 安全面板
+├── server/                          # FastAPI + Vue3 面板（v0.5.6+，可接 nginx）
+│   ├── app.py                       # FastAPI 入口（RBAC + 一次性 token 门控）
+│   ├── deps.py                      # 角色权限依赖（admin/运维/安全员）
+│   ├── common.py                    # 共享日志/事件加载（GUARD_LOGS_DIR 感知）
+│   ├── routes.py                    # REST API 端点（24+）
+│   └── static/                      # 零构建 Vue3 SPA（11 页面，Element Plus CDN）
+├── dashboard/                       # 旧 Streamlit 面板（已弃用，v0.5.6+ 保留回退）
 │   ├── app.py                       # 入口 + 导航 + 强制改密
 │   ├── common.py                    # 共享数据加载工具
 │   ├── auth.py                      # AuthManager + TokenManager（RBAC）
@@ -346,9 +364,17 @@ ebpf-container-guard/
 │       ├── members.py               # 成员管理（admin）
 │       └── settings.py              # AI 配置 + 临时 token 发放
 ├── tests/
+│   ├── unit/                        # 单元测试（79 个测试函数）
+│   │   ├── conftest.py              # 共享 fixtures
+│   │   ├── test_rule_schema.py      # 规则 schema / 条件树测试
+│   │   ├── test_matcher.py          # 规则匹配测试
+│   │   ├── test_dashboard_utils.py  # 面板工具测试
+│   │   ├── test_behavior_logger.py  # 行为日志测试
+│   │   ├── test_api_auth.py         # API RBAC/认证测试（v0.5.6）
+│   │   └── test_netpol.py           # NetworkPolicy + CNI 探测（v0.6.0）
 │   ├── integration/
 │   │   ├── test_escape_scenarios.sh # 烟雾测试（15 项检查）
-│   │   └── scenarios/               # 6 个 E2E 场景测试
+│   │   └── scenarios/               # 8 个 E2E 场景测试
 │   │       ├── lib.sh               # 共享生命周期函数
 │   │       ├── build_image.sh       # 代理感知的 Docker 镜像构建
 │   │       ├── run_all_scenarios.sh # 一键运行全部场景
@@ -357,8 +383,31 @@ ebpf-container-guard/
 │   │       ├── test_ptrace_escape.sh
 │   │       ├── test_sensitive_file.sh
 │   │       ├── test_reverse_shell.sh
-│   │       └── test_nsenter.sh
+│   │       ├── test_nsenter.sh
+│   │       ├── test_cgroup_escape.sh
+│   │       └── test_capset.sh
+│   ├── k8s/                         # k3s E2E 场景（v0.5.5）
+│   │   └── scenarios/
+│   │       ├── lib_k8s.sh           # run_escape_pod + guard 就绪轮询
+│   │       └── run_all_k8s.sh       # 6 场景 × 4 断言
 │   └── images/                      # 各场景的测试 Dockerfile
+├── tools/
+│   ├── bpf_smoke.py                 # 探针冒烟测试（6 探针）
+│   └── bench_openat.py              # 性能压测（v0.4.3）
+├── scripts/
+│   └── migrate_rules_v04.py         # v0.3 → v0.4 规则 schema 迁移
+├── deploy/
+│   ├── Dockerfile.guard             # guard 容器镜像（k3s DaemonSet）
+│   ├── Dockerfile.test              # 预制 strace 测试镜像
+│   ├── k8s/                         # configmap / daemonset / rbac
+│   ├── systemd/                     # ebpf-guard.service（单机，v0.4.3）
+│   └── libbpf/                      # 容器运行时内置 libbpf.so / libelf.so
+└── docs/
+    ├── ADRs/                        # 20+ 架构决策记录
+    ├── MVP-运行验证报告.md / MVP-verification-report.md
+    ├── 验证报告-v0.4.1.md / verification-report-v0.4.1.md
+    ├── performance-report.md        # 压测报告（v0.4.3）
+    └── k8s-multi-node-demo.md       # 3 VM 多节点演示指南（v0.5.7）
 ```
 
 ---
@@ -466,8 +515,12 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |       | ↳ v0.5.1 — K8s 容器发现 + 身份识别 | ✅ 稳定版 |
 |       | ↳ v0.5.2 — K8s responder（响应闭环） | ✅ 稳定版 |
 |       | ↳ v0.5.3 — DaemonSet 部署（guard 容器化上 k3s） | ✅ 稳定版 |
-|       | ↳ v0.5.4 — 网络阻断补全（nsenter 真实断网 + 适配蓝图） | ⏹ 历史版本 |\n|       | ↳ v0.5.5 — K8s E2E 脚本化 | ⏹ 历史版本 |\n|       | ↳ v0.5.6 — 面板迁移（Streamlit→FastAPI+Vue3） | ⏹ 历史版本 |\n|       | ↳ v0.5.7 — 资产管理+拓扑+AI 多配置 | ⏹ 历史版本 |\n|       | ↳ v0.5.8 — 攻击链分析页面 | ⏹ 历史版本 |\n|       | ↳ **v0.6.0 — NetworkPolicy 隔离 + Apache-2.0 许可证** | ✅ **当前版本** |
-| v0.4.x | K8s 原生支持（DaemonSet + NetworkPolicy） | 📋 规划中 |
+|       | ↳ v0.5.4 — 网络阻断补全（nsenter 真实断网 + 适配蓝图） | ⏹ 历史版本 |
+|       | ↳ v0.5.5 — K8s E2E 脚本化 | ⏹ 历史版本 |
+|       | ↳ v0.5.6 — 面板迁移（Streamlit→FastAPI+Vue3） | ⏹ 历史版本 |
+|       | ↳ v0.5.7 — 资产管理+拓扑+AI 多配置 | ⏹ 历史版本 |
+|       | ↳ v0.5.8 — 攻击链分析页面 | ⏹ 历史版本 |
+| v0.6 | **NetworkPolicy 隔离（CNI 自动探测）+ Apache-2.0 许可证** | ✅ **当前版本** |
 | v1.0 | 稳定版，毕设答辩前发布 | 📋 12 月 |
 
 详见 [CHANGELOG.md](CHANGELOG.md)。
@@ -527,7 +580,7 @@ docker rm -f test_esc
 
 ---
 
-**最后更新**: 2026-08-14
+**最后更新**: 2026-08-26
 
 ---
 # Star

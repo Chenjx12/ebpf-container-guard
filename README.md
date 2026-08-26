@@ -14,17 +14,17 @@
 
 ## 🎯 Key Features
 
-- **3-Tier Detection Pipeline**: Rule engine (12 rules, sub-ms) → Attack matrix (behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
-- **6 eBPF Probes**: mount, ptrace, execve, connect, openat (kernel-space path filter)
+- **3-Tier Detection Pipeline**: Rule engine (12 rules, sub-ms) → Attack matrix (10 vectors × 8 combo rules, behavior→CVE mapping, combination scoring) → AI judge (DeepSeek, confidence-gated response)
+- **6 eBPF Probes**: mount, ptrace, execve, connect, capset, openat (kernel-space path filter)
 - **Behavior Logger**: ALL syscall events recorded to `behaviors.log` (buffered + daily rotation, 7-day retention) with configurable toggle — full behavioral timeline for post-incident analysis and audit
-- **Dashboard** (v0.5.8): 11-page FastAPI + Vue3 panel — REST API backend (nginx-ready) + zero-build SPA: Overview, **Asset Management (topology graph)**, Alerts, Review Queue, Behavior Log, Rules, AI Rules, **Attack Chain Analysis (flow chart)**, Settings, Members — role-based access + temporary token delegation (lower-privilege only); Swagger /docs disabled by default (`ENABLE_DOCS=1`)
+- **Dashboard** (v0.6.0): 11-page FastAPI + Vue3 panel — REST API backend (nginx-ready) + zero-build SPA: Overview, **Asset Management (topology graph)**, Alerts, Review Queue, Behavior Log, Rules, AI Rules, **Attack Chain Analysis (flow chart)**, Settings, Members — role-based access + temporary token delegation (lower-privilege only); Swagger /docs disabled by default (`ENABLE_DOCS=1`)
 - **Container Identity**: 3-tier fallback (PID Map → Cgroup Inode → /proc/cgroup) with background refresh
 - **AI-Powered Analysis** (live-tested): DeepSeek API integration for threat confirmation, technique identification, and unknown attack discovery — **multi-profile management** (ai_profiles.yaml, fetch model list + named configs + one-click switch via sidebar quick panel); verified with real API calls, correctly distinguishes true positives from false positives
 - **Graded Automation** (human-in-the-loop): reversible actions auto-execute (pause/isolate/network block); irreversible verdicts (kill/image blocklist) queue for human review — AI suggestions execute with confidence guardrails
 - **Network Traffic Blocking**: iptables DROP for confirmed malicious IP:port (reversible, TTL cleanup, business traffic preserved)
 - **Response Escalation**: repeated attacks from the same image escalate pause → kill (queued) → image blocklist (queued), stopping attack loops
 - **Event State Machine**: every event tracked as new → quarantine → pending_review → resolved (foundation for the v0.3 review dashboard)
-- **Configurable**: 10 detection rules + response strategies + monitoring scope (include/exclude containers) via YAML, hot-reload support
+- **Configurable**: 12 detection rules + response strategies + monitoring scope (include/exclude containers) via YAML, hot-reload support
 
 ---
 
@@ -69,7 +69,7 @@ sudo python3 main.py \
 ### Option 3b: systemd Deployment (single-host / edge / isolated networks, v0.4.3)
 
 For environments **without a K8s cluster** (isolated intranets / edge nodes);
-use DaemonSet inside clusters (v0.4.4 planned).
+use DaemonSet inside clusters (v0.5.3+).
 
 ```bash
 sudo make build                                    # precompile CO-RE probes (first use)
@@ -224,7 +224,7 @@ The AI correctly identified this as a false positive — the rule engine matched
 │   ┌───────────────────────────────────────┐  │
 │   │  Tier 1: Rule Engine (12 YAML rules)    │  │
 │   │  ├─ mount, ptrace, execve, connect,    │  │
-│   │  │   openat, capset — 5 attack surfaces        │  │
+│   │  │   openat, capset — 6 attack surfaces │  │
 │   │  ├─ Whitelist exclusion + fnmatch      │  │
 │   │  └─ Severity: CRITICAL / HIGH          │  │
 │   ├───────────────────────────────────────┤  │
@@ -237,9 +237,10 @@ The AI correctly identified this as a false positive — the rule engine matched
 │   │  ├─ Confidence-gated response          │  │
 │   │  └─ Unknown attack → suggested rules   │  │
 │   │  ┌───────────────────────────────────┐ │  │
-│   │  │  Response Engine                   │ │  │
+│   │  │  Response Engine (Docker + K8s)    │ │  │
 │   │  │  ├─ Pause / Isolate / Kill / Log   │ │  │
-│   │  │  └─ 10-min cooldown + JSON audit   │ │  │
+│   │  │  ├─ 10-min cooldown + JSON audit   │ │  │
+│   │  │  └─ CNI-aware: iptables / NetworkPolicy │ │  │
 │   │  └───────────────────────────────────┘ │  │
 │   └───────────────────────────────────────┘  │
 ├─────────────────────────────────────────────┤
@@ -278,6 +279,8 @@ ebpf-container-guard/
 ├── Makefile                         # Build/deploy automation
 ├── src/
 │   ├── core/                        # Infrastructure
+│   │   ├── bpf_runtime.py           # CO-RE loader (vmlinux.h + hand-rolled ctypes)
+│   │   ├── libbpf.py                # libbpf.so.1 bindings (ctypes)
 │   │   ├── identity.py              # Container identity (3-tier fallback + refresh)
 │   │   ├── event_log.py             # Structured JSON event logger
 │   │   ├── behavior_logger.py       # ALL syscall events → behaviors.log (v0.3.10)
@@ -285,43 +288,56 @@ ebpf-container-guard/
 │   │   ├── escalation.py            # Response escalation (pause → kill → blocklist)
 │   │   ├── netblock.py              # iptables FORWARD DROP (reversible)
 │   │   ├── netblock_xdp.py          # XDP ingress block + CompositeNetBlocker
-│   │   └── decision_executor.py     # Execute human verdicts from decisions.log
+│   │   ├── decision_executor.py     # Execute human verdicts from decisions.log
+│   │   ├── k8s_decision_executor.py # K8s verdict executor (confirmed→delete / dismissed→restore)
+│   │   ├── kube_utils.py            # In-cluster kubeconfig resolution (SA + fallback)
+│   │   └── netpol_detect.py         # CNI auto-detect (v0.6.0, multi-signal voting)
 │   ├── ebpf/
-│   │   ├── escape-detect.bpf.c      # eBPF kernel probes (5 tracepoints)
+│   │   ├── escape-detect.bpf.c      # eBPF kernel probes (6 tracepoints)
 │   │   └── xdp-block.bpf.c          # XDP packet filter program (v0.3.9)
 │   ├── detector/
 │   │   ├── __init__.py
+│   │   ├── rule_schema.py           # Rule schema validator (Falco-style condition trees)
 │   │   ├── engine.py                # Tier 1: YAML rule engine (hot-reload)
-│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix (10 vectors)
+│   │   ├── attack_matrix.py         # Tier 2: behavior→CVE matrix (10 vectors × 8 combo)
 │   │   └── ai_analyzer.py           # Tier 3: DeepSeek AI judge (async)
 │   └── responder/
 │       ├── __init__.py
-│       └── docker_responder.py      # Docker response engine (graded automation)
+│       ├── docker_responder.py      # Docker response engine (graded automation)
+│       ├── k8s_responder.py         # K8s response engine (freeze / isolate / delete pod)
+│       ├── isolation_backend.py     # IsolationBackend interface + NsenterIptablesBackend
+│       └── k8s_network_policy.py    # NetworkPolicyBackend (deny-all, CNI-aware, v0.6.0)
 ├── config/
-│   ├── rules.yaml                   # 10 detection rules
+│   ├── rules.yaml                   # 12 detection rules
 │   ├── responses.yaml               # 4-tier response strategies
 │   ├── monitor.yaml                 # Monitoring scope + netblock backend + behavior_log toggle
+│   ├── ai_profiles.yaml             # AI multi-profile configs (single source of truth)
 │   ├── ai_config.yaml.example       # DeepSeek API key template
 │   ├── users.yaml.example           # RBAC user configuration template
 │   └── blocklist.yaml               # Blocked images list
-├── dashboard/                       # Streamlit security dashboard
+├── server/                          # FastAPI + Vue3 dashboard (v0.5.6+, nginx-ready)
+│   ├── app.py                       # FastAPI entry (RBAC + temp-token gating)
+│   ├── deps.py                      # Role dependency guards (admin/operator/analyst)
+│   ├── common.py                    # Shared log/event loaders (GUARD_LOGS_DIR aware)
+│   ├── routes.py                    # REST API endpoints (24+)
+│   └── static/                      # Zero-build Vue3 SPA (11 pages, Element Plus CDN)
+├── dashboard/                       # Legacy Streamlit dashboard (deprecated, v0.5.6+)
 │   ├── app.py                       # Entry point + navigation + forced password change
 │   ├── common.py                    # Shared data loading utilities
 │   ├── auth.py                      # AuthManager + TokenManager (RBAC)
-│   └── pages/                       # 7 pages
-│       ├── login.py                 # Login page
-│       ├── overview.py              # Overview metrics + container filter
-│       ├── behavior_log.py          # ALL syscall events browser (v0.3.10)
-│       ├── review_queue.py          # Human review queue (container-level)
-│       ├── ai_rules.py              # AI suggested-rule review
-│       ├── rules.py                 # Rule management + audit trail
-│       ├── alerts.py                # Live alert stream + netblock records
-│       ├── members.py               # Member management (admin)
-│       └── settings.py              # AI config + temp token grant
+│   └── pages/                       # 7 pages (kept for rollback)
 ├── tests/
+│   ├── unit/                        # Unit tests (79 test functions)
+│   │   ├── conftest.py              # Shared fixtures
+│   │   ├── test_rule_schema.py      # Rule schema / condition tree tests
+│   │   ├── test_matcher.py          # Rule matcher tests
+│   │   ├── test_dashboard_utils.py  # Dashboard utility tests
+│   │   ├── test_behavior_logger.py  # Behavior logger tests
+│   │   ├── test_api_auth.py         # API RBAC / auth tests (v0.5.6)
+│   │   └── test_netpol.py           # NetworkPolicy + CNI detection (v0.6.0)
 │   ├── integration/
 │   │   ├── test_escape_scenarios.sh # Smoke tests (15 checks)
-│   │   └── scenarios/               # 6 E2E scenario tests
+│   │   └── scenarios/               # 8 E2E scenario tests
 │   │       ├── lib.sh               # Shared lifecycle helpers
 │   │       ├── build_image.sh       # Proxy-aware Docker image builder
 │   │       ├── run_all_scenarios.sh # One-click scenario runner
@@ -330,8 +346,31 @@ ebpf-container-guard/
 │   │       ├── test_ptrace_escape.sh
 │   │       ├── test_sensitive_file.sh
 │   │       ├── test_reverse_shell.sh
-│   │       └── test_nsenter.sh
+│   │       ├── test_nsenter.sh
+│   │       ├── test_cgroup_escape.sh
+│   │       └── test_capset.sh
+│   ├── k8s/                         # k3s E2E scenarios (v0.5.5)
+│   │   └── scenarios/
+│   │       ├── lib_k8s.sh           # run_escape_pod + guard readiness polling
+│   │       └── run_all_k8s.sh       # 6 scenarios × 4 assertions
 │   └── images/                      # Test Dockerfiles for each scenario
+├── tools/
+│   ├── bpf_smoke.py                 # Probe smoke test (6 probes)
+│   └── bench_openat.py              # Performance benchmark (v0.4.3)
+├── scripts/
+│   └── migrate_rules_v04.py         # v0.3 → v0.4 rule schema migration
+├── deploy/
+│   ├── Dockerfile.guard             # Guard container image (k3s DaemonSet)
+│   ├── Dockerfile.test              # Pre-built strace test image
+│   ├── k8s/                         # configmap.yaml / daemonset.yaml / rbac.yaml
+│   ├── systemd/                     # ebpf-guard.service (single-host, v0.4.3)
+│   └── libbpf/                      # Bundled libbpf.so / libelf.so for container runtime
+└── docs/
+    ├── ADRs/                        # 20+ Architecture Decision Records
+    ├── MVP-运行验证报告.md / MVP-verification-report.md
+    ├── 验证报告-v0.4.1.md / verification-report-v0.4.1.md
+    ├── performance-report.md        # Bench results (v0.4.3)
+    └── k8s-multi-node-demo.md       # 3-VM demo guide (v0.5.7)
 ```
 
 ---
@@ -434,7 +473,7 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 | v0.4 | Rule engine rewrite (Falco-style condition trees) + BCC→libbpf CO-RE migration (hand-rolled ctypes loader) | ✅ Stable |
 |       | ↳ v0.4.3 — production prep (systemd + perf) | ✅ Stable |
 |       | ↳ v0.4.4 — behavior log IO (buffered + rotation) | ✅ Stable |
-| v0.5 | Single-instance lock (deployment-mode exclusion) → K8s DaemonSet native | ✅ Current |
+| v0.5 | Single-instance lock (deployment-mode exclusion) → K8s DaemonSet native | ✅ Stable |
 |       | ↳ v0.5.0 — single-instance lock | ✅ Stable |
 |       | ↳ v0.5.1 — K8s container discovery + identity | ✅ Stable |
 |       | ↳ v0.5.2 — K8s responder (response loop) | ✅ Stable |
@@ -444,8 +483,7 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |       | ↳ v0.5.6 — Panel migration (Streamlit→FastAPI+Vue3) | ⏹ Archived |
 |       | ↳ v0.5.7 — Asset mgmt + topology + AI multi-config | ⏹ Archived |
 |       | ↳ v0.5.8 — Attack chain analysis page | ⏹ Archived |
-|       | ↳ **v0.6.0 — NetworkPolicy isolation + Apache-2.0 license** | ✅ **Current** |
-| v0.4.x | K8s native support (DaemonSet + NetworkPolicy) | 📋 Planned |
+| v0.6 | **NetworkPolicy isolation (CNI auto-detect) + Apache-2.0 license** | ✅ **Current** |
 | v1.0 | Stable release for thesis defense | 📋 Dec |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
@@ -536,4 +574,4 @@ If you want to learn eBPF from scratch, check out my learning notes:
 
 ---
 
-**Last Updated**: 2026-08-14
+**Last Updated**: 2026-08-26
