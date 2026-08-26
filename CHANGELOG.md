@@ -7,15 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
-## [Unreleased]
-
-### Fixed
-- **Dashboard status colors**: asset table & attack-chain target status now Succeeded=green / Failed=red / Pending=yellow; privileged column tags (否=blue, 是=red) (post-v0.6.0)
-- **Dashboard review queue**: polling no longer overwrites expanded container profiles; decided containers (decisions.log) excluded from pending queue (post-v0.6.0)
-- **Dashboard AI config sync**: save/activate/delete syncs sidebar quick panel; aiQuickSave syncs settings page (post-v0.6.0)
-- **bpf_smoke.py**: removed hardcoded absolute path — now resolves via `Path(__file__)` (post-v0.6.0)
-- **Topology starfield**: CSS-variable based, theme-adaptive (dark=deep navy, light=light blue)
-
 ## [0.6.0] - 2026-08-17
 
 ### Added
@@ -33,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `_iptables_available/_cmd/_block/_unblock` removed from k8s_responder (moved to isolation_backend.py); K8sDecisionExecutor no longer uses raw `os.system("iptables ...")`
+- **Dashboard status colors**: asset table & attack-chain target status now Succeeded=green / Failed=red / Pending=yellow; privileged column tags (否=blue, 是=red)
+- **Dashboard review queue**: polling no longer overwrites expanded container profiles; decided containers (decisions.log) excluded from pending queue
+- **Dashboard AI config sync**: save/activate/delete syncs sidebar quick panel; aiQuickSave syncs settings page
+- **bpf_smoke.py**: removed hardcoded absolute path — now resolves via `Path(__file__)`
+- **Topology starfield**: CSS-variable based, theme-adaptive (dark=deep navy, light=light blue)
 
 ## [0.5.8] - 2026-08-17
 
