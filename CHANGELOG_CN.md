@@ -3,7 +3,8 @@
 本项目所有重要变更均记录于此文件。
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
-版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+本项目处于 **preview 开发阶段（0.x）**——版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)
+作为改动点的追踪方式，但在 v1.0 之前，各版本**可能包含破坏性 / 不兼容的更新**。
 
 [**English Version / 英文版**](CHANGELOG.md)
 

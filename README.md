@@ -5,6 +5,12 @@
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
+> ⚠️ **Development Preview**: This project is in active **preview development** (0.x).
+> It may introduce **breaking / incompatible changes** at any point.
+> GitHub **releases are for tracking changes only** — they do not imply a stable
+> API surface or production readiness. Not yet recommended for production use.
+> Test thoroughly in your environment before depending on a specific behavior.
+
 > 🛡️ AI-enhanced container escape detection system based on eBPF  
 > Real-time Detection · Intelligent Analysis · Auto Response · Cloud-Native Ready
 
@@ -467,24 +473,24 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 
 | Version | Features | Status |
 |---------|----------|--------|
-| v0.1 | MVP: Basic detection + Docker response | ✅ Stable |
-| v0.2 | 3-tier detection + graded automation (netblock, escalation) | ✅ Stable |
-| v0.3 | Dashboard + human-in-the-loop (multi-page, RBAC, XDP+iptables blocking, async AI, behavior logger) | ✅ Stable |
-| v0.4 | Rule engine rewrite (Falco-style condition trees) + BCC→libbpf CO-RE migration (hand-rolled ctypes loader) | ✅ Stable |
-|       | ↳ v0.4.3 — production prep (systemd + perf) | ✅ Stable |
-|       | ↳ v0.4.4 — behavior log IO (buffered + rotation) | ✅ Stable |
-| v0.5 | Single-instance lock (deployment-mode exclusion) → K8s DaemonSet native | ✅ Stable |
-|       | ↳ v0.5.0 — single-instance lock | ✅ Stable |
-|       | ↳ v0.5.1 — K8s container discovery + identity | ✅ Stable |
-|       | ↳ v0.5.2 — K8s responder (response loop) | ✅ Stable |
-|       | ↳ v0.5.3 — DaemonSet deployment (guard containerized on k3s) | ✅ Stable |
+| v0.1 | MVP: Basic detection + Docker response | ✅ Released |
+| v0.2 | 3-tier detection + graded automation (netblock, escalation) | ✅ Released |
+| v0.3 | Dashboard + human-in-the-loop (multi-page, RBAC, XDP+iptables blocking, async AI, behavior logger) | ✅ Released |
+| v0.4 | Rule engine rewrite (Falco-style condition trees) + BCC→libbpf CO-RE migration (hand-rolled ctypes loader) | ✅ Released |
+|       | ↳ v0.4.3 — production prep (systemd + perf) | ✅ Released |
+|       | ↳ v0.4.4 — behavior log IO (buffered + rotation) | ✅ Released |
+| v0.5 | Single-instance lock (deployment-mode exclusion) → K8s DaemonSet native | ✅ Released |
+|       | ↳ v0.5.0 — single-instance lock | ✅ Released |
+|       | ↳ v0.5.1 — K8s container discovery + identity | ✅ Released |
+|       | ↳ v0.5.2 — K8s responder (response loop) | ✅ Released |
+|       | ↳ v0.5.3 — DaemonSet deployment (guard containerized on k3s) | ✅ Released |
 |       | ↳ v0.5.4 — Network blocking (nsenter real isolation + adapt blueprint) | ⏹ Archived |
 |       | ↳ v0.5.5 — K8s E2E scripting | ⏹ Archived |
 |       | ↳ v0.5.6 — Panel migration (Streamlit→FastAPI+Vue3) | ⏹ Archived |
 |       | ↳ v0.5.7 — Asset mgmt + topology + AI multi-config | ⏹ Archived |
 |       | ↳ v0.5.8 — Attack chain analysis page | ⏹ Archived |
-| v0.6 | **NetworkPolicy isolation (CNI auto-detect) + Apache-2.0 license** | ✅ **Current** |
-| v1.0 | Stable release for thesis defense | 📋 Dec |
+| v0.6 | **NetworkPolicy isolation (CNI auto-detect) + Apache-2.0 license** | ✅ Released |
+| v1.0 | First stable release (post-preview) | 📋 Planned |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 
