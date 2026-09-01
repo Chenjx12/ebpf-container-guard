@@ -175,7 +175,9 @@ When adding features, update relevant documentation:
 
 ## 📄 License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the
+Apache License, Version 2.0 (since v0.6.0; versions ≤ v0.5.x remain MIT). See
+[LICENSE](LICENSE) for details.
 
 ---
 
