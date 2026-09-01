@@ -50,7 +50,7 @@ evidence, not just a badge.
 
 1. GitHub Release exists with `published_at` set (decision #48).
 2. All three assets above are attached and downloadable.
-3. `GET https://ghcr.io/v2/chenjx12/ebpf-container-guard/manifests/<tag>` returns 200.
+3. `docker pull ghcr.io/chenjx12/ebpf-container-guard:<tag>` succeeds with\n   registry credentials (the package requires registry auth — anonymous\n   `manifests/<tag>` GET returns 401, and an unprivileged token returns 403;\n   pull success is the real evidence the tag exists and is readable).
 4. README "Container Image" quick start reproduces: pull → run (privileged flags) →
    dashboard reachable in 3 steps (real events visible).
 
