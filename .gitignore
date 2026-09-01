@@ -39,7 +39,13 @@ Thumbs.db
 *.o
 *.bpf.o
 vmlinux.h
-.build/
+
+# .build/: 仅发布产物（CO-RE 预编译 .o）入库 — 镜像 CI 需要（与 deploy/libbpf/*.so 先例一致）
+# vmlinux.h 仍不入库（编译期文件，本机 BTF 生成）
+.build/*
+!.build/escape-detect.bpf.o
+!.build/xdp-block.bpf.o
+!.build/.gitignore
 
 # Config (contains API keys)
 config/ai_config.yaml
