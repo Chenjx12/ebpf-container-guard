@@ -41,7 +41,7 @@ jobs:
             ghcr.io/${{ github.repository }}:latest
 
       - name: Trivy vulnerability scan (fail on CRITICAL/HIGH, ignore unfixed)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
           format: table
@@ -50,14 +50,14 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: SBOM (cyclonedx, attaches to release)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
           format: cyclonedx
           output: sbom.${{ github.ref_name }}.cdx.json
 
       - name: Trivy full report (json, attaches to release)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
           format: json

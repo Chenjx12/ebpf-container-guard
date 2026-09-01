@@ -14,9 +14,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Install dependencies (pinned)
+      - name: Install dependencies (runtime pinned + test-only deps)
         run: |
-          pip install -r requirements.txt pytest
+          pip install -r requirements.txt httpx2==2.10.0 streamlit==1.61.1 pytest
       - name: Run unit tests
         run: pytest tests/unit -q
       - name: Syntax check (guard + panel)
