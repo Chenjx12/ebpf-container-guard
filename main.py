@@ -11,6 +11,7 @@ See LICENSE for details. (Earlier versions were MIT.)
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import time
@@ -290,16 +291,52 @@ class ContainerEscapeMonitor:
     # ================================================================
 
     def _self_container_ids(self) -> set:
-        """guard 自身容器标识 (ns/pod 显示 ID + 容器短 ID), 供自豁免匹配。
+        """guard 自身容器标识, 供自豁免匹配 (防自我触发/自我处置)。
 
-        K8s 模式: BPF map 值填 ns/pod (display), 冷启动窗口 resolve 可能
-        回落短 ID — 两种形态都匹配, 避免启动期自触发 (自我冻结/自我处置)。
+        两种运行形态:
+        - K8s (k8s_mode): BPF map 值填 ns/pod (display), 冷启动窗口 resolve
+          可能回落短 ID — 两种形态都匹配。
+        - Docker 单机 (v0.6.1 新增): 自身容器短 ID 多信号识别 —
+          1) /proc/self/mountinfo 的 /var/lib/docker/overlay2/<64hex>
+             (docker v1/v2/rootless 通用)
+          2) /proc/self/cgroup: v1 "/docker/<64hex>" | v2 "docker-<64hex>.scope"
+          3) HOSTNAME == 12-hex 短 ID (常规 docker run)
+          全部信号缺失 → 空集 (降级: 用户可在 monitor.yaml exclude 自身容器,
+          见 README 镜像段)。
         """
-        if not self.k8s_mode:
-            return set()
         if getattr(self, '_self_ids', None) is not None:
             return self._self_ids
         ids = set()
+        if not self.k8s_mode:
+            try:
+                with open('/proc/self/mountinfo') as f:
+                    for line in f:
+                        # overlay2/<id> (镜像层) 或 containers/<id>/ (bind 文件
+                        # resolv.conf/hosts — 标准 docker 行为, v1/v2/rootless 通用)
+                        m = re.search(
+                            r'/var/lib/docker/(?:overlay2|containers)/'
+                            r'([0-9a-f]{64})', line)
+                        if m:
+                            ids.add(m.group(1)[:12])
+                            break
+            except OSError:
+                pass
+            try:
+                with open('/proc/self/cgroup') as f:
+                    for line in f:
+                        m = re.search(r'/docker/([0-9a-f]{64})', line)
+                        if not m:
+                            m = re.search(
+                                r'docker-([0-9a-f]{64})\.scope', line)
+                        if m:
+                            ids.add(m.group(1)[:12])
+            except OSError:
+                pass
+            hostname = os.environ.get('HOSTNAME', '')
+            if re.fullmatch(r'[0-9a-f]{12}', hostname):
+                ids.add(hostname)
+            self._self_ids = ids
+            return ids
         ns = 'kube-system'
         try:
             with open('/var/run/secrets/kubernetes.io/serviceaccount/namespace',

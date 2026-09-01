@@ -9,6 +9,26 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.1] - 2026-09-01 (light changelog, bp_v06x first version)
+
+### Added
+- **All-in-one GHCR image** (`deploy/Dockerfile` + `deploy/entrypoint.sh`): guard engine + FastAPI/Vue3 dashboard in one container (ADR-048, proposed); slim base; image tag aligned with git tag (`ghcr.io/chenjx12/ebpf-container-guard:v0.6.1`)
+- **GitHub Actions**: `ci.yml` (push/PR → pytest tests/unit, 146 baseline) + `release.yml` (`v*` tag → build → trivy scan + SBOM → GHCR push → release attachments; decision #48 lesson baked in: tag ≠ release, release auto-created)
+- Bilingual README "container image quick start" (3 steps; privileged flags explicitly documented)
+
+### Changed
+- `requirements.txt`: version-pinned (pyyaml/docker/kubernetes/fastapi/uvicorn/argon2-cffi/pandas); removed deprecated streamlit
+- **Image smoke exposed and fixed two defects** (first docker standalone-form validation):
+  - **connect probe AF_INET filter** (`escape-detect.bpf.c`): kernel-side, report IPv4 connects only — AF_UNIX (docker.sock etc.) was misread as `sockaddr_in`, producing random daddr/dport that fed reverse_shell false positives; AF_INET6 parsing parked as a v0.6.x ride-along
+  - **docker-mode self-exclusion** (`main.py` `_self_container_ids`): only k8s mode had self-exclusion; docker standalone lacked it, so guard's own AI-analysis outbound calls triggered a self-alert loop; added multi-signal self-id detection (mountinfo overlay2/containers path + cgroup v1/v2 + HOSTNAME short id), degrading to `monitor.yaml` exclude when all signals missing (README)
+
+### Known limitations (honest labeling)
+- **XDP ingress degraded**: `bpftool` not bundled in the image, XDP attach falls back to iptables (egress blocking unchanged); install bpftool on the host for XDP
+- **Dev-host noise**: with hostNetwork+hostPID, host-process events (agent/system traffic) can be misattributed to stale container ids and alert — production nodes have no such processes; host events logged-but-not-alerted is a v0.6.3 ride-along
+
+### Docs
+- Decision #49 (v0.6.x execution roadmap + v0.6.1 all-in-one image), ADR-048 (proposed; flip to Accepted after verification)
+
 ## [0.6.0] - 2026-08-17
 
 ### Added

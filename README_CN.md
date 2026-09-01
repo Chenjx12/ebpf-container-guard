@@ -59,6 +59,29 @@ cd ebpf-container-guard
 ./run.sh                      # guard（后台）+ 面板（前台）
 ```
 
+### 镜像启动（v0.6.1 起，GHCR 首秀）
+
+```bash
+# 1) 拉取镜像
+docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.1
+
+# 2) 启动容器 —— 特权参数是 eBPF 检测的必要条件（不是可选项）：
+#    --privileged / --pid=host（看宿主 PID）/ --network host（共享 netns）
+#    /sys 挂载（BTF + tracefs）/ docker.sock（容器身份解析）
+docker run -d --name guard \
+  --privileged --pid=host --network host \
+  -v /sys:/sys \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/lib/ebpf-guard:/app/logs \
+  ghcr.io/chenjx12/ebpf-container-guard:v0.6.1
+
+# 3) 打开面板 http://localhost:8000 —— 初始密码在容器日志里
+#    （首次启动生成 admin/test 账号，登录后强制改密）：
+docker logs guard 2>&1 | head -20    # 找「初始账号已创建」行
+```
+
+> v0.6.1 是首个 GHCR 供应链镜像（SBOM + 镜像扫描附 release，见 CHANGELOG）。DaemonSet 形态仍用 `deploy/k8s/daemonset.yaml`（镜像名切换 GHCR 在 v0.6.x 内跟进）。
+
 ### 单独启动
 
 ```bash

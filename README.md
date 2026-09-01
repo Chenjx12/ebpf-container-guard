@@ -52,6 +52,30 @@ cd ebpf-container-guard
 ./run.sh                    # guard (background) + dashboard (foreground)
 ```
 
+### Option 1b: Container Image (v0.6.1+, GHCR)
+
+```bash
+# 1) Pull
+docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.1
+
+# 2) Run — privileged flags are REQUIRED for eBPF (not optional):
+#    --privileged / --pid=host / --network host, /sys for BTF+tracefs,
+#    docker.sock for container identity resolution
+docker run -d --name guard \
+  --privileged --pid=host --network host \
+  -v /sys:/sys \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/lib/ebpf-guard:/app/logs \
+  ghcr.io/chenjx12/ebpf-container-guard:v0.6.1
+
+# 3) Open the dashboard at http://localhost:8000 — initial passwords are
+#    printed to the container logs on first start (admin/test, forced
+#    password change on first login):
+docker logs guard 2>&1 | head -20    # look for the "初始账号已创建" line
+```
+
+> v0.6.1 is the first GHCR supply-chain image (SBOM + image scan attached to the release — see CHANGELOG). The DaemonSet form still uses `deploy/k8s/daemonset.yaml` (image switchover to GHCR follows within v0.6.x).
+
 ### Option 2: Separate Terminals
 
 ```bash

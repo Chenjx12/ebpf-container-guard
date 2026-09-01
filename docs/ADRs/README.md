@@ -27,6 +27,7 @@
 | [045](045-panel-fastapi-vue3.md) | 面板迁移：Streamlit → FastAPI + Vue3 | Accepted | v0.5.6 |
 | [046](046-ai-profiles-assets-topo.md) | AI 多配置管理 + 资产拓扑图 | Accepted | v0.5.7 |
 | [047](047-attack-chain-analysis.md) | 攻击链分析页面（阶段聚合 + 流程图） | Accepted | v0.5.8 |
+| [048](048-ghcr-oci-image.md) | 全合一 OCI 镜像发布（GHCR 供应链首秀） | Proposed（预期 ADR，落地后转 Accepted） | v0.6.1 |
 
 ## 格式
 

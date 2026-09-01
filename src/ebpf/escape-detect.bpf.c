@@ -179,6 +179,16 @@ int tracepoint__syscalls__sys_enter_connect(
 
     struct sockaddr_in sin = {};
     bpf_probe_read_user(&sin, sizeof(sin), (void *)ctx->args[1]);
+
+    // v0.6.1: 仅上报 IPv4 (AF_INET=2) 网络连接 — docker 单机形态首次暴露:
+    // guard 自身 AF_UNIX connect (docker.sock) 被 sockaddr_in 误读,
+    // 产生随机 daddr/dport → reverse_shell 假阳性风暴。
+    // AF_INET6(10) 解析留 v0.6.x 顺风车 (IPv6 此前同样误读为乱码 IPv4, 无损失)。
+    if (sin.sin_family != 2) {   // AF_INET (vmlinux.h 无此宏, 字面量 + 注释)
+        bpf_ringbuf_discard(evt, 0);
+        return 0;
+    }
+
     evt->daddr = sin.sin_addr.s_addr;
     evt->dport = sin.sin_port;
 

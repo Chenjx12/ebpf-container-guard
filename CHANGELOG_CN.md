@@ -10,6 +10,26 @@
 
 ---
 
+## [0.6.1] - 2026-09-01（轻 changelog，bp_v06x 首版）
+
+### 新增
+- **全合一 GHCR 镜像**（`deploy/Dockerfile` + `deploy/entrypoint.sh`）：guard 引擎 + FastAPI/Vue3 面板单容器交付（ADR-048 预期）；slim base、镜像 tag 对齐 git tag（`ghcr.io/chenjx12/ebpf-container-guard:v0.6.1`）
+- **GitHub Actions**：`ci.yml`（push/PR → pytest tests/unit，146 基线）+ `release.yml`（`v*` tag → 构建 → trivy 扫描 + SBOM → GHCR push → release 附件；决策 #48 教训固化：tag ≠ release，自动发 release）
+- README 双语「镜像快速开始」3 步（特权参数明确文档化）
+
+### 变更
+- `requirements.txt`：锁定版本（pyyaml/docker/kubernetes/fastapi/uvicorn/argon2-cffi/pandas）+ 剔除弃用 streamlit
+- **镜像冒烟暴露并修复两缺陷**（docker 单机形态首次验证）：
+  - **connect 探针 AF_INET 过滤**（`escape-detect.bpf.c`）：内核态仅上报 IPv4 连接——AF_UNIX connect（docker.sock 等）被 sockaddr_in 误读产生随机 daddr/dport，曾是 reverse_shell 假阳性来源；AF_INET6 解析留 v0.6.x 顺风车
+  - **docker 模式自豁免**（`main.py` `_self_container_ids`）：仅 k8s 模式有自豁免，docker 单机形态缺口导致 guard 自身 AI 研判外联触发自我告警循环；新增多信号自身容器识别（mountinfo overlay2/containers 路径 + cgroup v1/v2 + HOSTNAME 短 ID），全部缺失时降级为 monitor.yaml exclude（README 说明）
+
+### 已知限制（诚实标注）
+- **XDP 入站阻断降级**：镜像未装 `bpftool`，XDP attach 失败自动降级 iptables（egress 阻断不变）；需 XDP 时在宿主安装 bpftool
+- **开发机宿主噪声**：hostNetwork+hostPID 形态下宿主进程（含 agent/系统流量）的事件可被误标到残留容器 ID 并告警——生产节点同类进程极少；宿主进程事件仅记录不参与规则告警列为 v0.6.3 顺风车
+
+### 文档
+- 决策 #49（v0.6.x 执行路线 + v0.6.1 全合一镜像）、ADR-048（预期 ADR，落地验证后转 Accepted）
+
 ## [0.6.0] - 2026-08-17
 
 ### 新增
