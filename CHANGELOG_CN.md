@@ -10,6 +10,26 @@
 
 ---
 
+## [0.6.2] - 2026-09-01（轻 changelog，bp_v06x）
+
+### 新增
+- **依赖层供应链扫描**（ADR-049）：`release.yml` 增加 trivy `fs` 扫描
+  （scanners vuln+secret，跳过 `.git`），独立 CRITICAL/HIGH 门槛，json 报告随每个
+  release 附件——证据链升级为**双层**（镜像层 + 依赖层）+ SBOM
+- **镜像 tag 对齐 git tag 策略成文**：`docs/镜像发布策略.md`（英文
+  `docs/image-tag-policy.md`）——GHCR tag = git tag 字符串（保留 v 前缀）；`latest`
+  只表示\"最近一次发布\"；演示固定拉具体版本（v0.6.0 永远是保底安全网）
+- README 双语「镜像启动」示例更新为 v0.6.2，附带供应链证据链说明与策略文档链接
+
+### 变更
+- release 附件升级为**三件套**：`sbom.<tag>.cdx.json` + `trivy-report.<tag>.json`
+  （镜像层）+ `trivy-fs-report.<tag>.json`（依赖层）
+
+### 文档
+- ADR-049（预期；发布验证通过后转 Accepted）、决策 #50（本地）
+
+---
+
 ## [0.6.1] - 2026-09-01（轻 changelog，bp_v06x 首版）
 
 ### 新增

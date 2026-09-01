@@ -9,6 +9,28 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.2] - 2026-09-01 (light changelog, bp_v06x)
+
+### Added
+- **Dependency-layer supply-chain scan** (ADR-049): `release.yml` runs trivy `fs`
+  (scanners vuln+secret, `.git` excluded) with its own CRITICAL/HIGH gate, JSON
+  report attached to every release — evidence chain is now **two-layer** (image
+  layer + dependency layer) plus SBOM
+- **Image/git tag alignment policy** written down: `docs/image-tag-policy.md`
+  (中文: `docs/镜像发布策略.md`) — GHCR tag = git tag string (v prefix kept);
+  `latest` only marks the newest release; pin fixed tags for demos (v0.6.0 is the
+  permanent safety-net fallback)
+- README bilingual "Container Image" quick start updated to v0.6.2 pull, with a
+  supply-chain evidence note pointing to the policy docs
+
+### Changed
+- Release assets now **three artifacts**: `sbom.<tag>.cdx.json` +
+  `trivy-report.<tag>.json` (image layer) + `trivy-fs-report.<tag>.json`
+  (dependency layer)
+
+### Docs
+- ADR-049 (proposed; flip to Accepted after release verification), decision #50 (local)
+
 ## [0.6.1] - 2026-09-01 (light changelog, bp_v06x first version)
 
 ### Added

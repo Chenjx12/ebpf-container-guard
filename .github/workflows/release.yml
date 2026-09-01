@@ -4,6 +4,8 @@ name: Release
 #   - tag 存在 ≠ release 已发 — 本 job 用 action-gh-release 发 release
 #   - 发完由 owner 确认 published_at 存在（人工收尾）
 # 镜像 tag 对齐 git tag: ghcr.io/<repo>:v0.6.x
+# v0.6.2（ADR-049）双证据链：镜像层 trivy + 依赖层 trivy fs（vuln,secret），
+#   各自独立门槛（CRITICAL/HIGH + ignore-unfixed），json 报告随 release 附件
 
 on:
   push:
@@ -15,7 +17,7 @@ permissions:
 
 jobs:
   build-and-publish:
-    name: Build image + scan + SBOM + GHCR push + release
+    name: Build image + 2-layer scan + SBOM + GHCR push + release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,10 +70,32 @@ jobs:
           format: json
           output: trivy-report.${{ github.ref_name }}.json
 
+      # ---- v0.6.2 (ADR-049): dependency-layer scan (repo: requirements.txt/Dockerfile/sources) ----
+      - name: Trivy dependency scan (fs, gate CRITICAL/HIGH, skip .git)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-ref: .
+          scanners: vuln,secret
+          skip-dirs: .git
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Trivy dependency report (json, attaches to release)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-ref: .
+          scanners: vuln,secret
+          skip-dirs: .git
+          format: json
+          output: trivy-fs-report.${{ github.ref_name }}.json
+
       - name: GitHub Release (决策 #48: 发完确认 published_at)
         uses: softprops/action-gh-release@v2
         with:
           files: |
             sbom.${{ github.ref_name }}.cdx.json
             trivy-report.${{ github.ref_name }}.json
+            trivy-fs-report.${{ github.ref_name }}.json
           generate_release_notes: true
