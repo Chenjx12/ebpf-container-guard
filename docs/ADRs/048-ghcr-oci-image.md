@@ -1,7 +1,7 @@
 # ADR-048: 全合一 OCI 镜像发布（GHCR 供应链首秀）
 
 ## 状态
-Proposed（v0.6.1 预期 ADR —— 先写决策再开发，落地验证后转 Accepted）
+Accepted (v0.6.1)
 
 ## 背景
 v0.5.3 的 DaemonSet 镜像（`deploy/Dockerfile.guard`）是 **guard-only**：面板不打包、无 CI、

@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.1-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -513,7 +513,11 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |       | ↳ v0.5.6 — Panel migration (Streamlit→FastAPI+Vue3) | ⏹ Archived |
 |       | ↳ v0.5.7 — Asset mgmt + topology + AI multi-config | ⏹ Archived |
 |       | ↳ v0.5.8 — Attack chain analysis page | ⏹ Archived |
-| v0.6 | **NetworkPolicy isolation (CNI auto-detect) + Apache-2.0 license** | ✅ Released |
+| v0.6 | NetworkPolicy isolation (CNI auto-detect) + Apache-2.0 license | ✅ Released |
+|      | ↳ v0.6.0 — NetworkPolicy + Apache-2.0 migration | ✅ Released |
+|      | ↳ v0.6.1 — GHCR all-in-one image + CI supply chain (ADR-048) | ✅ Released |
+|      | ↳ v0.6.2 ~ v0.6.8 — supply-chain evidence / asset grading / incremental log load / six-layer audit (bp_v06x: 8 weekly releases) | 📋 In progress |
+| v0.7 | Next batch: Guard Agent (ex-blueprint v0.8 scope, thesis core dev period) | 📋 Planned |
 | v1.0 | First stable release (post-preview) | 📋 Planned |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed changes.

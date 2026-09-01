@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.1-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -546,7 +546,11 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |       | ↳ v0.5.6 — 面板迁移（Streamlit→FastAPI+Vue3） | ⏹ 历史版本 |
 |       | ↳ v0.5.7 — 资产管理+拓扑+AI 多配置 | ⏹ 历史版本 |
 |       | ↳ v0.5.8 — 攻击链分析页面 | ⏹ 历史版本 |
-| v0.6 | **NetworkPolicy 隔离（CNI 自动探测）+ Apache-2.0 许可证** | ✅ 已发布 |
+| v0.6 | NetworkPolicy 隔离（CNI 自动探测）+ Apache-2.0 许可证 | ✅ 已发布 |
+|      | ↳ v0.6.0 — NetworkPolicy 落地 + Apache-2.0 迁移 | ✅ 已发布 |
+|      | ↳ v0.6.1 — GHCR 全合一镜像 + CI 供应链（ADR-048） | ✅ 已发布 |
+|      | ↳ v0.6.2 ~ v0.6.8 — 供应链证据链 / 资产分级 / 日志增量 / 六层审计（bp_v06x 细化为 8 版逐周推进） | 📋 推进中 |
+| v0.7 | 下一批：Guard Agent（原 blueprint v0.8 内容，毕设核心开发期） | 📋 规划中 |
 | v1.0 | 首个稳定版（preview 结束后） | 📋 规划中 |
 
 详见 [CHANGELOG.md](CHANGELOG.md)。
