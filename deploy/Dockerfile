@@ -23,9 +23,11 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# v0.6.1 CI 供应链门槛修复: python:3.10-slim base 自带的旧版被 trivy 扫出 2 个 HIGH
-# (wheel 0.45.1 -> 0.46.2, jaraco.context 5.3.0 -> 6.1.0), 显式升级到修复版
-RUN pip install --no-cache-dir --upgrade wheel==0.46.2 jaraco.context==6.1.0
+# v0.6.1 CI 供应链门槛修复: trivy 扫出 2 个 HIGH，根因是 base python:3.10-slim
+# 自带 setuptools 的 _vendor/ 内嵌副本 (jaraco.context 5.3.0 / wheel 0.45.1)。
+# 已实测: 升级独立包无效 — 必须升级 setuptools 本体，_vendor 整体换新到修复版。
+# (wheel 独立包 base 已自带 0.46.3 ≥ fix 0.46.2, 无需再动)
+RUN pip install --no-cache-dir --upgrade setuptools==84.0.0 jaraco.context==6.1.0
 
 # libbpf.so.1 (1.8.0, 版本化符号 ctypes 自动解析)
 COPY deploy/libbpf/libbpf.so.1.8.0 /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0
