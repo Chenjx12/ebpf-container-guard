@@ -50,7 +50,7 @@ run-quiet: ## Start in quiet mode (production)
 	@echo "🛡️  Starting eBPF Container Guard (quiet mode)..."
 	sudo python3 main.py
 
-deploy: ## Deploy to Docker (coming in v0.2.0)
+deploy: ## Build Docker image (guard 容器化, v0.5.3; 部署见 deploy/k8s + deploy/systemd)
 	@echo "🐳 Building Docker image..."
 	docker build -t ebpf-container-guard:latest .
 	@echo "✅ Docker image built"

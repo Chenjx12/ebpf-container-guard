@@ -5,3 +5,4 @@ kubernetes
 fastapi
 uvicorn
 argon2-cffi
+pandas

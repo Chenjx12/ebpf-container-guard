@@ -1,9 +1,10 @@
-# eBPF Container Guard — Detection Rules (v0.4.0)
-# 10 rules covering mount / ptrace / execve / connect / openat
+# eBPF Container Guard — Detection Rules (v0.4.2 / 当前 v0.6.0)
+# 12 rules covering mount / ptrace / execve / connect / openat / capset
+# (6 probes, 内核态路径过滤见 src/ebpf/escape-detect.bpf.c)
 #
 # condition 为嵌套条件树 (Falco 风格 AND/OR/not):
 #   all / any: 条件节点列表; not: 单个条件节点
-#   叶子: 标量(精确) | 列表(OR 精确) | 操作符 {neq, startswith, endswith, contains, glob, exists}
+#   叶子: 标量(精确) | 列表(OR 精确) | 操作符 {neq, startswith, endswith, contains, glob, exists, bitand}
 # event_type 为顶层键 (做索引 + 隐式 AND), 不可出现在 condition 内
 
 rules:

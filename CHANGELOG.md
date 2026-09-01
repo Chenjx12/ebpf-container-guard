@@ -676,3 +676,117 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 - Regression: default monitoring unchanged
 
 ## [0.2.3] - 2026-08-09
+
+### Added
+- **Configurable monitoring scope** (`config/monitor.yaml`): choose which containers to monitor
+  - `include`: whitelist mode — only monitor listed containers (fnmatch wildcards supported)
+  - `exclude`: blacklist mode — never monitor listed containers (takes priority over include)
+  - `match_by`: match by container name or short ID
+  - Empty list = monitor all containers (default, unchanged behavior)
+- **ContainerScope** (`src/core/scope.py`): standalone module, following the modular architecture
+- **Cold-path name resolution** (`src/core/identity.py`): when background refresh hasn't caught up, resolve container name on-demand via Docker API with caching
+
+### Purpose
+- Foundation for per-container event filtering in the v0.3 dashboard
+- Monitor production containers only, or exclude noisy test containers
+
+### Verified
+- Unit tests: 5/5 pass (default / include / exclude / priority / match_by=id)
+- E2E exclude: `t_exc` container 0 alerts (incl. cold path — attack fired before background refresh)
+- E2E include: only `t_inc` alerts (4/4 from the included container, 0 from others)
+- Regression: default behavior unchanged (monitors all, 3 alerts)
+
+---
+
+## [0.2.2] - 2026-08-09
+
+### Changed
+- **Code modularization**: `ContainerIdentity` (identity.py) and `EventLogger` (event_log.py) moved into independent `src/core/` modules; main.py focuses on pipeline orchestration
+- **Event log enhancements**: `version` field, millisecond timestamps, `action_status` (executed / skipped_host / skipped_cooldown / error), `tier1_match` parameterized
+- **Absolute log paths**: logs always written to project root regardless of CWD
+
+### Fixed
+- **docker-py 7.x compatibility**: `Container.disconnect()` removed in 7.x — network isolation now uses `Network.disconnect(container)`; verified `DISCONNECTED from bridge`
+- **Silent response failures**: `isolate_network` now returns success/failure; `handle_alert` returns the actual execution status (failed actions no longer misreported as 'executed')
+- **Refactor-introduced variable error**: `event_pid` → `event.pid`
+
+### Verified
+- mount escape → CRITICAL → pause_container → status=executed
+- reverse shell → HIGH → isolate_network → DISCONNECTED from bridge
+- cooldown → status=skipped_cooldown (592s remaining)
+
+---
+
+## [0.2.0] - 2026-08-08
+
+### Added
+- **3-tier detection pipeline**: rule engine (Tier 1) → behavior matrix (Tier 2) → AI judge (Tier 3)
+- **3 new eBPF probes**: execve, connect, openat (kernel-space path filtering)
+- **Behavior matrix** (`src/detector/attack_matrix.py`): 8 attack vectors × 6 combination rules, 10-second time window
+- **AI analyzer** (`src/detector/ai_analyzer.py`): DeepSeek API (verified), confidence-tiered response (>85% auto / 60-85% pending review / <60% log only), offline fallback verified
+- **6 new YAML rules**: docker_socket_mount, nsenter_escape, privileged_exec, reverse_shell, sensitive_file_access, host_directory_access
+- Ring Buffer upgraded from 256 to 4096 entries
+
+### Changed
+- Alert enrichment: `attack_vector`, `cve_refs`, `matrix_confidence` fields added
+- Host process events auto-filtered, only container-matched rules retained
+- Rule engine supports `attack_vector` and `cve_refs` fields
+
+### Verified
+- Single-event hit: procfs_mount → confidence 85%
+- Combination hit: procfs_mount + sensitive_file_access → 88% → auto response
+
+---
+
+## [0.1.1] - 2026-08-08
+
+### Fixed
+- **main.py completely broken** — fully rewritten based on the verified reference implementation
+  ([`escape-respond.py`](https://github.com/Chenjx12/ebpf-learning-notes/blob/main/code/09-response/escape-respond.py)).
+  The originally imported classes did not exist (`DetectionEngine` → `EscapeDetector`,
+  `DockerResponder` → `ResponseEngine`). eBPF loading, Ring Buffer consumption,
+  and the detect-response pipeline were all missing.
+- **`docker exec` processes always labeled "host"** — added background thread
+  refreshing PID→container and cgroup→container maps every 5 seconds.
+- **openat floods Ring Buffer** — openat probe disabled by default
+  (high-frequency syscall, 256-entry buffer overflows instantly). Can be re-enabled
+  after enlarging `RINGBUF_SIZE` and adding kernel-space path filtering.
+
+### Changed
+- eBPF probe strategy documented: tracepoint (`syscalls:sys_enter_*`)
+  confirmed working on kernel 6.8. kprobe (`__x64_sys_*`) tested and abandoned —
+  `PT_REGS_PARM` macro cannot access parameters correctly under the kernel 6.8
+  syscall wrapper.
+
+### Verified
+- E2E pipeline: eBPF tracepoint → Ring Buffer → rule engine →
+  CRITICAL alert → Docker `pause_container` action
+- Real privileged container: `mount -t proc proc /tmp/host_proc`
+  correctly detected and container frozen
+
+---
+
+## [0.1.0] - 2026-08-07
+
+### Added
+- First MVP release
+- eBPF kernel probes for mount/ptrace/openat syscalls
+- YAML-based detection rule engine
+- Docker response engine (pause / isolate network)
+- Ring Buffer low-latency event transport
+- Cgroup-based container identity
+- Integration test suite
+- Complete documentation
+
+### Features
+- Real-time container escape detection
+- Auto response within 100ms
+- YAML-configurable detection rules
+- Hot-reload for rules and response policies
+- Severity-colored CLI output
+
+### Tech Stack
+- eBPF tracepoint (kernel space)
+- Python 3.8+ + BCC framework
+- Docker SDK (container management)
+- YAML configuration

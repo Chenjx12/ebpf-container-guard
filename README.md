@@ -372,7 +372,7 @@ ebpf-container-guard/
 │   ├── systemd/                     # ebpf-guard.service (single-host, v0.4.3)
 │   └── libbpf/                      # Bundled libbpf.so / libelf.so for container runtime
 └── docs/
-    ├── ADRs/                        # 20+ Architecture Decision Records
+    ├── ADRs/                        # 19 Architecture Decision Records
     ├── MVP-运行验证报告.md / MVP-verification-report.md
     ├── 验证报告-v0.4.1.md / verification-report-v0.4.1.md
     ├── performance-report.md        # Bench results (v0.4.3)

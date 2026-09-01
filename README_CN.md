@@ -120,8 +120,6 @@ docker exec test strace -p 1  # 触发 HIGH 级别告警
 安全员处理判决/AI 研判。低权限角色的越权操作需向高权限角色索取
 临时 token（设置页发放）。
 
-### 使用预制 strace 镜像测试 ptrace 逃逸
-
 ---
 
 ## 📊 演示
@@ -408,7 +406,7 @@ ebpf-container-guard/
 │   ├── systemd/                     # ebpf-guard.service（单机，v0.4.3）
 │   └── libbpf/                      # 容器运行时内置 libbpf.so / libelf.so
 └── docs/
-    ├── ADRs/                        # 20+ 架构决策记录
+    ├── ADRs/                        # 19 篇架构决策记录
     ├── MVP-运行验证报告.md / MVP-verification-report.md
     ├── 验证报告-v0.4.1.md / verification-report-v0.4.1.md
     ├── performance-report.md        # 压测报告（v0.4.3）

@@ -5,7 +5,8 @@ eBPF Container Guard - Main Entry Point (v0.6.0)
 Real-time container escape detection and response system based on eBPF.
 3-tier detection: rule engine → attack matrix → AI judge
 Copyright (c) 2026 chenjx12
-Licensed under the MIT License. See LICENSE for details.
+Licensed under the Apache License, Version 2.0 (since v0.6.0).
+See LICENSE for details. (Earlier versions were MIT.)
 """
 
 import argparse
@@ -38,7 +39,6 @@ from core.escalation import EscalationManager
 from core.netblock import NetBlocker, ip_int_to_str
 from core.netblock_xdp import XDPNetBlocker, CompositeNetBlocker
 from core.decision_executor import DecisionExecutor
-from core.behavior_logger import BehaviorLogger
 
 
 # ============================================================

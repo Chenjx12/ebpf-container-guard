@@ -81,9 +81,19 @@ class TestRotate:
 
 
 class TestCleanup:
-    def test_cleanup_old_files(self, tmp_path):
+    def test_cleanup_old_files(self, tmp_path, monkeypatch):
         path = str(tmp_path / "behaviors.log")
-        # 预置 10 天前的旧文件 + 3 天前的文件
+        # 冻结"今天"= 2026-08-14，使 7 天保留 cutoff 固定为 08-07
+        # （否则测试随真实日期漂移：超过 08-14 后 08-11 也会被误删）
+        from datetime import datetime
+
+        class FakeDate(datetime):
+            @classmethod
+            def now(cls):
+                return cls(2026, 8, 14, 10, 0, 0)
+
+        monkeypatch.setattr('core.behavior_logger.datetime', FakeDate)
+        # 预置 10 天前旧文件 + 3 天前文件
         open(f"{path}.2026-08-04", 'w').write('old')
         open(f"{path}.2026-08-11", 'w').write('recent')
         lg = BehaviorLogger(path, enabled=True)  # retain_days=7
