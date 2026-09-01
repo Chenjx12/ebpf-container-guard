@@ -1,7 +1,7 @@
 # ADR-049: 供应链证据链（依赖层扫描 + 镜像 tag 对齐策略）
 
 ## 状态
-Proposed (v0.6.2) — 发布验证通过后转 Accepted
+Accepted (v0.6.2)
 
 ## 背景
 v0.6.1（ADR-048）已交付「镜像层 trivy 扫描 + SBOM + release 附件」。bp_v06x 的 v0.6.2
