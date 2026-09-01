@@ -1260,7 +1260,10 @@ const SettingsPage = {
         load();
       } catch (e) { ElMessage.error(e.message); }
     }
-    onMounted(() => {\n      load();\n      window.loadSettingsData = load;  // v0.6.0: 暴露给左下角 AI 快捷切换\n    });
+    onMounted(() => {
+      load();
+      window.loadSettingsData = load;  // v0.6.0: 暴露给左下角 AI 快捷切换
+    });
     return { me, isAdmin, pw, ai, masked, profiles, modelOptions, loadingModels,
       tokenPurpose, tokenTtl, tokenFor, tokenNote, issuedToken, tokens,
       changePw, fetchModels, saveAiProfile, activateProfile, deleteProfile,

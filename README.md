@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.2.1-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -56,7 +56,7 @@ cd ebpf-container-guard
 
 ```bash
 # 1) Pull
-docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.2
+docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.2.1
 
 # 2) Run — privileged flags are REQUIRED for eBPF (not optional):
 #    --privileged / --pid=host / --network host, /sys for BTF+tracefs,
@@ -66,7 +66,7 @@ docker run -d --name guard \
   -v /sys:/sys \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/lib/ebpf-guard:/app/logs \
-  ghcr.io/chenjx12/ebpf-container-guard:v0.6.2
+  ghcr.io/chenjx12/ebpf-container-guard:v0.6.2.1
 
 # 3) Open the dashboard at http://localhost:8000 — initial passwords are
 #    printed to the container logs on first start (admin/test, forced
@@ -79,7 +79,7 @@ docker logs guard 2>&1 | head -20    # look for the "初始账号已创建" line
 > (image-layer scan) and `trivy-fs-report.<tag>.json` (dependency-layer scan:
 > requirements.txt / Dockerfile / sources, vuln+secret). Both scan layers are
 > independently gated (CRITICAL/HIGH, ignore-unfixed) before release. **Image tag
-> = git tag string** (`...:v0.6.2` ↔ tag `v0.6.2`); `latest` only marks the newest
+> = git tag string** (`...:v0.6.2.1` ↔ tag `v0.6.2.1`); `latest` only marks the newest
 > release — pin a fixed tag for demos (v0.6.0 is the permanent safety-net
 > fallback). See [docs/image-tag-policy.md](docs/image-tag-policy.md).
 > The DaemonSet form still uses `deploy/k8s/daemonset.yaml` (image switchover to GHCR follows within v0.6.x).
@@ -525,6 +525,7 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |      | ↳ v0.6.0 — NetworkPolicy + Apache-2.0 migration | ✅ Released |
 |      | ↳ v0.6.1 — GHCR all-in-one image + CI supply chain (ADR-048) | ✅ Released |
 |      | ↳ v0.6.2 — supply-chain evidence chain: dependency-layer scan + image/git tag policy (ADR-049) | ✅ Released |
+|      | ↳ v0.6.2.1 — hotfix: dashboard blank screen (app.js syntax corruption; render-level check discipline) | ✅ Released |
 |      | ↳ v0.6.3 ~ v0.6.8 — asset grading / incremental log load / six-layer audit (bp_v06x: 8 weekly releases) | 📋 In progress |
 | v0.7 | Next batch: Guard Agent (ex-blueprint v0.8 scope, thesis core dev period) | 📋 Planned |
 | v1.0 | First stable release (post-preview) | 📋 Planned |

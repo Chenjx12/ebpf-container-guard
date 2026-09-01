@@ -9,6 +9,21 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.2.1] - 2026-09-01 (hotfix: blank dashboard)
+
+### Fixed
+- **Dashboard white screen**: `server/static/app.js` had a literal `\n` corruption
+  in the settings-page `onMounted` block (introduced by commit `8d6a816`, v0.6.0
+  AI-config-sync fix) — a syntax error that made every browser abort parsing
+  app.js, so Vue never mounted and the page stayed blank. Curl-level checks
+  (HTTP 200 + assets) could not catch it. Fixed with real newlines; `index.html`
+  cache busters bumped to `?v=64`.
+
+### Docs / discipline
+- Lesson recorded (decision #51, local): panel acceptance must include a
+  **render-level check** (`node --check app.js` + headless mount), not just
+  curl 200 — image tag `v0.6.2.1` follows the image-tag = git-tag policy.
+
 ## [0.6.2] - 2026-09-01 (light changelog, bp_v06x)
 
 ### Added

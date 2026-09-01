@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.2.1-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -63,7 +63,7 @@ cd ebpf-container-guard
 
 ```bash
 # 1) 拉取镜像
-docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.2
+docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.2.1
 
 # 2) 启动容器 —— 特权参数是 eBPF 检测的必要条件（不是可选项）：
 #    --privileged / --pid=host（看宿主 PID）/ --network host（共享 netns）
@@ -73,7 +73,7 @@ docker run -d --name guard \
   -v /sys:/sys \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/lib/ebpf-guard:/app/logs \
-  ghcr.io/chenjx12/ebpf-container-guard:v0.6.2
+  ghcr.io/chenjx12/ebpf-container-guard:v0.6.2.1
 
 # 3) 打开面板 http://localhost:8000 —— 初始密码在容器日志里
 #    （首次启动生成 admin/test 账号，登录后强制改密）：
@@ -84,7 +84,7 @@ docker logs guard 2>&1 | head -20    # 找「初始账号已创建」行
 > （CycloneDX SBOM）、`trivy-report.<tag>.json`（镜像层扫描）、`trivy-fs-report.<tag>.json`
 > （依赖层扫描：requirements.txt / Dockerfile / 源码，vuln+secret）。两层扫描各自独立设门槛
 > （CRITICAL/HIGH + ignore-unfixed）通过后才允许发布。**镜像 tag = git tag 字符串**
-> （`...:v0.6.2` ↔ 标签 `v0.6.2`）；`latest` 只表示"最近一次发布"——演示要固定拉具体版本
+> （`...:v0.6.2.1` ↔ 标签 `v0.6.2.1`）；`latest` 只表示"最近一次发布"——演示要固定拉具体版本
 > （v0.6.0 永远是保底安全网）。详见 [docs/镜像发布策略.md](docs/镜像发布策略.md)。
 > DaemonSet 形态仍用 `deploy/k8s/daemonset.yaml`（镜像名切换 GHCR 在 v0.6.x 内跟进）。
 
@@ -556,6 +556,7 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |      | ↳ v0.6.0 — NetworkPolicy 落地 + Apache-2.0 迁移 | ✅ 已发布 |
 |      | ↳ v0.6.1 — GHCR 全合一镜像 + CI 供应链（ADR-048） | ✅ 已发布 |
 |      | ↳ v0.6.2 — 供应链证据链：依赖层扫描 + 镜像 tag 对齐策略（ADR-049） | ✅ 已发布 |
+|      | ↳ v0.6.2.1 — 热修：面板白屏（app.js 语法损坏；补渲染级验收纪律） | ✅ 已发布 |
 |      | ↳ v0.6.3 ~ v0.6.8 — 资产分级 / 日志增量 / 六层审计（bp_v06x 细化为 8 版逐周推进） | 📋 推进中 |
 | v0.7 | 下一批：Guard Agent（原 blueprint v0.8 内容，毕设核心开发期） | 📋 规划中 |
 | v1.0 | 首个稳定版（preview 结束后） | 📋 规划中 |
