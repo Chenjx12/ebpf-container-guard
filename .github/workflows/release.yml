@@ -74,7 +74,8 @@ jobs:
       - name: Trivy dependency scan (fs, gate CRITICAL/HIGH, skip .git)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          scan-ref: .
+          scan-type: fs   # REQUIRED: without it the action defaults to image mode
+          scan-ref: .     # and parses '.' as an image name -> "could not parse reference"
           scanners: vuln,secret
           skip-dirs: .git
           format: table
@@ -85,6 +86,7 @@ jobs:
       - name: Trivy dependency report (json, attaches to release)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          scan-type: fs
           scan-ref: .
           scanners: vuln,secret
           skip-dirs: .git
