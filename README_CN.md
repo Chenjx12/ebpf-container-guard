@@ -557,7 +557,8 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |      | ↳ v0.6.1 — GHCR 全合一镜像 + CI 供应链（ADR-048） | ✅ 已发布 |
 |      | ↳ v0.6.2 — 供应链证据链：依赖层扫描 + 镜像 tag 对齐策略（ADR-049） | ✅ 已发布 |
 |      | ↳ v0.6.2.1 — 热修：面板白屏（app.js 语法损坏；补渲染级验收纪律） | ✅ 已发布 |
-|      | ↳ v0.6.3 ~ v0.6.8 — 资产分级 / 日志增量 / 六层审计（bp_v06x 细化为 8 版逐周推进） | 📋 推进中 |
+|      | ↳ v0.6.3 — 资产推断+状态落盘：AssetClassifier/AssetStore 状态机（PENDING_REVIEW→CONFIRMED/OVERRIDDEN）+ 三段留痕 + /api/assets docker 清单 + 确认/覆盖/审计；顺风车：netblock 快照+幂等重放、Dockerfile 补装 iptables、netpol 孤儿清扫、host 事件仅记录、entrypoint -u 修复（ADR-050） | ✅ 已发布 |
+|      | ↳ v0.6.4 ~ v0.6.8 — 资产确认闭环 UI / 日志增量 / 六层审计（bp_v06x 逐周推进） | 📋 推进中 |
 | v0.7 | 下一批：Guard Agent（原 blueprint v0.8 内容，毕设核心开发期） | 📋 规划中 |
 | v1.0 | 首个稳定版（preview 结束后） | 📋 规划中 |
 

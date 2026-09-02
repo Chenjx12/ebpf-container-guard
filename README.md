@@ -526,7 +526,8 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |      | ↳ v0.6.1 — GHCR all-in-one image + CI supply chain (ADR-048) | ✅ Released |
 |      | ↳ v0.6.2 — supply-chain evidence chain: dependency-layer scan + image/git tag policy (ADR-049) | ✅ Released |
 |      | ↳ v0.6.2.1 — hotfix: dashboard blank screen (app.js syntax corruption; render-level check discipline) | ✅ Released |
-|      | ↳ v0.6.3 ~ v0.6.8 — asset grading / incremental log load / six-layer audit (bp_v06x: 8 weekly releases) | 📋 In progress |
+|      | ↳ v0.6.3 — asset inference + state persistence: AssetClassifier/AssetStore state machine (PENDING_REVIEW→CONFIRMED/OVERRIDDEN), 3-segment audit trail, /api/assets docker list + confirm/override/audit; ride-alongs: netblock snapshot+idempotent replay, Dockerfile iptables fix, netpol orphan sweep, host events log-only, entrypoint -u fix (ADR-050) | ✅ Released |
+|      | ↳ v0.6.4 ~ v0.6.8 — asset UI / incremental log load / six-layer audit (bp_v06x: weekly releases) | 📋 In progress |
 | v0.7 | Next batch: Guard Agent (ex-blueprint v0.8 scope, thesis core dev period) | 📋 Planned |
 | v1.0 | First stable release (post-preview) | 📋 Planned |
 
