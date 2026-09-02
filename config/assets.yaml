@@ -1,0 +1,41 @@
+# 资产分级规则 (v0.6.3, ADR-050) — AssetClassifier 配置
+#   Asset grading rules — first matching rule wins; fallback: medium.
+#
+# 匹配维度 (每个规则可配一个或多个, 同规则多维度须全部命中):
+#   namespace: fnmatch 通配 (k8s 模式可用; docker 模式无命名空间, 跳过该维度)
+#   labels:    键值全等, 多键须全部命中 (k8s pod labels)
+#   image:     正则匹配镜像名 (两种模式共用)
+# level: critical | high | medium | low
+
+rules:
+  - name: "kube-system 平台组件"
+    namespace: "kube-system"
+    level: "high"
+    note: "集群底座组件, 高风险但平台自身 — 仅按命名空间判定即可, labels\n      约束会漏掉无该 label 的 coredns/traefik 等平台 pod"
+
+  - name: "数据库 / 密钥存储"
+    image: "(mysql|postgres|redis|mongo|etcd|vault|consul|elasticsearch)"
+    level: "critical"
+    note: "高价值目标 — 逃逸/横向移动的优先狩猎对象"
+
+  - name: "安全 / 管理组件"
+    image: "(falco|kubescape|trivy|guard|kube-hunter|kubeaudit)"
+    level: "high"
+    note: "安全工具自身镜像, 被劫持即攻击者拿到巡检权限"
+
+  - name: "网络组件"
+    image: "(nginx|traefik|coredns|istio|calico|flannel|cilium|kube-proxy|metrics-server|envoy)"
+    level: "high"
+
+  - name: "业务标签-核心服务"
+    labels:
+      app.kubernetes.io/component: "application"
+    level: "medium"
+
+  - name: "运维调试镜像"
+    image: "(busybox|alpine|bash|ubuntu|debian|python|curl|wget|netcat|socat)"
+    level: "low"
+    note: "调试/基础镜像; 低基信, 但出现在非预期位置时应人工复核"
+
+# 兜底: 未命中任何规则 → medium (诚实标注, 不虚标)
+default_level: "medium"

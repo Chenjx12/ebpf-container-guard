@@ -78,12 +78,15 @@ class _NsenterNetBlocker:
 
     容器内无 iptables 且 netns 隔离 — nsenter -t 1 -m -n 用宿主的命令
     操作宿主的 FORWARD 链, 真实阻断 C2。
+    v0.6.3: persist_path — block/unblock 同步快照 + replay() 重启重放
+    (与 NetBlocker 同一快照文件格式, 独立实例使用)。
     """
 
     _IPT = "nsenter -t 1 -m -n iptables"
 
-    def __init__(self):
+    def __init__(self, persist_path=None):
         self.blocked = {}  # "ip:port" -> ts (保持与 NetBlocker 兼容)
+        self._persist_path = persist_path
 
     def block(self, ip, port):
         if port <= 0:
@@ -96,6 +99,7 @@ class _NsenterNetBlocker:
                   f"-d {ip} -p tcp --dport {port} -j DROP")
         self.blocked[key] = time.time()
         print(f"  [NetBlock] nsenter DROP {ip}:{port}")
+        self._persist()
         return True
 
     def unblock(self, ip, port):
@@ -103,7 +107,56 @@ class _NsenterNetBlocker:
         os.system(f"{self._IPT} -D FORWARD -d {ip} -p tcp --dport {port} "
                   f"-j DROP 2>/dev/null")
         self.blocked.pop(key, None)
+        self._persist()
         return True
+
+    def _persist(self):
+        if not self._persist_path:
+            return
+        import json
+        try:
+            with open(self._persist_path, 'w') as f:
+                json.dump({"version": 1, "blocks": self.blocked}, f)
+        except OSError as e:
+            print(f"  [!] NetBlock 快照失败: {e}", file=sys.stderr)
+
+    def load_persisted(self):
+        if not self._persist_path or not os.path.exists(self._persist_path):
+            return 0
+        import json
+        try:
+            with open(self._persist_path, 'r') as f:
+                data = json.load(f)
+            blocks = data.get('blocks', {}) if isinstance(data, dict) else {}
+            self.blocked = {k: float(v) for k, v in blocks.items()}
+            print(f"  [NetBlock] 快照已恢复: {len(self.blocked)} 条 "
+                  f"({self._persist_path})")
+            return len(self.blocked)
+        except (OSError, ValueError, TypeError) as e:
+            print(f"  [!] NetBlock 快照读取失败: {e}", file=sys.stderr)
+            return 0
+
+    def replay(self):
+        count = self.load_persisted()
+        ok = 0
+        for key, ts in list(self.blocked.items()):
+            try:
+                ip, port = key.rsplit(':', 1)
+                port = int(port)
+                if port <= 0:
+                    continue
+                os.system(f"{self._IPT} -C FORWARD -d {ip} -p tcp "
+                          f"--dport {port} -j DROP 2>/dev/null || "
+                          f"{self._IPT} -I FORWARD 1 -d {ip} -p tcp "
+                          f"--dport {port} -j DROP")
+                ok += 1
+                print(f"  [NetBlock] ⏪ 重放 DROP {ip}:{port} "
+                      f"(快照 {time.strftime('%m-%d %H:%M', time.localtime(ts))})")
+            except Exception as e:
+                print(f"  [!] NetBlock 重放失败 ({key}): {e}", file=sys.stderr)
+        if count:
+            print(f"  [NetBlock] 重启恢复: {ok}/{count} 条重放成功")
+        return ok
 
     def cleanup_expired(self):
         return 0
@@ -226,20 +279,24 @@ class ContainerEscapeMonitor:
         if self.k8s_mode:
             backend = 'iptables'
         self.netblock_backend = backend
+        # v0.6.3 (ADR-050 顺风车): 阻断规则快照持久化到 logs/ (挂载目录,
+        # 跨容器重建持久) — 启动时 replay() 重放 iptables FORWARD DROP
+        netblock_persist = str(script_dir / "logs" / "netblock_rules.json")
         if self.k8s_mode and shutil.which('nsenter'):
-            self.netblocker = _NsenterNetBlocker()
+            self.netblocker = _NsenterNetBlocker(persist_path=netblock_persist)
             print("  [NetBlock] K8s 容器化 — nsenter 宿主 iptables (真实阻断)")
         elif backend == 'mixed':
             xdp = XDPNetBlocker(iface=self._get_xdp_iface())
             self.netblocker = CompositeNetBlocker(
-                xdp, NetBlocker())
+                xdp, NetBlocker(persist_path=netblock_persist))
         elif backend == 'xdp':
             self.netblocker = XDPNetBlocker(iface=self._get_xdp_iface())
             if not self.netblocker.enabled:
                 print("  [NetBlock] XDP 加载失败，回退 iptables")
-                self.netblocker = NetBlocker()
+                self.netblocker = NetBlocker(persist_path=netblock_persist)
         else:
-            self.netblocker = NetBlocker()
+            self.netblocker = NetBlocker(persist_path=netblock_persist)
+        self.netblocker.replay()
 
         # 10. Initialize decision executor (human verdicts → runtime actions)
         if self.k8s_mode:
@@ -251,6 +308,9 @@ class ContainerEscapeMonitor:
             self.executor = K8sDecisionExecutor(
                 str(script_dir / "logs" / "decisions.log"))
             self.executor.start()
+            # v0.6.3 (ADR-050 顺风车 2): NetworkPolicy 孤儿清扫 (30s 周期) —
+            # 隔离状态下容器销毁不留残留 deny-all 策略
+            self.responder.start_netpol_sweep(interval=30)
         else:
             self.responder = ResponseEngine(responses_file)
             self.executor = DecisionExecutor(
@@ -433,13 +493,16 @@ class ContainerEscapeMonitor:
 
             # === Tier 1: Rule Engine ===
             matched_rules = self.detector.check_event(event_dict)
+            # v0.6.3 (ADR-050 顺风车 3 形式化): 宿主机进程只进行为日志——
+            # 规则判定仅保留 ptrace_host_init (宿主 ptrace 攻容器是真实
+            # 向量, v0.5.x 既有决策)，其余 host 事件一律不参与判定不告警
+            # (dev-host 噪声: k3s-server/agent/iptables 等宿主活动)。
+            if raw_cid == 'host':
+                matched_rules = [r for r in matched_rules
+                                 if r.get('attack_vector') == 'ptrace_host_init']
             if matched_rules:
                 for rule in matched_rules:
-                    # Skip container-specific rules for host processes
                     attack_vector = rule.get('attack_vector', '')
-                    if raw_cid == 'host' and attack_vector not in (
-                            'ptrace_host_init',):
-                        continue
 
                     alert = self.detector.generate_alert(rule, event_dict)
 

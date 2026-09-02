@@ -389,3 +389,28 @@ class K8sResponseEngine:
         }
         with open('response_audit.log', 'a') as f:
             f.write(json.dumps(log_entry) + '\n')
+
+    # ---------------------------------------------------------------
+    # v0.6.3 (ADR-050 顺风车 2): NetworkPolicy 孤儿清扫 (防泄漏)
+    # ---------------------------------------------------------------
+
+    def start_netpol_sweep(self, interval: float = 30.0):
+        """后台线程周期清扫孤儿隔离策略 (隔离状态下容器被销毁 →
+
+        deny-all netpol 残留)。daemon 线程随进程退出, 无需显式 stop。"""
+        import threading
+        sweeper = threading.Thread(
+            target=self._netpol_sweep_loop, args=(interval,),
+            name="netpol-sweep", daemon=True)
+        sweeper.start()
+        print(f"  [NetPolSweep] 孤儿清扫已启动 (每 {interval}s)")
+
+    def _netpol_sweep_loop(self, interval: float):
+        import time as _t
+        while True:
+            _t.sleep(interval)
+            try:
+                if hasattr(self._isolation_backend, 'sweep_orphaned'):
+                    self._isolation_backend.sweep_orphaned()
+            except Exception as e:
+                print(f"  [NetPolSweep] 清扫异常: {e}", file=sys.stderr)

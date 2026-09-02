@@ -1,5 +1,5 @@
 """
-eBPF Container Guard — API routes (v0.5.6)
+eBPF Container Guard — API routes (v0.5.6 → v0.6.3)
 
 All endpoints organized by dashboard page. RBAC:
   admin     — everything
@@ -10,7 +10,17 @@ File-channel linkage with main.py:
   - POST /api/review/decision → decisions.log (DecisionExecutor polls 2s)
   - POST /api/rules → rules.yaml (guard hot-reloads 3s)
   - PUT /api/config/ai → ai_config.yaml (guard hot-reloads 3s)
+
+v0.6.3 (ADR-050) 资产分级 + 状态机:
+  - GET /api/assets — k8s pod 分组 (v0.5.7 保持) 附带 level/state/rule;
+    docker 模式新增容器清单 (此前只报 k8s API 错误)
+  - POST /api/assets/{id}/confirm|override — 人工决策 (三段留痕)
+  - GET /api/assets/{id}/audit — auto_inference/human_decision/
+    status_transition 留痕可查 (v0.6.4 前端接入)
 """
+
+import sys
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -20,6 +30,20 @@ from server import common
 from server.deps import require_role
 
 router = APIRouter(prefix="/api")
+
+# src/ 注入 — common.py 的注入发生在函数内, 模块级 import core.* 需先行
+_SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+from core.assets import AssetClassifier, AssetStore  # noqa: E402
+
+# v0.6.3 (ADR-050): 资产分级器 + 状态存储 (单例; logs/ = 持久挂载目录,
+# 跨容器重建状态仍在; 三段留痕 → logs/assets_audit.log)
+_ASSET_CLASSIFIER = AssetClassifier(str(common.SCRIPT_DIR / "config" / "assets.yaml"))
+_ASSET_STORE = AssetStore(
+    state_file=str(common.LOGS_DIR / "assets.yaml"),
+    audit_file=str(common.LOGS_DIR / "assets_audit.log"),
+    classifier=_ASSET_CLASSIFIER)
 
 # Role dependencies
 read_any = Depends(require_role("analyst"))
@@ -291,16 +315,50 @@ def _k8s_client_v1():
 
 @router.get("/assets")
 def assets(user: dict = read_any):
-    """资产管理: k8s pod 按 node 分组 + 服务关联 (v0.5.7)。
+    """资产管理 (v0.6.3, ADR-050): 资产分级 + PENDING_REVIEW 状态机。
 
-    面板连集群 (kubeconfig ~/.kube/config) 拉全量 pod/service。
-    关联维度: 节点归属 (同物理机) / 命名空间 / 服务 selector 匹配
-    labels / 特权状态。
+    - k8s: pod 按 node 分组 + 服务关联 (v0.5.7 保持) — 每 pod 附带
+      level (auto/override) / state (PENDING_REVIEW → CONFIRMED/
+      OVERRIDDEN) / rule / audit_count; 首次列出自动推断入库存 + 留痕
+    - docker (v0.6.3 新增): 容器清单 + 同样分级字段 (此前仅报 k8s API
+      错误)。分类规则: config/assets.yaml (namespace/labels/image)
     """
     v1 = _k8s_client_v1()
     if v1 is None:
-        return {"runtime": "k8s", "total": 0, "nodes": [], "services": [],
-                "error": "k8s API 不可用 (kubeconfig 权限?)"}
+        # docker 模式 (或 kubeconfig 不可用): 容器清单 + 分级
+        try:
+            import docker as _docker
+            dclient = _docker.from_env()
+            containers = dclient.containers.list()
+        except Exception as e:
+            return {"runtime": "docker", "total": 0, "containers": [],
+                    "nodes": [], "services": [],
+                    "error": f"docker API 不可用: {e}"}
+        items = []
+        for c in containers:
+            image = c.image.tags[0] if c.image.tags else \
+                (c.image.short_id or 'unknown')
+            rec = _ASSET_STORE.ensure_asset({
+                'id': c.id[:12], 'name': c.name, 'namespace': '',
+                'image': image, 'labels': dict(c.labels or {}),
+            })
+            privileged = False
+            try:
+                privileged = bool(c.attrs.get('HostConfig', {})
+                                  .get('Privileged', False))
+            except Exception:
+                pass
+            items.append({
+                'id': c.id[:12], 'name': c.name, 'image': image,
+                'status': c.status, 'privileged': privileged,
+                'level': rec.get('level'),
+                'level_source': rec.get('level_source'),
+                'asset_state': rec.get('state'),
+                'asset_rule': rec.get('rule'),
+                'audit_count': rec.get('audit_count'),
+            })
+        return {"runtime": "docker", "total": len(items),
+                "containers": items, "nodes": [], "services": []}
     try:
         pods = v1.list_pod_for_all_namespaces().items
         svcs = v1.list_service_for_all_namespaces().items
@@ -331,6 +389,14 @@ def assets(user: dict = read_any):
             sel = s['selector']
             if sel and all(labels.get(k) == v for k, v in sel.items()):
                 pod_services.append(s['name'])
+        # v0.6.3: 自动分级 + 状态机 (首次列出即 PENDING_REVIEW + 留痕)
+        rec = _ASSET_STORE.ensure_asset({
+            'id': str(p.metadata.uid)[:12],
+            'name': p.metadata.name,
+            'namespace': p.metadata.namespace,
+            'image': containers[0] if containers else '',
+            'labels': labels,
+        })
         entry = {
             'name': p.metadata.name,
             'namespace': p.metadata.namespace,
@@ -345,6 +411,13 @@ def assets(user: dict = read_any):
             'labels': labels,
             'created': str(p.metadata.creation_timestamp or '')[:19],
             'services': pod_services,
+            # v0.6.3 (ADR-050): 分级 + 状态 + 留痕计数
+            'asset_id': rec.get('id'),
+            'level': rec.get('level'),
+            'level_source': rec.get('level_source'),
+            'asset_state': rec.get('state'),
+            'asset_rule': rec.get('rule'),
+            'audit_count': rec.get('audit_count'),
         }
         node_map.setdefault(p.spec.node_name, []).append(entry)
 
@@ -352,6 +425,49 @@ def assets(user: dict = read_any):
              for n, ps in sorted(node_map.items())]
     return {"runtime": "k8s", "total": len(pods),
             "nodes": nodes, "services": svc_list}
+
+
+# ================================================================
+# v0.6.3 (ADR-050): 资产确认 / 覆盖 / 三段留痕
+# ================================================================
+
+
+@router.post("/assets/{asset_id}/confirm")
+def asset_confirm(asset_id: str, body: dict, user: dict = write_op):
+    """资产确认: PENDING_REVIEW → CONFIRMED (operator+) —
+    human_decision + status_transition 留痕 (ADR-050)。"""
+    reason = (body.get('reason') or '').strip()
+    try:
+        rec = _ASSET_STORE.confirm(asset_id, user['username'], reason)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {'asset_id': asset_id, 'state': rec['state'],
+            'level': rec['level']}
+
+
+@router.post("/assets/{asset_id}/override")
+def asset_override(asset_id: str, body: dict, user: dict = admin_only):
+    """级别覆盖: 资产转 OVERRIDDEN, 级别以人工为准 (admin) —
+    human_decision + status_transition 留痕。"""
+    level = (body.get('level') or '').strip()
+    reason = (body.get('reason') or '').strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="覆盖必须填写理由")
+    try:
+        rec = _ASSET_STORE.override(asset_id, level, user['username'], reason)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {'asset_id': asset_id, 'state': rec['state'],
+            'level': rec['level'], 'level_source': rec['level_source']}
+
+
+@router.get("/assets/{asset_id}/audit")
+def asset_audit(asset_id: str, user: dict = read_any):
+    """三段留痕可查: auto_inference / human_decision / status_transition。"""
+    return {'asset_id': asset_id,
+            'audit': _ASSET_STORE.audit_log(asset_id)}
 
 
 # ================================================================

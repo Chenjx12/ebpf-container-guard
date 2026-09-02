@@ -32,3 +32,16 @@ Makefile
 run.sh
 setup.sh
 .build/vmlinux.h
+
+# v0.6.3 (ADR-050 教训): 运行时凭据/状态文件绝不入镜像 —
+#   - config/users.yaml: 烘焙会 1) 吞掉首次启动的初始密码打印
+#     (验收锚点依赖的输入), 2) 把宿主时代凭据哈希分发给所有拉镜像的人
+#     (安全红线, 决策 #42 延伸); CI 干净克隆无此文件, 本地构建含之 —
+#     此差异正是 v0.6.3 冒烟时「无初始密码」的根因
+#   - ai_config.yaml / ai_profiles.yaml: 运行时快照 (AI key 万一含真实
+#     密钥就是镜像级泄漏), 镜像内只保留 .example 种子
+config/users.yaml
+config/tokens.yaml
+config/ai_config.yaml
+config/ai_profiles.yaml
+config/blocklist.yaml

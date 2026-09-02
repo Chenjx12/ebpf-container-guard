@@ -64,6 +64,11 @@ class CompositeNetBlocker:
     def list_iptables(self) -> list:
         return self.iptables.list_iptables()
 
+    # v0.6.3 (ADR-050 顺风车): replay 透传到 iptables 层 — XDP 不在镜像内
+    # (bpftool 缺失, 已知限制), 重放覆盖实际生效的 FORWARD DROP
+    def replay(self) -> int:
+        return self.iptables.replay()
+
     def detach(self):
         if self.xdp:
             self.xdp.detach()

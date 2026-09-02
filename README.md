@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.2.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.3-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -56,7 +56,7 @@ cd ebpf-container-guard
 
 ```bash
 # 1) Pull
-docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.2.1
+docker pull ghcr.io/chenjx12/ebpf-container-guard:v0.6.3
 
 # 2) Run — privileged flags are REQUIRED for eBPF (not optional):
 #    --privileged / --pid=host / --network host, /sys for BTF+tracefs,
@@ -66,7 +66,7 @@ docker run -d --name guard \
   -v /sys:/sys \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/lib/ebpf-guard:/app/logs \
-  ghcr.io/chenjx12/ebpf-container-guard:v0.6.2.1
+  ghcr.io/chenjx12/ebpf-container-guard:v0.6.3
 
 # 3) Open the dashboard at http://localhost:8000 — initial passwords are
 #    printed to the container logs on first start (admin/test, forced
@@ -74,12 +74,12 @@ docker run -d --name guard \
 docker logs guard 2>&1 | head -20    # look for the "初始账号已创建" line
 ```
 
-> **Supply-chain evidence (v0.6.2, ADR-049)**: every release ships three downloadable
+> **Supply-chain evidence (v0.6.2/0.6.3, ADR-049)**: every release ships three downloadable
 > assets — `sbom.<tag>.cdx.json` (CycloneDX SBOM), `trivy-report.<tag>.json`
 > (image-layer scan) and `trivy-fs-report.<tag>.json` (dependency-layer scan:
 > requirements.txt / Dockerfile / sources, vuln+secret). Both scan layers are
 > independently gated (CRITICAL/HIGH, ignore-unfixed) before release. **Image tag
-> = git tag string** (`...:v0.6.2.1` ↔ tag `v0.6.2.1`); `latest` only marks the newest
+> = git tag string** (`...:v0.6.3` ↔ tag `v0.6.3`); `latest` only marks the newest
 > release — pin a fixed tag for demos (v0.6.0 is the permanent safety-net
 > fallback). See [docs/image-tag-policy.md](docs/image-tag-policy.md).
 > The DaemonSet form still uses `deploy/k8s/daemonset.yaml` (image switchover to GHCR follows within v0.6.x).

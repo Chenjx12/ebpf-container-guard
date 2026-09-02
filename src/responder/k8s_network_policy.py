@@ -20,6 +20,7 @@ class NetworkPolicyBackend(IsolationBackend):
     def __init__(self, kubeconfig="/etc/rancher/k3s/k3s.yaml"):
         load_kubeconfig(kubeconfig)
         self._networking_v1 = client.NetworkingV1Api()
+        self._core_v1 = client.CoreV1Api()
         self._fallback = NsenterIptablesBackend()
         self._isolated: set = set()  # {(ns, pod)} 去重
 
@@ -44,6 +45,9 @@ class NetworkPolicyBackend(IsolationBackend):
                         "%Y-%m-%dT%H:%M:%SZ"),
                     "guard/restore-hint":
                         f"kubectl delete networkpolicy {policy_name[:253]} -n {ns}",
+                    # v0.6.3 (ADR-050): 完整 pod 名入库 — 策略名仅取 pod[:63]
+                    # 会截断 (pod 名可 >63), 清扫器靠注解精确判定 pod 是否仍存在
+                    "guard/pod": pod,
                 }
             ),
             spec=client.NetworkingV1NetworkPolicySpec(
@@ -78,3 +82,49 @@ class NetworkPolicyBackend(IsolationBackend):
                 self._isolated.discard(key)
                 return True  # 已不存在
             return self._fallback.unisolate(ns, pod, pod_ip)
+
+    def sweep_orphaned(self) -> int:
+        """v0.6.3 (ADR-050 顺风车 2): 回收已销毁 pod 的 guard 隔离 netpol。
+
+        泄漏场景: 容器在隔离状态下被销毁（无 unisolate 调用）— deny-all
+        netpol 残留, 该命名空间下同名 pod 名段持续被拒。清扫按
+        managed-by 标签 + guard/pod 注解精确判定, 30s 周期由 responder 调用。
+        """
+        deleted = 0
+        try:
+            policies = self._networking_v1 \
+                .list_network_policy_for_all_namespaces(
+                    label_selector="managed-by=ebpf-container-guard").items
+        except Exception as e:
+            print(f"  [NetPolSweep] 列表失败: {e}", file=__import__('sys').stderr)
+            return 0
+        for p in policies:
+            ns = p.metadata.namespace
+            pod = (p.metadata.annotations or {}).get("guard/pod")
+            if not pod:
+                # 旧版本策略无注解 — 从名字前缀推断 (可能截断, 尽力而为)
+                name = p.metadata.name or ""
+                if name.startswith("guard-isolate-"):
+                    pod = name[len("guard-isolate-"):]
+                else:
+                    continue
+            # pod 仍在 → 跳过; pod 已不存在 (404) → 回收
+            try:
+                self._core_v1.read_namespaced_pod(name=pod, namespace=ns)
+                continue
+            except client.rest.ApiException as e:
+                if e.status != 404:
+                    continue
+            except Exception:
+                continue
+            try:
+                self._networking_v1.delete_namespaced_network_policy(
+                    name=p.metadata.name, namespace=ns)
+                self._isolated.discard((ns, pod))
+                deleted += 1
+                print(f"  [NetPolSweep] 回收孤儿隔离策略 {ns}/{p.metadata.name} "
+                      f"(pod {pod} 已销毁)")
+            except Exception as e:
+                print(f"  [NetPolSweep] 删除失败 {ns}/{p.metadata.name}: {e}",
+                      file=__import__('sys').stderr)
+        return deleted

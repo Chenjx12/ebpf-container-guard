@@ -10,6 +10,83 @@
 
 ---
 
+## [0.6.3] - 2026-09-02（轻 changelog，bp_v06x — 资产推断 + 状态落盘）
+
+### 新增
+- **AssetClassifier + AssetStore**（`src/core/assets.py`，ADR-050）：资产分级
+  规则可配置（`config/assets.yaml`：namespace fnmatch / labels 全等 /
+  image 正则，首条命中定级，兜底 medium）+ 状态机
+  `PENDING_REVIEW → CONFIRMED / OVERRIDDEN`；三段留痕 JSONL
+  （`auto_inference` / `human_decision` / `status_transition`）→ 日志目录
+  `logs/assets_audit.log`；状态文件 `logs/assets.yaml` 原子落盘 —
+  **跨容器重建持久**（ADR-050 / 决策 #52 教训：需持久的数据放 LOGS_DIR，
+  不放 config/ 可写层）
+- **API**（`server/routes.py`）：`GET /api/assets` — k8s pod 分组保持并附
+  level/state/rule/audit_count，**docker 模式新增容器清单**（此前仅报
+  k8s API 错误）；`POST /api/assets/{id}/confirm`（operator+）、
+  `POST /api/assets/{id}/override`（admin）、`GET /api/assets/{id}/audit`
+- **顺风车（ADR-050，重启后状态不丢）**：
+  - netblock 持久化 + 启动重放（`src/core/netblock.py`：block/unblock
+    同步快照 `logs/netblock_rules.json`，启动 `replay()` 重建 FORWARD
+    DROP；**重放幂等**：先 `iptables -C` 查重，已存在则跳过 — host
+    网络重启后不重复插入）
+  - **镜像修复**：Dockerfile 补装 `iptables` — v0.6.1/v0.6.2 镜像缺
+    iptables 二进制，docker 单机形态的 netblock 实际抛
+    FileNotFoundError 杀死事件管线；修复 + block/unblock/replay 捕获
+    OSError 优雅降级
+  - NetworkPolicy 孤儿清扫（k8s）：`sweep_orphaned()` 按 managed-by 标签
+    + `guard/pod` 注解回收已销毁 pod 的隔离策略，每 30s 后台执行
+  - host 事件规则判定形式化：只保留 `ptrace_host_init`（宿主 ptrace 攻
+    容器是真实向量），其余 host 事件只进行为日志
+  - PID map 日志噪音治理：首轮只打印一次（此前每 5s 刷屏淹没启动输出）
+
+### 变更
+- **重放幂等**：replay() 先 `iptables -C` 查重，已存在则跳过 — host 网络
+  下容器重启后旧规则残留，不再重复插入（初始冒烟暴露此问题：重启后
+  FORWARD 链出现两条相同 DROP；修复后单测覆盖最终镜像冒烟实测：重启后
+  FORWARD 链保持 1 条 + 日志显示 `⟳ 已存在, 跳过`）
+- **entrypoint stdout 缓冲修复**：uvicorn 加 `-u`/PYTHONUNBUFFERED —
+  PID map 噪音修复（本版）后输出量骤减，管道块缓冲不再被刷屏撑满，
+  面板初始密码打印会卡在缓冲里丢失（README「日志找初始密码」流程依赖
+  该打印）；加 -u 保证实时落日志
+- 单测新增 17 例（分类器/状态机/重放持久化/恢复/幂等），基线 146 →
+  **163 passed**
+
+### 已验证（docker 单机冒烟，2026-09-02）
+- `/api/assets` docker 模式：guard 容器自动落 `PENDING_REVIEW/high`
+  （规则：安全/管理组件）+ audit_count=1
+- confirm → `CONFIRMED`，override → `OVERRIDDEN/critical`
+- 三段留痕 6 条：auto_inference + 2×human_decision（人+理由）+
+  3×status_transition（含 level 字段变更）
+- 真实阻断：C2 nc → FORWARD DROP 生效 + 快照落盘
+- **重启恢复（验收锚点）**：`快照已恢复 1 条` + `重放 DROP` 成功，
+  资产状态保持 `OVERRIDDEN/critical`，阻断规则在 FORWARD 链
+- 镜像修复验证：容器内 `iptables v1.8.11` 存在，.dockerignore 排除
+  运行时凭据后首启正常打印初始账号密码
+- **最终镜像全链路（2026-09-02 下午）**：真实攻击容器 nc 连 C2 →
+  reverse_shell HIGH → 置信度 70% → `isolate_network` 真执行
+  （`Container DISCONNECTED from bridge`）；幂等重放实测：链上已存在时
+  日志 `⟳ DROP ... 已存在, 跳过`，FORWARD 链保持 1 条不重复；手动插入
+  规则在重启后保留（host netns 特性）；`-P FORWARD DROP` 策略级兜底
+
+### 已知限制（诚实标注）
+- 资产状态由面板侧（server 进程）维护，guard 引擎暂不消费分级
+- netblock XDP 层仍不在镜像内（bpftool 未捆绑）— 重放覆盖实际生效的
+  iptables 层
+- k8s NetworkPolicy 孤儿清扫已实现+单测覆盖，未做 k8s E2E 实测（开发机
+  k3s 宿主态，待后续补验）
+- **开发机宿主干扰（本机，非产品缺陷）**：开发机 k3s 的 kube-router 会
+  周期性重写宿主 FORWARD 链（netpol 同步），可能剥掉 guard 的 `--dport`
+  精确规则 — 干净 docker 单机（无 k3s）无此现象；快照保留保守一致 +
+  replay 幂等兜底，下次重启自动重建精确规则
+- TTL 自动清理（`cleanup_expired`）定义存在但无定时调度（v0.3.x 遗留，
+  与 v0.6.3 无关）：iptables 规则一直保留到显式 unblock/停机/重启重放
+
+### 文档
+- ADR-050（已转 Accepted：docker 模式冒烟全绿），决策 #52（本地）
+
+---
+
 ## [0.6.2.1] - 2026-09-01（热修：面板白屏）
 
 ### 修复

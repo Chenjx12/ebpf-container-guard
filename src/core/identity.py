@@ -480,8 +480,13 @@ class ContainerIdentity:
                 for pid in pids:
                     self.bpf['container_map'][ct.c_uint32(pid)] = entry
                     mapped += 1
-            print(f"  [Map] PID map: {mapped} processes "
-                  f"across {len(containers)} containers")
+            # v0.6.3 (ADR-050 顺风车, 日志可读性): 只在启动首轮打印 —
+            # 每 5s 刷新重复打印会把初始账号密码行等启动输出淹没
+            # (v0.6.2.1 白屏排查实测: 148 行日志中 120+ 行是 PID map 刷屏)
+            if not getattr(self, '_pid_map_first_print', False):
+                print(f"  [Map] PID map: {mapped} processes "
+                      f"across {len(containers)} containers")
+                self._pid_map_first_print = True
         except Exception as e:
             print(f"  [!] PID map update failed: {e}", file=sys.stderr)
 

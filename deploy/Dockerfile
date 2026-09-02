@@ -9,14 +9,34 @@
 
 FROM python:3.10-slim
 
+# APT_MIRROR — 允许本地构建切换 apt 源 (CI 保持默认 deb.debian.org,
+# 供应链扫描/发布行为不受影响; 本地网络 DNS 抖动时用镜像源加速稳定:
+# docker build --build-arg APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian)
+ARG APT_MIRROR=http://deb.debian.org/debian
+ARG APT_MIRROR_SECURITY=http://deb.debian.org/debian-security
+
 # libbpf.so.1 动态依赖: libz 自带, libelf 从 deploy/libbpf COPY (apt 网络受限)
 COPY deploy/libbpf/libelf.so.1.0.0 /usr/lib/x86_64-linux-gnu/libelf.so.1.0.0
 RUN ln -sf /usr/lib/x86_64-linux-gnu/libelf.so.1.0.0 \
     /usr/lib/x86_64-linux-gnu/libelf.so.1
 
 # tzdata — 事件时间戳用本地时区 (TZ env 需 zoneinfo, 否则容器 UTC 偏差 8h)
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+# iptables — v0.6.3 顺风车 1 (ADR-050): docker 单机形态的 netblock 是
+#   NetBlocker → 容器内直接执行 iptables 操作宿主 FORWARD 链 (privileged +
+#   hostNetwork 共享 netns)。slim 基础镜像无 iptables 二进制, 此前缺装导致
+#   block() 抛 FileNotFoundError 杀死整个事件管线 (攻击矩阵打印后事件丢失) —
+#   已实测确认并在此修复 (顺带: 重放 replay() 也依赖该二进制)。
+# 注: base python:3.10-slim 是 Debian trixie, sources 为 deb822 格式
+#   (/etc/apt/sources.list.d/debian.sources), URIs 行无尾斜杠 —
+#   用行尾锚定的行替换精确切换主源与安全源。
+RUN if [ "$APT_MIRROR" != "http://deb.debian.org/debian" ]; then \
+        sed -i "s|^URIs: http://deb\.debian\.org/debian$|URIs: ${APT_MIRROR}|; \
+                s|^URIs: http://deb\.debian\.org/debian-security$|URIs: ${APT_MIRROR_SECURITY}|" \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update -qq && apt-get install -y -qq --no-install-recommends \
         tzdata \
+        iptables \
     && rm -rf /var/lib/apt/lists/*
 
 # 运行时依赖（v0.6.1 起锁定版本；面板与 guard 同镜像，见 requirements.txt）
