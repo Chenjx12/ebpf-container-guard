@@ -9,6 +9,59 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.4] - 2026-09-07 (light changelog, bp_v06x — 资产确认闭环)
+
+### Added
+- **统一资产清单**: k8s pod 与 docker 容器合并为一张表 (ADR-051)。
+  新增 `unifiedAssets` 归一化层, 「类型」列区分数据来源, 消除两张表间
+  「分级 / 资产状态 / 操作」三列的逐字重复 — 后续 v0.6.7 六层审计只需接一处
+- **撤销 (防误操作)**: `POST /api/assets/{id}/revert` (admin) —
+  `CONFIRMED|OVERRIDDEN → PENDING_REVIEW`, 资产重回待确认队列并恢复闪烁提示。
+  **级别不回滚** (人工覆盖值是有价值信息, 撤销只回退确认状态)
+- **留痕按事件聚合**: 后端 `_audit(event_id=)` 让一次决策的多条留痕共用 id;
+  前端 `auditGroups` 聚合成「决策卡片」(主条目 + 缩进侧面)。存量数据按
+  `ts+type` 兜底
+- **多选并列筛选**: 分级 / 镜像 / 命名空间 / 节点均支持多选 (OR 语义),
+  可「核心 + 重要」同时查看
+- **暂存 + 应用**: 筛选下拉绑 `draftFilter`, 点「应用筛选」才重绘 —
+  多选下即时重绘会让拓扑反复跳动
+- **docker 侧补齐维度**: `created` (创建时间 + 存活时长) / `ip`
+  (`NetworkSettings.IPAddress` 及各网络回退) / `labels` (含 compose 元数据)
+- **渲染级门禁**: `scripts/panel_render_check.js` + `make panel-check` —
+  决策 #51 从口头纪律固化为可执行门禁 (逐页模板编译 + 行为级断言, 66 项)
+
+### Changed
+- 资产分级文案 **严重/高危/中危/低危 → 核心/重要/一般/边缘**: 资产分级是
+  **业务重要性**, 与漏洞危害等级 (CVSS) 语义不同。数据值仍为
+  `critical/high/medium/low`, 与 `config/assets.yaml` 及存量落盘兼容, 无需迁移
+- 资产详情页统一: k8s pod 与 docker 容器共用 `assetDialog`, 按 `kind`
+  渲染各自字段; 容器表格补 `@row-click`
+- 确认/覆盖入口: admin 对**已决策**资产可再次覆盖 (此前仅待确认时可操作)
+
+### Removed
+- **资产状态筛选**: 待确认已有顶部横幅 + 详情入口直达, 且「已覆盖」本就是
+  「已确认 + 人工改级别」的一种, 三者不是并列筛选维度
+- **「显示本地容器」开关** → docker 归入 `docker` **伪命名空间**。
+  docker 容器只能来自被监控的这台机器, 不存在「其他机器的 docker」
+
+### Fixed
+- 资产管理页白屏: `app.js` 模板中一个损坏的 `<el-option>` 标签导致 Vue
+  编译失败 (与 v0.6.2.1 同形故障) — 门禁已能捕获此类问题
+- 详情弹窗字段全空: `assetAge` 提到顶层后漏在 setup return 中导出
+- 筛选对下方清单无效: 清单改用同一套归一化行与谓词 (`inSet` 提至顶层,
+  拓扑与清单共用判定)
+- 容器详情缺 IP / Labels: 后端未返回该维度
+
+### Tests
+- 渲染级自检 **66 项全绿** (含 k8s 假数据归一化验证)
+- 单测 **170 passed** (v0.6.3.1 基线 170, 无回归)
+
+### 诚实标注
+- **k8s 侧未真机验收**: 开发环境无集群, 归一化逻辑仅用假数据验证成立,
+  真实 k8s 字段完整性待补验
+- **guard 引擎未启动**: 沙箱缺 `CAP_SYS_ADMIN` / `CAP_BPF` (rootless docker),
+  BPF 加载 EPERM。资产验收不依赖 guard (走 Docker SDK)
+
 ## [0.6.3.1] - 2026-09-07 (code-review hardening batch H1-H4/M1-M6)
 
 Hotfix-renamed tag (precedent: v0.6.2.1 blank-screen fix): the local commit was

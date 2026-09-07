@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.3-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.4-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -558,7 +558,8 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |      | ↳ v0.6.2 — 供应链证据链：依赖层扫描 + 镜像 tag 对齐策略（ADR-049） | ✅ 已发布 |
 |      | ↳ v0.6.2.1 — 热修：面板白屏（app.js 语法损坏；补渲染级验收纪律） | ✅ 已发布 |
 |      | ↳ v0.6.3 — 资产推断+状态落盘：AssetClassifier/AssetStore 状态机（PENDING_REVIEW→CONFIRMED/OVERRIDDEN）+ 三段留痕 + /api/assets docker 清单 + 确认/覆盖/审计；顺风车：netblock 快照+幂等重放、Dockerfile 补装 iptables、netpol 孤儿清扫、host 事件仅记录、entrypoint -u 修复（ADR-050） | ✅ 已发布 |
-|      | ↳ v0.6.4 ~ v0.6.8 — 资产确认闭环 UI / 日志增量 / 六层审计（bp_v06x 逐周推进） | 📋 推进中 |
+|      | ↳ v0.6.4 — 前端资产确认闭环：统一资产清单（k8s pod + docker 容器，ADR-051）、撤销（admin，防误操作）、留痕按 event_id 聚合、筛选多选并列 + 应用按钮、资产分级改业务重要性（核心/重要/一般/边缘）、渲染级门禁 `make panel-check` | ✅ 已发布 |
+|      | ↳ v0.6.5 ~ v0.6.8 — 后端日志增量 / 日志视图体验 / 六层审计（bp_v06x 逐周推进） | 📋 推进中 |
 | v0.7 | 下一批：Guard Agent（原 blueprint v0.8 内容，毕设核心开发期） | 📋 规划中 |
 | v1.0 | 首个稳定版（preview 结束后） | 📋 规划中 |
 

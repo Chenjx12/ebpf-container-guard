@@ -20,6 +20,7 @@ import re
 import fnmatch
 import tempfile
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -156,13 +157,24 @@ class AssetStore:
 
     # ---- audit trail (三段留痕 JSONL) ----
 
-    def _audit(self, asset_id, atype, detail: dict):
+    def _audit(self, asset_id, atype, detail: dict, event_id=None):
+        """写一条留痕。
+
+        v0.6.4: 一次人工决策 (confirm/override) 会产生多条留痕 —
+        human_decision + status_transition (状态) + status_transition (级别来源)。
+        它们语义上是**同一个决策事件的不同侧面**, 此前前端平铺展示, 看起来像
+        3 个独立事件 (用户反馈)。故引入 event_id: 同一次操作共用, 前端据此
+        聚合为一张「决策卡片」。存量数据无该字段, 前端按 ts 兜底分组。
+        """
         row = {
             "ts": datetime.now().isoformat(timespec='milliseconds'),
             "type": atype,       # auto_inference | human_decision | status_transition
             "asset": asset_id,
             "detail": detail,
         }
+        if event_id:
+            row["event_id"] = event_id
+            row["detail"] = {**detail, "event_id": event_id}
         try:
             self.audit_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.audit_file, 'a') as f:
@@ -258,10 +270,14 @@ class AssetStore:
         old = rec['state']
         rec['state'] = 'CONFIRMED'
         rec['updated_at'] = datetime.now().isoformat(timespec='seconds')
+        # 同一次确认共用 event_id → 前端聚合为一张决策卡片
+        eid = uuid.uuid4().hex[:12]
         self._audit(asset_id, 'human_decision',
-                    {'action': 'confirm', 'by': by_user, 'reason': reason})
+                    {'action': 'confirm', 'by': by_user, 'reason': reason},
+                    event_id=eid)
         self._audit(asset_id, 'status_transition',
-                    {'from': old, 'to': 'CONFIRMED', 'by': by_user})
+                    {'from': old, 'to': 'CONFIRMED', 'by': by_user},
+                    event_id=eid)
         rec['audit_count'] += 2
         self.save()
         return rec
@@ -279,14 +295,44 @@ class AssetStore:
         rec['level_source'] = 'override'
         rec['state'] = 'OVERRIDDEN'
         rec['updated_at'] = datetime.now().isoformat(timespec='seconds')
+        # 同一次覆盖共用 event_id (3 条留痕 = 1 个决策事件)
+        eid = uuid.uuid4().hex[:12]
         self._audit(asset_id, 'human_decision',
                     {'action': 'override', 'level': level, 'by': by_user,
-                     'reason': reason})
+                     'reason': reason}, event_id=eid)
         self._audit(asset_id, 'status_transition',
-                    {'from': old_state, 'to': 'OVERRIDDEN', 'by': by_user})
+                    {'from': old_state, 'to': 'OVERRIDDEN', 'by': by_user},
+                    event_id=eid)
         self._audit(asset_id, 'status_transition',
                     {'from': 'auto', 'to': 'override', 'field': 'level',
-                     'old_level': old_level, 'by': by_user})
+                     'old_level': old_level, 'by': by_user}, event_id=eid)
         rec['audit_count'] += 3
+        self.save()
+        return rec
+
+    def revert(self, asset_id, by_user, reason) -> dict:
+        """撤销确认/覆盖 → 回到 PENDING_REVIEW (防误操作)。
+
+        语义: 只在**已决策** (CONFIRMED / OVERRIDDEN) 上生效, 撤销后资产重新
+        进入待确认队列并恢复闪烁提示, 等待重新确认。
+        级别**不回滚** — 已被人工覆盖过的级别是有价值的信息,
+        盲目退回 auto 会丢失人工判断; 撤销只回退"确认状态"这一件事。
+        """
+        rec = self.assets.get(asset_id)
+        if rec is None:
+            raise KeyError(f"资产不存在: {asset_id}")
+        old = rec['state']
+        if old == 'PENDING_REVIEW':
+            raise ValueError('该资产本就处于待确认状态, 无需撤销')
+        rec['state'] = 'PENDING_REVIEW'
+        rec['updated_at'] = datetime.now().isoformat(timespec='seconds')
+        eid = uuid.uuid4().hex[:12]
+        self._audit(asset_id, 'human_decision',
+                    {'action': 'revert', 'from_state': old,
+                     'by': by_user, 'reason': reason}, event_id=eid)
+        self._audit(asset_id, 'status_transition',
+                    {'from': old, 'to': 'PENDING_REVIEW', 'by': by_user},
+                    event_id=eid)
+        rec['audit_count'] += 2
         self.save()
         return rec

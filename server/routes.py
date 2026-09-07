@@ -348,9 +348,28 @@ def assets(user: dict = read_any):
                                   .get('Privileged', False))
             except Exception:
                 pass
+            # 容器创建时间: Docker 返回 RFC3339 UTC (...Z), 截断到秒并与
+            # k8s 侧 metadata.creation_timestamp 保持同一格式, 便于面板统一展示
+            created = str(c.attrs.get('Created') or '')[:19]
+            # 容器 IP / labels: docker 同样有这两个维度 (统一资产面板不应留空)。
+            #   IP 优先 NetworkSettings.IPAddress, docker 常把它放在各网络下,
+            #   故回退取 Networks 里第一个有值的; labels 用于展示 compose 元数据
+            ip = ''
+            try:
+                nets = c.attrs.get('NetworkSettings', {})
+                ip = nets.get('IPAddress') or ''
+                if not ip:
+                    for _n, _v in (nets.get('Networks') or {}).items():
+                        if _v and _v.get('IPAddress'):
+                            ip = _v['IPAddress']
+                            break
+            except Exception:
+                pass
             items.append({
                 'id': c.id[:12], 'name': c.name, 'image': image,
                 'status': c.status, 'privileged': privileged,
+                'created': created, 'ip': ip,
+                'labels': dict(c.labels or {}),
                 'level': rec.get('level'),
                 'level_source': rec.get('level_source'),
                 'asset_state': rec.get('state'),
@@ -441,6 +460,21 @@ def asset_confirm(asset_id: str, body: dict, user: dict = write_op):
         rec = _ASSET_STORE.confirm(asset_id, user['username'], reason)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    return {'asset_id': asset_id, 'state': rec['state'],
+            'level': rec['level']}
+
+
+@router.post("/assets/{asset_id}/revert")
+def asset_revert(asset_id: str, body: dict, user: dict = admin_only):
+    """撤销确认/覆盖: CONFIRMED|OVERRIDDEN → PENDING_REVIEW (admin) —
+    防误操作。资产重回待确认队列并恢复闪烁提示, 级别保留人工值不回滚。"""
+    reason = (body.get('reason') or '').strip()
+    try:
+        rec = _ASSET_STORE.revert(asset_id, user['username'], reason)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {'asset_id': asset_id, 'state': rec['state'],
             'level': rec['level']}
 

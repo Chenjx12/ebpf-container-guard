@@ -5,6 +5,7 @@
 const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
 const ElMessage = ElementPlus.ElMessage;
 const ElMessageBox = ElementPlus.ElMessageBox;
+const ElNotification = ElementPlus.ElNotification;
 
 /* ================================================================
  * API 封装
@@ -31,6 +32,20 @@ const put = (p, body) => api(p, { method: 'PUT', body: JSON.stringify(body) });
  * 工具
  * ================================================================ */
 const fmtTime = (t) => t ? String(t).replace('T', ' ').slice(0, 19) : '—';
+// 资产存活时长 (人类可读): 便于一眼区分「刚起的新容器」与长期运行资产。
+//   Docker 与 k8s 都给 UTC 时间戳; 缺时区后缀时补 'Z' 按 UTC 解析 (与后端一致)
+const assetAge = (created) => {
+  if (!created) return '';
+  const s0 = String(created).replace(' ', 'T');
+  const t = Date.parse(/[Zz]$|[+-]\d{2}:\d{2}$/.test(s0) ? s0 : s0 + 'Z');
+  if (!t || Number.isNaN(t)) return '';
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return s + ' 秒';
+  const m = Math.floor(s / 60); if (m < 60) return m + ' 分钟';
+  const h = Math.floor(m / 60); if (h < 24) return h + ' 小时';
+  const d = Math.floor(h / 24);
+  return d + ' 天' + (h % 24 ? ' ' + (h % 24) + ' 小时' : '');
+};
 // Unix 秒时间戳 → 本地时间 (toISOString 是 UTC, 会差 8 小时)
 const fmtTs = (ts) => {
   if (!ts) return '—';
@@ -56,6 +71,31 @@ function usePolling(fn, ms) {
   onUnmounted(() => clearInterval(state.timer));
 }
 const state = { timer: null };
+
+/* ================================================================
+ * 资产状态机常量 (v0.6.4, ADR-050) — 与后端 src/core/assets.py 对齐
+ * asset_state: PENDING_REVIEW / CONFIRMED / OVERRIDDEN
+ * level: critical / high / medium / low, level_source: auto / override
+ * ================================================================ */
+const ASSET_STATES = { PENDING_REVIEW: '待确认', CONFIRMED: '已确认', OVERRIDDEN: '已覆盖' };
+const ASSET_STATE_TYPES = { PENDING_REVIEW: 'warning', CONFIRMED: 'success', OVERRIDDEN: 'primary' };
+const LEVEL_TYPES = { critical: 'danger', high: 'warning', medium: 'primary', low: 'info' };
+// 资产分级 = 业务重要性, 不是漏洞危害等级 — 后者是 严重/高危/中危/低危 (CVSS),
+// 两者语义不同: 一个"边缘"资产同样可能跑着严重漏洞的服务。
+// 数据值仍为 critical/high/medium/low (与后端 config/assets.yaml + 存量
+// logs/assets.yaml 兼容), 此处只改展示文案。
+const LEVEL_LABELS = { critical: '核心', high: '重要', medium: '一般', low: '边缘' };
+const ASSET_LEVEL_OPTIONS = ['critical', 'high', 'medium', 'low'];
+// 多选并列筛选谓词: 选中集合为空 = 不限制; 否则命中任一即可 (OR 语义)。
+// 放在顶层是因为 buildTopo() 与 matchAsset() (列表) 都要用同一套判定,
+// 若各写一份或只在 buildTopo 内定义, 拓扑与清单的筛选结果会不一致。
+const inSet = (sel, val) => !sel || !sel.length || sel.indexOf(val) !== -1;
+// docker 容器的伪命名空间: 它没有 k8s namespace, 但需要一个可筛选的归属维度。
+// 放在命名空间下拉里统一呈现, 而不是单独加"显示本地容器"开关 —
+// docker 容器只能来自被监控的这台机器, 不存在"其他机器的 docker"。
+const DOCKER_NS = 'docker';
+// v0.6.4: docker 模式容器在拓扑中的分组名 (无 node/namespace 维度)
+const DOCKER_GROUP = '本地 docker';
 
 /* ================================================================
  * 登录页
@@ -392,55 +432,132 @@ const AssetsPage = {
       <el-tag v-if="data.error" size="small" type="danger" style="margin-left:auto">{{ data.error }}</el-tag>
     </div>
 
+    <!-- v0.6.4: 待确认资产横幅 — 存在 asset_state=PENDING_REVIEW 资产即提示 (ADR-050 人工确认闭环) -->
+    <div v-if="pendingList.length" class="panel" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-color:var(--warn);background:rgba(245,158,11,.07)">
+      <el-tag type="warning" effect="dark" size="small">{{ pendingList.length }}</el-tag>
+      <span style="font-weight:600">个新资产待人工确认</span>
+      <span style="font-size:12px;color:var(--muted)">拓扑中琥珀色虚线呼吸节点 = 待确认资产 · 确认后自动消隐并留痕</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <el-button size="small" type="warning" @click="openQueue">查看待确认队列</el-button>
+        <el-button size="small" @click="trustAll">一键信任全部</el-button>
+      </div>
+    </div>
+
     <!-- 拓扑图 (v0.5.7): 蓝色星空背景, 节点=pod, 按 node 成簇, 服务关联连线 -->
     <div class="panel" style="display:flex;align-items:center;gap:12px;padding:10px 18px;flex-wrap:wrap;margin-bottom:0;border-bottom:none;border-radius:10px 10px 0 0">
       <span style="font-size:13px;color:var(--muted)">拓扑筛选:</span>
-      <el-select v-model="topoFilter.ns" placeholder="命名空间" clearable size="small" style="width:150px" @change="buildTopoDebounced">
+      <!-- v0.6.4: 改为「暂存 + 点按钮应用」。多选并列下, 每勾一项就重绘拓扑
+           会让图反复跳动 (多选本质是"攒一组条件再查"), 故不再即时响应。
+           条件改到 draftFilter, 点「应用筛选」时才提交到 topoFilter 并重绘。 -->
+      <el-select v-model="draftFilter.nss" placeholder="命名空间" multiple collapse-tags
+                 collapse-tags-tooltip filterable clearable
+                 size="small" style="width:200px">
         <el-option v-for="ns in nsOptions" :key="ns" :label="ns" :value="ns" />
       </el-select>
-      <el-select v-model="topoFilter.node" placeholder="节点" clearable size="small" style="width:180px" @change="buildTopoDebounced">
+      <el-select v-model="draftFilter.nodes" placeholder="节点" multiple collapse-tags
+                 collapse-tags-tooltip clearable
+                 size="small" style="width:180px">
         <el-option v-for="nd in data.nodes" :key="nd.name" :label="nd.name" :value="nd.name" />
       </el-select>
-      <el-checkbox v-model="topoFilter.showInfra" size="small" @change="buildTopoDebounced">公共服务圈</el-checkbox>
-      <el-checkbox v-model="topoFilter.showPrivate" size="small"
-                   @change="onPrivateToggle">私有服务圈</el-checkbox>
-      <el-select v-model="topoFilter.svc" placeholder="私有服务筛选" clearable size="small"
-                 style="width:180px" :disabled="!topoFilter.showPrivate"
-                 @change="buildTopoDebounced">
+      <el-checkbox v-model="draftFilter.showInfra" size="small">公共服务圈</el-checkbox>
+      <el-checkbox v-model="draftFilter.showPrivate" size="small">私有服务圈</el-checkbox>
+      <el-select v-model="draftFilter.svc" placeholder="私有服务筛选" clearable size="small"
+                 style="width:180px" :disabled="!draftFilter.showPrivate">
         <el-option v-for="s in privateSvcOptions" :key="s" :label="s" :value="s" />
       </el-select>
-    </div>
+      <!-- v0.6.4: 待确认资产聚焦 (docker 容器无 ns/node 维度, 唯一可用筛选) -->
+      <el-checkbox v-model="draftFilter.pendingOnly" size="small">仅显示待确认</el-checkbox>
+      <!-- v0.6.4: 通用维度筛选 — 分级/镜像对 k8s pod 与 docker 容器同时生效。
+           资产状态不在此筛选: 待确认已有顶部横幅 + 详情入口直达, 而"已覆盖"
+           本就是"已确认 + 人工改级别"的一种, 三者不是并列的筛选维度 -->
+      <!-- v0.6.4: 分级/镜像支持多选并列 — 单选无法表达「核心 + 重要」这类组合,
+           而实际排查常需同时看多个分级 (或几个相关镜像), 故改为多选 -->
+      <el-select v-model="draftFilter.levels" placeholder="资产分级" multiple collapse-tags
+                 collapse-tags-tooltip clearable size="small" style="width:170px">
+        <el-option v-for="lv in ASSET_LEVEL_OPTIONS" :key="lv"
+                   :label="(LEVEL_LABELS[lv] || lv)" :value="lv" />
+      </el-select>
+      <el-select v-model="draftFilter.images" placeholder="镜像" multiple collapse-tags
+                 collapse-tags-tooltip filterable clearable size="small" style="width:220px">
+        <el-option v-for="img in imageOptions" :key="img" :label="img" :value="img" />
+      </el-select>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <el-tag v-if="filterDirty" size="small" type="warning" effect="plain">条件已改, 未应用</el-tag>
+        <el-button size="small" type="primary" @click="applyFilter">应用筛选</el-button>
+        <el-button size="small" @click="resetTopoFilter">重置</el-button>
+      </div>
+      </div>
     <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
       <div ref="topoRef" style="width:100%;height:420px"></div>
       <div style="position:absolute;top:12px;left:16px;font-size:13px;color:#8ea6c8;pointer-events:none">
         <span style="font-weight:600;color:#cbd5e1">资产拓扑</span>
-        <span style="margin-left:10px">● 节点=pod · 按物理机成簇 · 橙线=服务关联 · 命名空间着色</span>
+        <span style="margin-left:10px">● 节点=pod/容器 · 按物理机成簇 · 琥珀虚线呼吸=待确认 · 命名空间着色</span>
       </div>
     </div>
 
-    <div v-for="node in data.nodes" :key="node.name" class="panel">
+    <!-- v0.6.4: 统一资产清单 — k8s pod 与 docker 容器同表展示。
+         两者是同一类对象 (可发现/可确认/可覆盖/可查留痕), 只是数据来源不同:
+         k8s 走 K8s API (有 namespace/node/pod_ip/services/labels),
+         docker 走 Docker SDK (只有容器自身维度)。
+         此前分成两张表、三列模板逐字重复, 且 docker 侧看不到"服务/Labels"等
+         列的存在感, 用户难以建立"同一套资产模型"的认知。
+         列设计: 类型列区分来源; k8s 专属列 (Pod IP/服务/Labels) 在 docker 行留空,
+         避免为两种运行时各维护一份模板。 -->
+    <div class="panel">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <h3 style="margin:0">🖥️ {{ node.name }}</h3>
-        <el-tag size="small" type="info">{{ node.pods.length }} pods</el-tag>
-        <span style="font-size:12px;color:var(--muted)">物理机/VM</span>
+        <h3 style="margin:0">📦 资产清单</h3>
+        <el-tag size="small" type="info">{{ unifiedAssets.length }} 项</el-tag>
+        <span class="sub" style="font-size:12px;color:var(--muted)">
+          <template v-if="data.runtime === 'k8s'">k8s 运行时 · Pod</template>
+          <template v-else-if="data.runtime === 'docker'">docker 运行时 · 本地容器</template>
+          <template v-else>Pod + 本地容器</template>
+        </span>
       </div>
-      <el-table :data="node.pods" size="small" stripe @row-click="showPod">
-        <el-table-column label="Pod" min-width="220"><template #default="{row}">
-          <span class="mono">{{ row.namespace }}/{{ row.name }}</span></template></el-table-column>
-        <el-table-column label="镜像" min-width="220"><template #default="{row}">
-          <span class="mono" style="font-size:12px">{{ row.images[0] || '—' }}</span></template></el-table-column>
-        <el-table-column label="状态" width="110"><template #default="{row}">
-          <el-tag size="small" :type="row.status === 'Running' ? 'success' : row.status === 'Succeeded' ? 'info' : row.status === 'Failed' ? 'danger' : row.status === 'Pending' ? 'warning' : 'info'">{{ row.status }}</el-tag></template></el-table-column>
-        <el-table-column label="Pod IP" width="120"><template #default="{row}">
+      <el-table :data="unifiedAssets" size="small" stripe @row-click="openAsset">
+        <el-table-column label="类型" width="86"><template #default="{row}">
+          <el-tag size="small" :type="row.kind === 'k8s' ? 'primary' : 'warning'" effect="plain">
+            {{ row.kind === 'k8s' ? 'Pod' : '容器' }}</el-tag></template></el-table-column>
+        <el-table-column label="名称" min-width="200"><template #default="{row}">
+          <span class="mono">{{ row.displayName }}</span>
+          <div v-if="row.kind === 'docker' && row.id" style="font-size:11px;color:var(--muted)" class="mono">{{ row.id }}</div>
+        </template></el-table-column>
+        <el-table-column label="命名空间 / 节点" min-width="150"><template #default="{row}">
+          <span v-if="row.namespace" class="mono" style="font-size:12px">{{ row.namespace }} / {{ row.node }}</span>
+          <span v-else-if="row.nsKey" class="mono" style="font-size:12px">{{ row.nsKey }}</span>
+          <span v-else style="color:var(--muted);font-size:12px">—</span>
+        </template></el-table-column>
+        <el-table-column label="镜像" min-width="210"><template #default="{row}">
+          <span class="mono" style="font-size:12px">{{ row.image || '—' }}</span>
+          <div v-if="row.imageCount > 1" style="font-size:11px;color:var(--muted)">+{{ row.imageCount - 1 }} 个镜像</div>
+        </template></el-table-column>
+        <el-table-column label="状态" width="105"><template #default="{row}">
+          <el-tag size="small" :type="row.status === 'Running' ? 'success' : row.status === 'running' ? 'success' : row.status === 'Succeeded' ? 'info' : row.status === 'Failed' ? 'danger' : row.status === 'Pending' ? 'warning' : 'info'">{{ row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="IP 地址" width="120"><template #default="{row}">
           <span class="mono">{{ row.pod_ip || '—' }}</span></template></el-table-column>
-        <el-table-column label="特权" width="80"><template #default="{row}">
+        <el-table-column label="服务" min-width="130"><template #default="{row}">
+          <el-tag v-for="s in (row.services || [])" :key="s" size="small" type="warning" style="margin-right:4px">{{ s }}</el-tag>
+          <span v-if="!(row.services || []).length" style="color:var(--muted)">—</span></template></el-table-column>
+        <el-table-column label="Labels" min-width="170"><template #default="{row}">
+          <span style="font-size:12px;color:var(--muted)">{{ row.labelText || '—' }}</span></template></el-table-column>
+        <el-table-column label="特权" width="72"><template #default="{row}">
           <el-tag v-if="row.privileged" size="small" type="danger">是</el-tag>
           <el-tag v-else size="small" type="primary">否</el-tag></template></el-table-column>
-        <el-table-column label="服务" min-width="140"><template #default="{row}">
-          <el-tag v-for="s in row.services" :key="s" size="small" type="warning" style="margin-right:4px">{{ s }}</el-tag>
-          <span v-if="!row.services.length" style="color:var(--muted)">—</span></template></el-table-column>
-        <el-table-column label="Labels" min-width="180"><template #default="{row}">
-          <span style="font-size:12px;color:var(--muted)">{{ Object.entries(row.labels).slice(0,3).map(([k,v]) => k+'='+v).join(' ') || '—' }}</span></template></el-table-column>
+        <!-- v0.6.4: 资产分级/状态/操作列 (ADR-050 资产状态机前端接入) -->
+        <el-table-column label="分级" width="155"><template #default="{row}">
+          <el-tag v-if="row.level" size="small" :type="LEVEL_TYPES[row.level] || 'info'">
+            {{ LEVEL_LABELS[row.level] || row.level }}<template v-if="row.level_source === 'override'"> ✋覆盖</template></el-tag>
+          <span v-else style="color:var(--muted)">—</span></template></el-table-column>
+        <el-table-column label="资产状态" width="105"><template #default="{row}">
+          <el-tag v-if="row.asset_state" size="small" :type="ASSET_STATE_TYPES[row.asset_state] || 'info'">{{ ASSET_STATES[row.asset_state] || row.asset_state }}</el-tag>
+          <span v-else style="color:var(--muted)">—</span></template></el-table-column>
+        <el-table-column label="操作" width="230" fixed="right"><template #default="{row}">
+          <template v-if="row.assetId">
+            <el-button size="small" text type="primary" @click.stop="openAsset(row)">详情</el-button>
+            <el-button v-if="row.asset_state === 'PENDING_REVIEW' && canWrite" size="small" type="warning" @click.stop="openConfirm(row)">确认</el-button>
+            <el-button v-else-if="isAdmin" size="small" type="danger" @click.stop="openOverride(row)">覆盖</el-button>
+            <el-button v-if="row.asset_state !== 'PENDING_REVIEW' && isAdmin" size="small" text type="warning" @click.stop="openRevert(row)">撤销</el-button>
+            <el-button size="small" text type="primary" @click.stop="openAudit(row)">留痕({{ row.audit_count || 0 }})</el-button>
+          </template></template></el-table-column>
       </el-table>
     </div>
 
@@ -458,43 +575,285 @@ const AssetsPage = {
       </el-table>
     </div>
 
-    <el-dialog v-model="podDialog.show" :title="podDialog.title" width="560px">
-      <template v-if="podDialog.pod">
-        <el-descriptions :column="2" size="small" border>
-          <el-descriptions-item label="命名空间">{{ podDialog.pod.namespace }}</el-descriptions-item>
-          <el-descriptions-item label="节点">{{ podDialog.pod.node }}</el-descriptions-item>
+    <!-- v0.6.4: 资产详情弹窗 — k8s pod 与 docker 容器统一入口
+         (此前容器既无详情弹窗, 列表行也没有 row-click, 点击无反应) -->
+    <el-dialog v-model="assetDialog.show" :title="assetDialog.title" width="560px">
+      <template v-if="assetDialog.row">
+        <!-- k8s pod 字段 -->
+        <el-descriptions v-if="assetDialog.kind === 'k8s'" :column="2" size="small" border>
+          <el-descriptions-item label="命名空间">{{ assetDialog.row.namespace }}</el-descriptions-item>
+          <el-descriptions-item label="节点">{{ assetDialog.row.node }}</el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag size="small" :type="podDialog.pod.status === 'Running' ? 'success' : podDialog.pod.status === 'Succeeded' ? 'info' : podDialog.pod.status === 'Failed' ? 'danger' : podDialog.pod.status === 'Pending' ? 'warning' : 'info'">{{ podDialog.pod.status }}</el-tag></el-descriptions-item>
-          <el-descriptions-item label="Pod IP"><span class="mono">{{ podDialog.pod.pod_ip || '—' }}</span></el-descriptions-item>
+            <el-tag size="small" :type="assetDialog.row.status === 'Running' ? 'success' : assetDialog.row.status === 'Succeeded' ? 'info' : assetDialog.row.status === 'Failed' ? 'danger' : assetDialog.row.status === 'Pending' ? 'warning' : 'info'">{{ assetDialog.row.status }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="Pod IP"><span class="mono">{{ assetDialog.row.pod_ip || '—' }}</span></el-descriptions-item>
           <el-descriptions-item label="特权">
-            <el-tag size="small" :type="podDialog.pod.privileged ? 'danger' : 'primary'">{{ podDialog.pod.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
-          <el-descriptions-item label="创建">{{ podDialog.pod.created }}</el-descriptions-item>
+            <el-tag size="small" :type="assetDialog.row.privileged ? 'danger' : 'primary'">{{ assetDialog.row.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="创建">
+            <span class="mono">{{ fmtTime(assetDialog.row.created) }}</span>
+            <span v-if="assetAge(assetDialog.row.created)"
+                  style="margin-left:8px;font-size:12px;color:var(--muted)">
+              已运行 {{ assetAge(assetDialog.row.created) }}
+            </span>
+          </el-descriptions-item>
           <el-descriptions-item label="镜像" :span="2">
-            <span v-for="img in podDialog.pod.images" :key="img" class="mono" style="display:block;font-size:12px">{{ img }}</span></el-descriptions-item>
+            <span v-for="img in assetDialog.row.images" :key="img" class="mono" style="display:block;font-size:12px">{{ img }}</span></el-descriptions-item>
           <el-descriptions-item label="所属服务" :span="2">
-            <el-tag v-for="s in podDialog.pod.services" :key="s" size="small" type="warning" style="margin-right:4px">{{ s }}</el-tag>
-            <span v-if="!podDialog.pod.services.length" style="color:var(--muted)">—</span></el-descriptions-item>
+            <el-tag v-for="s in assetDialog.row.services" :key="s" size="small" type="warning" style="margin-right:4px">{{ s }}</el-tag>
+            <span v-if="!assetDialog.row.services.length" style="color:var(--muted)">—</span></el-descriptions-item>
           <el-descriptions-item label="Labels" :span="2">
             <div style="font-size:12px;color:var(--muted)">
-              <div v-for="(v,k) in podDialog.pod.labels" :key="k" class="mono">{{ k }} = {{ v }}</div>
+              <div v-for="(v,k) in assetDialog.row.labels" :key="k" class="mono">{{ k }} = {{ v }}</div>
             </div></el-descriptions-item>
         </el-descriptions>
+        <!-- docker 容器字段 (无 namespace/node/labels, 展示 docker 自有维度) -->
+        <el-descriptions v-else :column="2" size="small" border>
+          <el-descriptions-item label="容器名"><span class="mono">{{ assetDialog.row.name }}</span></el-descriptions-item>
+          <el-descriptions-item label="容器 ID"><span class="mono">{{ assetDialog.row.id }}</span></el-descriptions-item>
+          <el-descriptions-item label="镜像" :span="2">
+            <span class="mono" style="font-size:12px">{{ assetDialog.row.image || '—' }}</span></el-descriptions-item>
+          <el-descriptions-item label="运行状态">
+            <el-tag size="small" :type="assetDialog.row.status === 'running' ? 'success' : 'info'">{{ assetDialog.row.status }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="特权">
+            <el-tag size="small" :type="assetDialog.row.privileged ? 'danger' : 'primary'">{{ assetDialog.row.privileged ? '是' : '否' }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="IP 地址" v-if="assetDialog.row.pod_ip">
+            <span class="mono">{{ assetDialog.row.pod_ip }}</span></el-descriptions-item>
+          <el-descriptions-item label="Labels" :span="2" v-if="assetDialog.row.labelsText">
+            <div style="font-size:12px;color:var(--muted)">
+              <div v-for="(v,k) in assetDialog.row.labels" :key="k" class="mono">{{ k }} = {{ v }}</div>
+            </div></el-descriptions-item>
+          <el-descriptions-item label="创建" :span="2">
+            <span class="mono">{{ fmtTime(assetDialog.row.created) }}</span>
+            <span v-if="assetAge(assetDialog.row.created)"
+                  style="margin-left:8px;font-size:12px;color:var(--muted)">
+              已运行 {{ assetAge(assetDialog.row.created) }}
+            </span>
+          </el-descriptions-item>
+        </el-descriptions>
+        <!-- v0.6.4: 资产状态机区 (ADR-050) — 两种运行时共用 -->
+        <el-descriptions :column="1" size="small" border style="margin-top:10px">
+          <el-descriptions-item v-if="assetDialog.row.asset_state" label="资产状态">
+            <el-tag size="small" :type="ASSET_STATE_TYPES[assetDialog.row.asset_state] || 'info'">{{ ASSET_STATES[assetDialog.row.asset_state] || assetDialog.row.asset_state }}</el-tag>
+            <el-tag v-if="assetDialog.row.level" size="small" :type="LEVEL_TYPES[assetDialog.row.level] || 'info'" style="margin-left:6px">
+              {{ LEVEL_LABELS[assetDialog.row.level] || assetDialog.row.level }}<template v-if="assetDialog.row.level_source === 'override'"> ✋人工覆盖</template></el-tag>
+            <el-button v-if="assetDialog.row.audit_count" size="small" text type="primary" style="margin-left:8px" @click="openAudit(assetDialog.row)">留痕({{ assetDialog.row.audit_count }})</el-button>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="assetDialog.row.asset_rule" label="推断依据">
+            <span class="mono" style="font-size:12px;color:var(--warn)">{{ assetDialog.row.asset_rule }}</span></el-descriptions-item>
+          <el-descriptions-item v-else-if="assetDialog.row.level" label="推断依据">
+            <span class="mono" style="font-size:12px;color:var(--muted)">未命中分级规则 · 兜底 medium</span></el-descriptions-item>
+        </el-descriptions>
       </template>
+      <template #footer>
+        <div style="display:flex;align-items:center">
+          <el-button v-if="assetDialog.row && assetDialog.row.asset_state === 'PENDING_REVIEW' && canWrite"
+                     type="warning" @click="openConfirm(assetDialog.row)">确认信任该资产</el-button>
+          <!-- v0.6.4: 已决策资产仍可再次覆盖 (admin) — 此前只在待确认时给入口,
+               确认/覆盖后无法再改, 与「人工可修正自动推断」的闭环意图相悖 -->
+          <el-button v-if="assetDialog.row && assetDialog.row.asset_state !== 'PENDING_REVIEW' && isAdmin"
+                     type="danger" @click="openOverride(assetDialog.row)">修改覆盖级别</el-button>
+          <!-- v0.6.4: 撤销 — 防误操作, 让资产重回待确认 -->
+          <el-button v-if="assetDialog.row && assetDialog.row.asset_state !== 'PENDING_REVIEW' && isAdmin"
+                     type="warning" plain @click="openRevert(assetDialog.row)">撤销</el-button>
+          <div style="flex:1"></div>
+          <el-button @click="assetDialog.show = false">关闭</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- v0.6.4: 资产确认弹窗 — 推断依据 + 原因输入; admin 可附加级别覆盖 (ADR-050) -->
+    <el-dialog v-model="confirmDialog.show" :title="confirmDialog.title" width="640px">
+      <template v-if="confirmDialog.asset">
+        <el-descriptions :column="2" size="small" border style="margin-bottom:12px">
+          <el-descriptions-item label="资产">
+            <span class="mono">{{ confirmDialog.asset.name }}</span></el-descriptions-item>
+          <el-descriptions-item label="类型">
+            <el-tag size="small" :type="confirmDialog.asset.kind === 'k8s' ? 'primary' : 'success'">{{ confirmDialog.asset.kind === 'k8s' ? 'Pod' : '容器' }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="镜像" :span="2">
+            <span class="mono" style="font-size:12px">{{ confirmDialog.asset.image || '—' }}</span></el-descriptions-item>
+          <el-descriptions-item label="当前状态">
+            <el-tag size="small" :type="ASSET_STATE_TYPES[confirmDialog.asset.state] || 'info'">{{ ASSET_STATES[confirmDialog.asset.state] || confirmDialog.asset.state }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="推断级别">
+            <el-tag size="small" :type="LEVEL_TYPES[confirmDialog.asset.level] || 'info'">{{ LEVEL_LABELS[confirmDialog.asset.level] || confirmDialog.asset.level }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="命中规则" :span="2">
+            <span class="mono" style="font-size:12px;color:var(--warn)">{{ confirmDialog.asset.rule || '—' }}</span></el-descriptions-item>
+        </el-descriptions>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
+          <template v-if="confirmDialog.mode === 'override'">
+            覆盖即把级别改为人工值、状态转「已覆盖」并写入留痕（人工决策 + 状态变迁 + 级别来源变迁）。可重复修改，每次均留痕。
+          </template>
+          <template v-else>
+            确认即转为「已确认」并写入留痕（三段式: 自动推断 → 人工决策 → 状态变迁）。建议填写原因，便于审计追溯。
+          </template>
+        </div>
+        <el-input type="textarea" :rows="2" v-model="confirmDialog.reason"
+                  :placeholder="confirmDialog.mode === 'override' ? '覆盖原因（必填，审计追溯用）' : '确认原因（可选，admin 覆盖级别时必填）'" />
+        <template v-if="isAdmin">
+          <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+            <span style="font-size:13px;font-weight:600">级别覆盖 (admin):</span>
+            <el-select v-model="confirmDialog.overrideLevel" placeholder="选择覆盖级别" size="small" style="width:180px" clearable>
+              <el-option v-for="lv in ASSET_LEVEL_OPTIONS" :key="lv" :label="(LEVEL_LABELS[lv] || lv) + ' (' + lv + ')'" :value="lv" />
+            </el-select>
+            <span style="font-size:12px;color:var(--muted)">选择后走 /override，状态为「已覆盖」</span>
+          </div>
+        </template>
+      </template>
+      <template #footer>
+        <el-button @click="confirmDialog.show = false">取消</el-button>
+        <!-- 确认模式给「确认信任」; 覆盖模式 (admin 二次修正) 只给「保存覆盖」 -->
+        <el-button v-if="confirmDialog.mode === 'confirm'" type="warning" @click="doConfirm">确认信任</el-button>
+        <el-button v-if="isAdmin" type="danger"
+                   :disabled="!confirmDialog.overrideLevel || !confirmDialog.reason.trim()"
+                   @click="doOverride">
+          {{ confirmDialog.mode === 'override' ? '保存覆盖' : '覆盖级别确认' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- v0.6.4: 待确认队列 — 勾选批量一键信任 (方案A: 前端循环逐条 confirm, 留痕按资产分条) -->
+    <el-dialog v-model="queueDialog.show" title="待确认资产队列" width="860px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <el-tag type="warning" effect="dark">{{ queueDialog.selected.length }} / {{ pendingList.length }}</el-tag>
+        <span style="font-size:13px">已勾选待确认</span>
+        <el-input v-model="queueDialog.reason" placeholder="统一确认原因（可选，写则批量留痕共用）" size="small" style="width:280px;flex:1" clearable />
+        <el-button size="small" type="warning" :disabled="!queueDialog.selected.length" @click="batchTrust">一键信任所选 ({{ queueDialog.selected.length }})</el-button>
+      </div>
+      <el-table :data="pendingList" size="small" stripe max-height="420" @selection-change="onQueueSelect">
+        <el-table-column type="selection" width="42" />
+        <el-table-column label="资产" min-width="180"><template #default="{row}">
+          <span class="mono">{{ row.name }}</span></template></el-table-column>
+        <el-table-column label="类型" width="80"><template #default="{row}">
+          <el-tag size="small" :type="row.kind === 'k8s' ? 'primary' : 'success'">{{ row.kind === 'k8s' ? 'Pod' : '容器' }}</el-tag></template></el-table-column>
+        <el-table-column label="推断级别" width="100"><template #default="{row}">
+          <el-tag size="small" :type="LEVEL_TYPES[row.level] || 'info'">{{ LEVEL_LABELS[row.level] || row.level }}</el-tag></template></el-table-column>
+        <el-table-column label="推断依据" min-width="220"><template #default="{row}">
+          <span class="mono" style="font-size:12px;color:var(--warn)">{{ row.rule || '—' }}</span></template></el-table-column>
+        <el-table-column label="留痕" width="90"><template #default="{row}">
+          <el-button size="small" text type="primary" @click="openAudit(row)">{{ row.auditCount || 0 }} 条</el-button></template></el-table-column>
+        <el-table-column label="操作" width="110" fixed="right"><template #default="{row}">
+          <el-button size="small" type="warning" @click="openConfirm(row)">确认</el-button></template></el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- v0.6.4: 资产留痕弹窗 — 三段式审计 (auto_inference / human_decision / status_transition) -->
+    <el-dialog v-model="auditDialog.show" :title="auditDialog.title" width="720px">
+      <el-empty v-if="!auditGroups.length" description="暂无留痕" />
+      <!-- v0.6.4: 一次决策会写多条留痕 (human_decision + status_transition×N),
+           语义上是同一事件的不同侧面。此前平铺展示, 看起来像多次独立操作,
+           故按 event_id 聚合为「决策卡片」: 一卡 = 一次决策, 卡内列侧面。
+           存量数据无 event_id → 退回 ts+type 分组兜底 -->
+      <el-timeline v-else style="padding-left:6px">
+        <el-timeline-item v-for="(g, gi) in auditGroups" :key="gi"
+                          :timestamp="fmtTime(g.ts)" :type="auditTypeOf(g.main)">
+          <div style="font-size:13px">
+            <el-tag size="small" :type="auditTypeOf(g.main)" style="margin-right:8px">{{ auditLabel(g.main) }}</el-tag>
+            <template v-if="g.main.detail && g.main.detail.by">
+              <span class="mono" style="margin-right:8px">{{ g.main.detail.by }}</span>
+            </template>
+            <span class="mono" style="font-size:12px;color:var(--muted)">{{ auditText(g.main) }}</span>
+          </div>
+          <!-- 同一决策的其余侧面 (状态变迁 / 级别来源变迁) 折叠在下方 -->
+          <div v-if="g.subs.length" style="margin-top:6px;padding-left:10px;border-left:2px solid var(--border)">
+            <div v-for="(s, si) in g.subs" :key="si"
+                 style="font-size:12px;color:var(--muted);line-height:1.8">
+              <el-tag size="small" effect="plain" style="margin-right:6px">{{ auditLabel(s) }}</el-tag>
+              <span class="mono">{{ auditText(s) }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">
+              同一次决策（{{ g.subs.length + 1 }} 条留痕）
+            </div>
+          </div>
+        </el-timeline-item>
+      </el-timeline>
     </el-dialog>
   </div>`,
   setup() {
-    const data = reactive({ runtime: '', total: 0, nodes: [], services: [], error: '' });
-    const podDialog = reactive({ show: false, pod: null, title: '' });
+    const data = reactive({ runtime: '', total: 0, nodes: [], services: [], containers: [], error: '' });
+    // v0.6.4: 统一资产详情弹窗 (k8s pod + docker 容器共用, kind 决定字段集)
+    const assetDialog = reactive({ show: false, row: null, title: '', kind: 'k8s' });
     const topoRef = ref(null);
     let chart = null;
     let lastTopoKey = '';  // 轮询去重: 数据未变不重建图 (布局稳定)
+
+    // v0.6.4: 资产确认闭环 (ADR-050) — 角色权限: operator+ confirm, admin 另可 override, analyst 只读
+    const _me = JSON.parse(localStorage.getItem('guard_me') || '{}');
+    const canWrite = _me.role === 'admin' || _me.role === 'operator';
+    const isAdmin = _me.role === 'admin';
+    const pendingList = ref([]);   // 归一化待确认资产 (asset_state === PENDING_REVIEW)
+    let _seenAssets = null;        // 新资产轮询提示: 首轮静默, 只对增量提醒
+    // v0.6.4: mode = 'confirm' (待确认→已确认) | 'override' (admin 覆盖级别, 可重复)
+    const confirmDialog = reactive({ show: false, title: '', asset: null, reason: '', overrideLevel: '', mode: 'confirm' });
+    const queueDialog = reactive({ show: false, reason: '', selected: [] });
+    const auditDialog = reactive({ show: false, title: '', rows: [] });
+
+    // 归一化资产流: k8s pods + docker containers → 统一资产对象 (assetId 一致)
+    function collectAssets() {
+      const out = [];
+      data.nodes.forEach(nd => (nd.pods || []).forEach(p => {
+        if (!p.asset_id) return;  // 未纳入资产库的 pod 不参与确认闭环
+        out.push({
+          assetId: p.asset_id, kind: 'k8s', name: p.namespace + '/' + p.name,
+          node: nd.name, image: (p.images && p.images[0]) || '',
+          level: p.level, levelSource: p.level_source, state: p.asset_state,
+          rule: p.asset_rule, auditCount: p.audit_count || 0,
+        });
+      }));
+      (data.containers || []).forEach(c => {
+        if (!c.id) return;
+        out.push({
+          assetId: c.id, kind: 'docker', name: c.name, node: '',
+          image: c.image || '',
+          level: c.level, levelSource: c.level_source, state: c.asset_state,
+          rule: c.asset_rule, auditCount: c.audit_count || 0,
+        });
+      });
+      return out;
+    }
+
+    // 轮询同步待确认队列 + 增量消息提示 (不自动轰炸, 点通知直达队列)
+    function syncPending() {
+      const fresh = collectAssets().filter(a => a.state === 'PENDING_REVIEW');
+      if (_seenAssets) {
+        const have = new Set(_seenAssets);
+        const added = fresh.filter(a => !have.has(a.assetId));
+        if (added.length) {
+          ElNotification({
+            type: 'warning', duration: 5000,
+            title: '发现 ' + added.length + ' 个新资产待确认',
+            message: added[0].name + (added.length > 1 ? ' 等 ' + added.length + ' 项' : '') + ' — 拓扑中琥珀虚线呼吸节点, 请人工确认',
+            onClick: () => { openQueue(); },
+          });
+        }
+      }
+      _seenAssets = fresh.map(a => a.assetId);
+      pendingList.value = fresh;
+    }
 
     // v0.5.7: 拓扑图 — ECharts 关系图
     //  节点=pod (按命名空间着色) + service (金色菱形)
     //  按 node 成簇; 公共依赖服务 (kube-dns/metrics-server) 默认折叠连线
     //  筛选: 命名空间/节点/仅服务关联
-    const topoFilter = reactive({ ns: '', node: '', showInfra: false, showPrivate: false, svc: '' });
+    // v0.6.4: pendingOnly — 只看待确认资产 (docker 无 ns/node 维度, 靠此项筛选)
+    // v0.6.4: ns/node/level/image 均为**数组** (多选并列筛选)。
+    //   单选无法表达「核心 + 重要」或「default + kube-system」这类组合,
+    //   而实际排查常需同时看多个取值。空数组 = 不限制。
+    const topoFilter = reactive({ nss: [], nodes: [], showInfra: false, showPrivate: false,
+                                  svc: '', pendingOnly: false,
+                                  // v0.6.4: docker 容器可用维度 (无 ns/node, 靠分级/镜像筛)
+                                  levels: [], images: [] });
+    // 筛选草稿: 下拉里改的是它, 点「应用筛选」才提交到 topoFilter。
+    //   多选并列下即时重绘会让拓扑反复跳动, 且每勾一项都触发一次
+    //   ECharts 重排 — 攒够条件再一次性应用, 交互与性能都更合理。
+    const draftFilter = reactive(JSON.parse(JSON.stringify(topoFilter)));
+    // 草稿与已应用条件是否有差异 → 决定是否提示「未应用」
+    const filterDirty = computed(() =>
+      JSON.stringify(Object.keys(topoFilter).sort().map(k => [k, topoFilter[k]]))
+      !== JSON.stringify(Object.keys(draftFilter).sort().map(k => [k, draftFilter[k]])));
+    function applyFilter() {
+      Object.assign(topoFilter, JSON.parse(JSON.stringify(draftFilter)));
+      buildTopoDebounced();
+    }
     const nsOptions = ref([]);
+    const imageOptions = ref([]);
     const privateSvcOptions = ref([]);
     const INFRA_SVCS = ['kube-dns', 'metrics-server'];
     const NS_COLORS = {
@@ -508,13 +867,27 @@ const AssetsPage = {
       const nodes = [];
       const nodeIdx = {};
       const svcIdx = {};
-      // 筛选: 过滤 pod
+      // 筛选: 过滤 pod / 容器 (v0.6.4: docker 容器同样入图 — 此前只画
+      // k8s pod, docker 单机形态下拓扑为空, 待确认闪烁无从体现)
       const nodeGroups = [];
+      // v0.6.4: 通用维度谓词 — k8s pod 与 docker 容器共用。
+      //   ns/node 是 k8s 专属维度: docker 容器无 namespace, 遇 ns 筛选时跳过该
+      //   条件而非"整组隐藏" (否则容器永远筛不到, 只能靠开关全关)
+      const assetImage = (it) => it.image || (it.images && it.images[0]) || '';
+      // nsKey 由调用方显式传入 (k8s pod → namespace; docker 容器 → 伪命名空间
+      // 'docker'), 不再用 guess。docker 容器只能来自被监控的这台机器,
+      // 不存在"其他机器的 docker", 故归类到 'docker' 伪命名空间即可,
+      // 不必单独给显隐开关。
+      const matchFilter = (it, nsKey, nodeName) =>
+        inSet(topoFilter.nss, nsKey)
+        && (!nodeName || inSet(topoFilter.nodes, nodeName))
+        && (!topoFilter.pendingOnly || it.asset_state === 'PENDING_REVIEW')
+        && inSet(topoFilter.levels, it.level)
+        && inSet(topoFilter.images, assetImage(it));
       const filteredNodes = data.nodes
-        .filter(nd => !topoFilter.node || nd.name === topoFilter.node)
+        .filter(nd => inSet(topoFilter.nodes, nd.name))
         .map(nd => {
-          const pods = nd.pods.filter(p =>
-            (!topoFilter.ns || p.namespace === topoFilter.ns));
+          const pods = nd.pods.filter(p => matchFilter(p, p.namespace, nd.name));
           if (pods.length) nodeGroups.push(nd.name);
           return { name: nd.name, pods };
         })
@@ -527,13 +900,45 @@ const AssetsPage = {
             id: key, name: p.name.split('-')[0],
             symbolSize: p.privileged ? 34 : 24,
             category: nodeGroups.indexOf(nd.name),
-            itemStyle: { color: NS_COLORS[p.namespace] || '#64748b' },
+            // v0.6.4: 待确认资产 → 琥珀虚线边框 (ADR-050), 闪烁由 blink 定时器驱动
+            itemStyle: p.asset_state === 'PENDING_REVIEW'
+              ? { color: NS_COLORS[p.namespace] || '#64748b',
+                  borderColor: '#f59e0b', borderWidth: 2, borderType: 'dashed',
+                  shadowColor: '#f59e0b', shadowBlur: 0 }
+              : { color: NS_COLORS[p.namespace] || '#64748b' },
+            __pending: p.asset_state === 'PENDING_REVIEW',
             __pod: p,
           });
         });
       });
+      // docker 模式: 容器入图 (无 namespace/node 维度 → 归入"本地 docker"组)。
+      //   v0.6.4: 显隐由 showDocker 总开关 + 通用维度 (分级/状态/镜像) 共同控制 —
+      //   此前 ns/node 一选就整组消失, 容器侧没有任何可用筛选
+      const containers = (data.containers || [])
+        .filter(c => c.id && matchFilter(c, DOCKER_NS));
+      if (containers.length) {
+        const gname = DOCKER_GROUP;
+        if (!nodeGroups.includes(gname)) nodeGroups.push(gname);
+        const gi = nodeGroups.indexOf(gname);
+        containers.forEach(c => {
+          const key = 'docker/' + c.id;
+          nodeIdx[key] = nodes.length;
+          nodes.push({
+            id: key, name: c.name,
+            symbolSize: c.privileged ? 34 : 24,
+            category: gi,
+            itemStyle: c.asset_state === 'PENDING_REVIEW'
+              ? { color: NS_COLORS[''] || '#3b82f6',
+                  borderColor: '#f59e0b', borderWidth: 2, borderType: 'dashed',
+                  shadowColor: '#f59e0b', shadowBlur: 0 }
+              : { color: NS_COLORS[''] || '#3b82f6' },
+            __pending: c.asset_state === 'PENDING_REVIEW',
+            __container: c,
+          });
+        });
+      }
       data.services.forEach(s => {
-        if (topoFilter.ns && s.namespace !== topoFilter.ns) return;
+        if (!inSet(topoFilter.nss, s.namespace)) return;
         const sk = s.namespace + '/' + s.name;
         svcIdx[sk] = nodes.length;
         nodes.push({
@@ -546,7 +951,7 @@ const AssetsPage = {
       // 注意: layout:'none' 的 x/y 是像素 (相对容器左上), 非百分比!
       const topoW = topoRef.value.clientWidth || 800;
       const topoH = topoRef.value.clientHeight || 420;
-      const groups = filteredNodes.map(nd => nd.name);
+      const groups = nodeGroups.slice();   // v0.6.4: 含 docker 组 (末位)
       // 服务关联 pod 发光 (跟随节点, 不同服务不同色) — 替代 graphic 圈
       // (graphic circle 坐标系与 roam 变换不同步, 圈不跟随 pod)
       // v0.5.7: 公共/私有独立开关 + 私有服务筛选 (svc 选中只高亮该服务)
@@ -598,13 +1003,17 @@ const AssetsPage = {
         ],
       }));
       groups.forEach((g, gi) => {
-        const pods = filteredNodes[gi].pods;
+        // v0.6.4: 末位 docker 组取容器清单; 其余按 k8s node 组取 pods
+        const isDocker = g === DOCKER_GROUP;
+        const items = isDocker ? containers
+                               : ((filteredNodes[gi] && filteredNodes[gi].pods) || []);
+        if (!items.length) return;
         const angle = (2 * Math.PI * gi) / Math.max(groups.length, 1) - Math.PI / 2;
         const cx = topoW * 0.5 + topoW * 0.28 * Math.cos(angle);
         const cy = topoH * 0.5 + topoH * 0.3 * Math.sin(angle);
-        const n = pods.length;
-        pods.forEach((p, pi) => {
-          const key = p.namespace + '/' + p.name;
+        const n = items.length;
+        items.forEach((p, pi) => {
+          const key = isDocker ? 'docker/' + p.id : p.namespace + '/' + p.name;
           const idx = nodeIdx[key];
           if (idx === undefined) return;
           const pa = (2 * Math.PI * pi) / Math.max(n, 1);
@@ -617,7 +1026,7 @@ const AssetsPage = {
         nodes[idx].x = topoW * 0.5;
         nodes[idx].y = topoH * 0.5;
       });
-      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.shadowColor||'')),
+      const key = JSON.stringify({ nodes: nodes.map(n => n.id + n.symbolSize + (n.category||'') + (n.itemStyle?.shadowColor||'') + (n.__pending ? '~P' : '')),
                                     legend: legendGraphics.map(g => JSON.stringify(g.children)),
                                     svc: topoFilter.svc });
       if (key === lastTopoKey) return;
@@ -627,9 +1036,24 @@ const AssetsPage = {
         chart.setOption({
           backgroundColor: 'transparent',
           tooltip: { trigger: 'item',
-            formatter: (p) => p.data?.__pod
-              ? `${p.data.__pod.namespace}/${p.data.__pod.name}\n状态: ${p.data.__pod.status}\n服务: ${p.data.__pod.services.join(',') || '无'}`
-              : (p.data.id || p.name) },
+            formatter: (p) => {
+              if (p.data?.__pod) {
+                const d = p.data.__pod;
+                return `${d.namespace}/${d.name}\n状态: ${d.status}\n`
+                  + `分级: ${LEVEL_LABELS[d.level] || d.level || '—'}\n`
+                  + `资产状态: ${ASSET_STATES[d.asset_state] || d.asset_state || '—'}\n`
+                  + `服务: ${d.services.join(',') || '无'}`;
+              }
+              if (p.data?.__container) {
+                const d = p.data.__container;
+                return `${d.name}\n镜像: ${d.image || '—'}\n状态: ${d.status}\n`
+                  + `分级: ${LEVEL_LABELS[d.level] || d.level || '—'}`
+                  + `${d.level_source === 'override' ? ' (人工覆盖)' : ''}\n`
+                  + `资产状态: ${ASSET_STATES[d.asset_state] || d.asset_state || '—'}\n`
+                  + `依据: ${d.asset_rule || '兜底 medium'}`;
+              }
+              return p.data.id || p.name;
+            } },
           graphic: legendGraphics,
           series: [{
             type: "graph", layout: "none", roam: true, draggable: false,
@@ -639,11 +1063,15 @@ const AssetsPage = {
           }],
         }, { replaceMerge: ['graphic'] });
         chart.__topoInit = true;
-        // 点击节点 → pod 详情
+        // v0.6.4: 点击节点 (pod 或 docker 容器) → 统一开资产详情弹窗,
+        //   确认/覆盖/留痕三个动作作为弹窗内按钮给出。
+        //   此前容器节点被分流到留痕弹窗, 用户点圆圈看不到任何详情
         chart.off('click');
         chart.on('click', (params) => {
           if (params.data && params.data.__pod) {
-            showPod(params.data.__pod);
+            openAssetDetail(params.data.__pod);
+          } else if (params.data && params.data.__container) {
+            openAssetDetail(params.data.__container);
           }
         });
       }
@@ -660,11 +1088,43 @@ const AssetsPage = {
           links: [],
         }],
       }, { replaceMerge: ['graphic'] });  // 清空旧 graphic (图例随开关消失)
+      // v0.6.4: 存在待确认节点 → 启动呼吸闪烁; 无则停止 (确认后自动消隐)
+      chart.__topoNodes = nodes;
+      if (nodes.some(n => n.__pending)) startBlink(); else stopBlink();
+    }
+
+    // v0.6.4: 待确认节点呼吸闪烁 — 增量改 shadowBlur, 不重建图 (布局/roam 稳定)
+    let _blinkTimer = null;
+    let _blinkOn = false;
+    function stopBlink() {
+      if (_blinkTimer) { clearInterval(_blinkTimer); _blinkTimer = null; }
+    }
+    function startBlink() {
+      if (_blinkTimer || !chart) return;
+      _blinkTimer = setInterval(() => {
+        if (!chart || !chart.__topoNodes) return;
+        _blinkOn = !_blinkOn;
+        const data = chart.__topoNodes.map(n => n.__pending
+          ? { ...n, itemStyle: { ...n.itemStyle, shadowBlur: _blinkOn ? 16 : 0 } }
+          : n);
+        chart.setOption({ series: [{ type: 'graph', layout: 'none', data }] });
+      }, 800);
     }
 
     // v0.5.7: 关闭私有服务圈时清空筛选 + 重建图 (筛选是开关子功能)
     function onPrivateToggle() {
       if (!topoFilter.showPrivate) topoFilter.svc = '';
+      buildTopoDebounced();
+    }
+
+    // v0.6.4: 清空拓扑筛选 (k8s 维度 + docker 可用维度 + 容器显隐开关)
+    function resetTopoFilter() {
+      // 清空已应用条件 + 草稿 (两者不一致会让"重置"看起来没生效)
+      Object.assign(topoFilter, {
+        nss: [], nodes: [], showInfra: false, showPrivate: false,
+        svc: '', pendingOnly: false, levels: [], images: [],
+      });
+      Object.assign(draftFilter, JSON.parse(JSON.stringify(topoFilter)));
       buildTopoDebounced();
     }
 
@@ -680,15 +1140,299 @@ const AssetsPage = {
         Object.assign(data, await get('/api/assets'));
         // 命名空间选项
         const nss = new Set();
-        data.nodes.forEach(nd => nd.pods.forEach(p => nss.add(p.namespace)));
+        const imgs = new Set();
+        data.nodes.forEach(nd => nd.pods.forEach(p => {
+          nss.add(p.namespace);
+          p.images.forEach(i => i && imgs.add(i));
+        }));
+        // v0.6.4: 镜像选项含 docker 容器镜像 — 容器侧筛选可用
+        (data.containers || []).forEach(c => c.image && imgs.add(c.image));
+        // docker 容器归入伪命名空间 'docker', 与 k8s namespace 并列可选
+        if ((data.containers || []).length) nss.add(DOCKER_NS);
         nsOptions.value = [...nss].sort();
+        imageOptions.value = [...imgs].sort();
+        syncPending();   // v0.6.4: 待确认队列 + 新资产增量提示
         buildTopo();
       } catch (e) {}
     }
-    function showPod(row) {
-      podDialog.pod = row;
-      podDialog.title = row.namespace + '/' + row.name;
-      podDialog.show = true;
+    const refresh = load;
+    function showPod(row) { openAssetDetail(row); }   // 兼容旧调用点 (pod 表格)
+
+    // ---- v0.6.4: 资产确认闭环方法 (ADR-050) ----
+    // 行数据(pod/容器原始行 或 归一资产对象) → 统一提取资产字段
+    function pickAsset(row) {
+      const assetId = row.asset_id || row.assetId || row.id;
+      return {
+        assetId: assetId,
+        kind: row.kind || (row.namespace ? 'k8s' : 'docker'),
+        name: row.namespace && row.name ? row.namespace + '/' + row.name : (row.name || assetId),
+        image: row.image || (row.images && row.images[0]) || '',
+        level: row.level, state: row.asset_state || row.state,
+        rule: row.asset_rule || row.rule,
+        auditCount: row.audit_count || row.auditCount || 0,
+      };
+    }
+    // v0.6.4: 资产点击统一入口 — 一律开详情弹窗 (与 k8s pod 体验一致)。
+    //   确认/覆盖/留痕三个动作都在详情弹窗里给按钮, 而不是由点击手势猜意图:
+    //   此前 docker 容器点击被分流到 openAudit, 用户点了却看不到任何详情
+    function openAsset(row) {
+      const r = row.__pod || row.__container || row;
+      openAssetDetail(r);
+    }
+    function openAssetDetail(row) {
+      assetDialog.row = row;
+      assetDialog.kind = row.namespace ? 'k8s' : 'docker';
+      assetDialog.title = '资产详情 — '
+        + (row.namespace ? row.namespace + '/' + row.name : (row.name || row.id));
+      assetDialog.show = true;
+    }
+    // v0.6.4: 撤销确认/覆盖 → 资产重回 PENDING_REVIEW (防误操作)。
+    //   权限与 override 一致 (admin): 撤销会让资产重新进入待确认队列并恢复
+    //   闪烁提示, 属于"推翻已生效决策", 不能放开给 operator。
+    //   级别不回滚 — 人工覆盖过的级别是有价值信息, 撤销只回退确认状态。
+    function openRevert(row) {
+      if (!isAdmin) { ElMessage.warning('仅管理员 (admin) 可撤销'); return; }
+      if ((row.asset_state || row.state) === 'PENDING_REVIEW') {
+        ElMessage.warning('该资产本就处于待确认状态'); return;
+      }
+      ElMessageBox.prompt(
+        '撤销后资产将重新进入待确认队列并恢复闪烁提示, 需重新确认。'
+        + '（级别保留人工值, 不回滚）',
+        '撤销确认 — ' + (row.name || row.id),
+        { confirmButtonText: '确认撤销', cancelButtonText: '取消',
+          inputPlaceholder: '撤销原因（审计追溯用）', inputType: 'textarea' }
+      ).then(async ({ value }) => {
+        const reason = (value || '').trim();
+        if (!reason) { ElMessage.warning('撤销必须填写原因'); return; }
+        try {
+          await post('/api/assets/' + encodeURIComponent(
+            row.asset_id || row.assetId || row.id) + '/revert', { reason });
+          ElMessage.success('已撤销: 资产回到待确认');
+          refresh();
+        } catch (e) { ElMessage.error('撤销失败: ' + e.message); }
+      }).catch(() => {});
+    }
+    // 确认: 仅待确认资产 (PENDING_REVIEW → CONFIRMED), operator+ 可用
+    function openConfirm(row) {
+      if (!canWrite) { ElMessage.warning('只读角色 (analyst) 无确认权限'); return; }
+      if ((row.asset_state || row.state) !== 'PENDING_REVIEW') {
+        ElMessage.warning('该资产已决策, 如需修改请点「覆盖」'); return;
+      }
+      openDecision(row, 'confirm');
+    }
+    // v0.6.4: 覆盖 — admin 对任意已入库资产可再次修改级别 (支持二次修正)。
+    //   此前仅限待确认状态, 确认后无法再改, 闭环断了半截
+    function openOverride(row) {
+      if (!isAdmin) { ElMessage.warning('仅管理员 (admin) 可覆盖级别'); return; }
+      openDecision(row, 'override');
+    }
+    function openDecision(row, mode) {
+      const a = pickAsset(row);
+      confirmDialog.asset = a;
+      confirmDialog.mode = mode;
+      confirmDialog.title = (mode === 'override' ? '修改覆盖级别 — ' : '资产确认 — ') + a.name;
+      confirmDialog.reason = '';
+      // 覆盖模式默认带出当前级别, 便于在现值基础上改
+      confirmDialog.overrideLevel = mode === 'override' ? (a.level || '') : '';
+      confirmDialog.show = true;
+    }
+    async function doConfirm() {
+      const a = confirmDialog.asset;
+      if (!a) return;
+      try {
+        const res = await post('/api/assets/' + encodeURIComponent(a.assetId) + '/confirm',
+          { reason: confirmDialog.reason.trim() });
+        ElMessage.success('已确认 ' + a.name + ' → ' + (ASSET_STATES[res.state] || res.state));
+        confirmDialog.show = false;
+        refresh();
+      } catch (e) { ElMessage.error('确认失败: ' + e.message); }
+    }
+    async function doOverride() {
+      const a = confirmDialog.asset;
+      if (!a || !confirmDialog.overrideLevel) return;
+      if (!confirmDialog.reason.trim()) { ElMessage.warning('覆盖必须填写原因'); return; }
+      try {
+        const res = await post('/api/assets/' + encodeURIComponent(a.assetId) + '/override',
+          { level: confirmDialog.overrideLevel, reason: confirmDialog.reason.trim() });
+        ElMessage.success('已覆盖 ' + a.name + ' → ' + (LEVEL_LABELS[res.level] || res.level)
+          + ' (状态: ' + (ASSET_STATES[res.state] || res.state) + ')');
+        confirmDialog.show = false;
+        refresh();
+      } catch (e) { ElMessage.error('覆盖失败: ' + e.message); }
+    }
+    // v0.6.4: 筛选同时作用于下方清单 — 此前只过滤拓扑, 列表照旧全量展示,
+    //   用户选了镜像却看到列表纹丝不动, 自然判定"筛选没用"。
+    //   注意: showDocker 只管拓扑显隐, 不参与列表 (列表是主信息区, 不该被隐藏)
+    function matchAsset(it) {
+      const img = it.image || (it.images && it.images[0]) || '';
+      const nsKey = it.nsKey || it.namespace || DOCKER_NS;
+      return inSet(topoFilter.nss, nsKey)
+        && (!it.node || inSet(topoFilter.nodes, it.node))
+        && (!topoFilter.pendingOnly || it.asset_state === 'PENDING_REVIEW')
+        && inSet(topoFilter.levels, it.level)
+        && inSet(topoFilter.images, img);
+    }
+    // v0.6.4: 统一资产行 — 把 k8s pod 与 docker 容器归一化成同构对象。
+    //   两者是同一类资产 (可发现/可确认/可覆盖/可查留痕), 差异只在数据来源:
+    //     k8s  : namespace / node / pod_ip / services / labels / images[]
+    //     docker: 只有容器自身维度 → 上述字段留空, 列表显示 —
+    //   归一化后 UI 只需一套列模板, 后续 v0.6.7 六层审计也只需接一处。
+    const unifiedAssets = computed(() => {
+      const out = [];
+      // k8s pod (按物理机分组, node 筛选在此生效)
+      data.nodes.forEach(nd => (nd.pods || []).forEach(p => {
+        if (!inSet(topoFilter.nodes, nd.name)) return;
+        const images = p.images || [];
+        const row = {
+          kind: 'k8s',
+          id: p.asset_id || p.name,
+          name: p.name,
+          displayName: p.namespace ? `${p.namespace}/${p.name}` : p.name,
+          namespace: p.namespace || '',
+          nsKey: p.namespace || '',
+          node: nd.name || '',
+          image: images[0] || '',
+          imageCount: images.length,
+          status: p.status,
+          pod_ip: p.pod_ip || '',
+          services: p.services || [],
+          labelText: Object.entries(p.labels || {}).slice(0, 3)
+            .map(([k, v]) => `${k}=${v}`).join(' ') || '',
+          privileged: !!p.privileged,
+          created: p.created,
+          labels: p.labels || {},
+          labelsText: Object.entries(p.labels || {}).slice(0, 3)
+            .map(([k, v]) => `${k}=${v}`).join(' ') || '',
+          level: p.level, level_source: p.level_source,
+          asset_state: p.asset_state, asset_rule: p.asset_rule,
+          audit_count: p.audit_count,
+        };
+        row.assetId = p.asset_id || pickAsset(p).assetId;
+        if (matchAsset(row)) out.push(row);
+      }));
+      // docker 容器 (无 namespace/node/pod_ip/services/labels)
+      (data.containers || []).forEach(c => {
+        const row = {
+          kind: 'docker',
+          id: c.id,
+          name: c.name,
+          displayName: c.name,
+          namespace: '', nsKey: DOCKER_NS, node: '',
+          image: c.image || '',
+          imageCount: c.image ? 1 : 0,
+          status: c.status,
+          // docker 同样有 IP 与 labels (compose 元数据), 不再一律留空
+          pod_ip: c.ip || '',
+          services: c.labels && c.labels['com.docker.compose.service']
+            ? [c.labels['com.docker.compose.service']] : [],
+          labelText: Object.entries(c.labels || {}).slice(0, 3)
+            .map(([k, v]) => `${k}=${v}`).join('') || '',
+          privileged: !!c.privileged,
+          created: c.created,
+          labels: c.labels || {},
+          labelsText: Object.entries(c.labels || {}).slice(0, 3)
+            .map(([k, v]) => `${k}=${v}`).join(' ') || '',
+          level: c.level, level_source: c.level_source,
+          asset_state: c.asset_state, asset_rule: c.asset_rule,
+          audit_count: c.audit_count,
+        };
+        row.assetId = c.asset_id || c.id;
+        if (matchAsset(row)) out.push(row);
+      });
+      return out;
+    });
+
+    // v0.6.4: 留痕按「决策事件」聚合。
+    //   后端 confirm 写 2 条、override 写 3 条 (human_decision + status_transition×N),
+    //   它们同 ts 同 event_id, 属一次决策。平铺会让用户误以为被操作了多次。
+    //   策略: event_id 优先; 存量数据无该字段 → 用 ts 兜底 (同毫秒视为同一事件)
+    const auditGroups = computed(() => {
+      const rows = auditDialog.rows || [];
+      const order = [];      // 保持出现顺序
+      const byKey = new Map();
+      rows.forEach(r => {
+        const key = (r.detail && r.detail.event_id) || r.event_id
+                 || (r.ts + '|' + r.type);   // 兜底: 同毫秒同类合并
+        if (!byKey.has(key)) {
+          byKey.set(key, []);
+          order.push(key);
+        }
+        byKey.get(key).push(r);
+      });
+      // 组内: human_decision 作主条目, 其余为侧面; 再按新 → 旧排序
+      return order.map(k => {
+        const g = byKey.get(k);
+        const main = g.find(x => x.type === 'human_decision') || g[0];
+        const subs = g.filter(x => x !== main);
+        return { ts: main.ts, main, subs };
+      }).reverse();
+    });
+
+    async function openAudit(row) {
+      const assetId = row.asset_id || row.assetId || row.id;
+      if (!assetId) return;
+      try {
+        const res = await get('/api/assets/' + encodeURIComponent(assetId) + '/audit');
+        auditDialog.rows = (res.audit || []).slice();   // 旧 → 新 (分组后倒序)
+        auditDialog.title = '资产留痕 — ' + (row.name || (row.namespace + '/' + row.name));
+        auditDialog.show = true;
+      } catch (e) { ElMessage.error('留痕加载失败: ' + e.message); }
+    }
+    function auditTypeOf(r) {
+      return r.type === 'human_decision' ? 'primary'
+           : r.type === 'status_transition' ? 'success' : 'warning';
+    }
+    function auditLabel(r) {
+      return { auto_inference: '自动推断', human_decision: '人工决策', status_transition: '状态变迁' }[r.type] || r.type || '留痕';
+    }
+    function auditText(r) {
+      const d = r.detail || {};
+      if (r.type === 'auto_inference') {
+        return [d.rule && ('规则: ' + d.rule), d.level && ('级别: ' + d.level), d.note && ('说明: ' + d.note)].filter(Boolean).join(' · ');
+      }
+      if (r.type === 'human_decision') {
+        return [d.action && ('动作: ' + d.action), d.level && ('级别: ' + d.level), d.reason && ('原因: ' + d.reason)].filter(Boolean).join(' · ');
+      }
+      if (r.type === 'status_transition') {
+        // 级别来源变迁 (override 产生的第二条) 不是状态变迁 — 措辞要分开
+        if (d.field === 'level') {
+          return '级别来源: ' + (d.from || '—') + ' → ' + (d.to || '—')
+            + (d.old_level ? ' · 原级别: ' + (LEVEL_LABELS[d.old_level] || d.old_level) : '');
+        }
+        return '状态: ' + (d.from || '—') + ' → ' + (d.to || '—') + (d.level ? ' · 级别: ' + d.level : '');
+      }
+      return JSON.stringify(d);
+    }
+    function onQueueSelect(sel) { queueDialog.selected = sel; }
+    function openQueue() { queueDialog.show = true; }
+    // 方案A: 前端循环逐条 confirm (留痕按资产分条, 失败项单独汇总提示)
+    async function batchTrust() {
+      const sel = queueDialog.selected;
+      if (!sel.length) { ElMessage.warning('请先勾选待确认资产'); return; }
+      const reason = queueDialog.reason.trim();
+      const ok = [];
+      const fail = [];
+      for (const a of sel) {
+        try {
+          await post('/api/assets/' + encodeURIComponent(a.assetId) + '/confirm', { reason });
+          ok.push(a.name);
+        } catch (e) { fail.push(a.name + ' (' + e.message + ')'); }
+      }
+      if (ok.length) ElMessage.success('一键信任完成: ' + ok.length + ' 项已确认' + (fail.length ? ', ' + fail.length + ' 项失败' : ''));
+      if (fail.length) ElMessage.warning('失败 ' + fail.length + ' 项: ' + fail.slice(0, 3).join('; ') + (fail.length > 3 ? ' …' : ''));
+      queueDialog.reason = '';
+      queueDialog.show = false;
+      refresh();
+    }
+    async function trustAll() {
+      const all = pendingList.value;
+      if (!all.length) { ElMessage.info('当前无待确认资产'); return; }
+      try {
+        await ElMessageBox.confirm('将对 ' + all.length + ' 个待确认资产执行一键信任（逐条确认并留痕，失败项单独提示）。继续？',
+          '一键信任全部', { type: 'warning', confirmButtonText: '信任全部', cancelButtonText: '取消' });
+      } catch (e) { return; }  // 用户取消
+      queueDialog.selected = all;
+      await batchTrust();
     }
     onMounted(() => {
       load();
@@ -697,10 +1441,22 @@ const AssetsPage = {
     });
     onUnmounted(() => {
       clearInterval(state.timer);
+      stopBlink();
       if (chart) { chart.dispose(); chart = null; }
     });
-    return { data, podDialog, showPod, topoRef, topoFilter, nsOptions,
-             privateSvcOptions, buildTopoDebounced, onPrivateToggle };
+    return { data, assetDialog, openAssetDetail, showPod, topoRef, topoFilter, nsOptions,
+             imageOptions,
+             privateSvcOptions, buildTopoDebounced, onPrivateToggle, resetTopoFilter,
+             draftFilter, filterDirty, applyFilter,
+             openAsset, openOverride, openRevert,
+             // v0.6.4: 资产确认闭环 (ADR-050)
+             pendingList, canWrite, isAdmin, openQueue, trustAll,
+             confirmDialog, openConfirm, doConfirm, doOverride,
+             queueDialog, batchTrust, onQueueSelect,
+             auditDialog, auditGroups, openAudit, auditTypeOf, auditLabel, auditText,
+             unifiedAssets,
+             ASSET_STATES, ASSET_STATE_TYPES, LEVEL_TYPES, LEVEL_LABELS,
+             ASSET_LEVEL_OPTIONS, fmtTime, assetAge };
   },
 };
 
