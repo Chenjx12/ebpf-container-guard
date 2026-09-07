@@ -282,7 +282,7 @@ The AI correctly identified this as a false positive — the rule engine matched
 │   │  └───────────────────────────────────┘ │  │
 │   └───────────────────────────────────────┘  │
 ├─────────────────────────────────────────────┤
-│   Kernel Space (eBPF) — 4096-entry Ring Buffer │
+│   Kernel Space (eBPF) — 1MB Ring Buffer (v0.4.1+) │
 │   ┌───────────────────────────────────────┐  │
 │   │  Tracepoint Probes (6)                │  │
 │   │  ├─ sys_enter_mount                   │  │

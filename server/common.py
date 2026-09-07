@@ -623,11 +623,10 @@ def _docker_container_profile(container_id: str):
 
 
 # ================================================================
-# Auth singleton (imported from dashboard/auth.py — no streamlit dep)
+# Auth singleton (authoritative module: server/auth.py — no streamlit dep;
+# dashboard/auth.py is a re-export shim since v0.6.4)
 # ================================================================
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
-from dashboard.auth import AuthManager, TokenManager  # noqa: E402
+from server.auth import AuthManager, TokenManager  # noqa: E402
 
 AUTH = AuthManager(str(SCRIPT_DIR / "config" / "users.yaml"))
 TOKENS = TokenManager(str(SCRIPT_DIR / "config" / "tokens.yaml"),

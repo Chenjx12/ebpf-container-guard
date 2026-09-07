@@ -1,6 +1,9 @@
 # eBPF Container Guard — Test Guide
 
-> **Version**: v0.4.2
+> **Version**: v0.4.2 — 历史验证快照 (2026-08-11 记录)
+> ⚠️ 项目已演进 (当前 v0.6.x: 8 个场景、12 条规则)。本文件保留作
+>    v0.4.2 时代的测试记录; 现行场景清单见 `tests/integration/scenarios/`
+>    与 `tests/k8s/scenarios/`, 单元测试基线见 `tests/unit/`。
 > **Kernel**: 6.8.0-136-generic (Ubuntu 22.04 LTS)
 > **Updated**: 2026-08-11
 
@@ -393,7 +396,7 @@ Total:  15    Passed: 15    Failed: 0
 | Response actions correct (pause/isolate/queue block_image) | ✅ |
 | iptables network blocking active (FORWARD DROP) | ✅ |
 | Container identity correctly resolved (all events have correct container ID) | ✅ |
-| Ring Buffer 4096 — no overflow | ✅ |
+| Ring Buffer 1MB (v0.4.1+) — no overflow | ✅ |
 | Async AI analyzer structure functional | ✅ |
 | Rules hot-reload working | ✅ |
 

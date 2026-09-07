@@ -34,11 +34,11 @@ else
     print_fail "events.log 无 capset_cap_sys_admin"
 fi
 
-print_test "容器冻结"
-if wait_for_rule "capset_cap_sys_admin"; then
+print_test "容器已冻结 (freeze 铁证)"
+if assert_frozen "$POD"; then
     print_pass
 else
-    print_fail "events.log 无 capset_cap_sys_admin"
+    print_fail "pod 未被冻结 (freeze 未生效)"
 fi
 
 print_guard_log

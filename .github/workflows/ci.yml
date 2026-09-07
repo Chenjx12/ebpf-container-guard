@@ -15,9 +15,13 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies (runtime pinned + test-only deps)
+        # httpx2 非拼写错误: starlette>=1.0 testclient 主后端已迁移为 httpx2
+        # (fastapi TestClient 用它; 若改回 httpx 会触发 starlette 弃用警告)
         run: |
           pip install -r requirements.txt httpx2==2.10.0 streamlit==1.61.1 pytest
       - name: Run unit tests
         run: pytest tests/unit -q
       - name: Syntax check (guard + panel)
         run: python -m compileall -q main.py src server dashboard
+      - name: Check configmap rules drift (H3)
+        run: python scripts/sync_configmap.py --check

@@ -19,6 +19,11 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # libbpf.so.1 (1.8.0, 版本化符号 ctypes 自动解析; 从 deploy/libbpf/ COPY)
+# 装载方式备忘 (2026-09 沙箱实测): 镜像内 vendored 方案依赖上方 COPY 的 libelf;
+#   host 裸机直跑 main.py 可 apt-get install libbpf1 (trixie 1.5.0-3, 自动带
+#   libelf1t64) 替代, 无需 LD_LIBRARY_PATH。库就绪后缺 CAP_SYS_ADMIN 时 CO-RE
+#   加载止于 bpf_object__load errno=1 (EPERM) — 运行需 privileged, 见
+#   deploy/k8s/daemonset.yaml securityContext。
 COPY deploy/libbpf/libbpf.so.1.8.0 /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0
 RUN ln -sf /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0 \
     /usr/lib/x86_64-linux-gnu/libbpf.so.1

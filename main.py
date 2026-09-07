@@ -13,6 +13,7 @@ import argparse
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 import threading
@@ -82,11 +83,45 @@ class _NsenterNetBlocker:
     (与 NetBlocker 同一快照文件格式, 独立实例使用)。
     """
 
-    _IPT = "nsenter -t 1 -m -n iptables"
+    _IPT_PREFIX = ["nsenter", "-t", "1", "-m", "-n", "iptables"]
 
     def __init__(self, persist_path=None):
         self.blocked = {}  # "ip:port" -> ts (保持与 NetBlocker 兼容)
         self._persist_path = persist_path
+
+    def _run(self, argv):
+        """执行 iptables argv (列表化, 无 shell)。失败向 stderr 输出可操作告警。"""
+        try:
+            subprocess.run(argv, check=True, capture_output=True, timeout=10)
+            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                OSError) as e:
+            print(f"  [!] nsenter iptables 失败: {' '.join(argv)} — {e}",
+                  file=sys.stderr)
+            return False
+
+    def _drop_exists(self, ip, port):
+        """-C 探测 FORWARD DROP 是否已存在 (幂等; 不存在不算错误, 不告警)。"""
+        try:
+            r = subprocess.run(
+                self._IPT_PREFIX + ["-C", "FORWARD", "-d", ip, "-p", "tcp",
+                                    "--dport", str(port), "-j", "DROP"],
+                capture_output=True, timeout=10)
+            return r.returncode == 0
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print(f"  [!] nsenter iptables -C 探测失败: "
+                  f"{ip}:{port} — {e}", file=sys.stderr)
+            return False
+
+    def _insert_drop(self, ip, port):
+        return self._run(self._IPT_PREFIX +
+                         ["-I", "FORWARD", "1", "-d", ip, "-p", "tcp",
+                          "--dport", str(port), "-j", "DROP"])
+
+    def _delete_drop(self, ip, port):
+        return self._run(self._IPT_PREFIX +
+                         ["-D", "FORWARD", "-d", ip, "-p", "tcp",
+                          "--dport", str(port), "-j", "DROP"])
 
     def block(self, ip, port):
         if port <= 0:
@@ -94,9 +129,8 @@ class _NsenterNetBlocker:
         key = f"{ip}:{port}"
         if key in self.blocked:
             return False
-        os.system(f"{self._IPT} -C FORWARD -d {ip} -p tcp --dport {port} "
-                  f"-j DROP 2>/dev/null || {self._IPT} -I FORWARD 1 "
-                  f"-d {ip} -p tcp --dport {port} -j DROP")
+        if not self._drop_exists(ip, port) and not self._insert_drop(ip, port):
+            return False  # 真实阻断失败 → 不虚报已阻断 (v0.6.4 H2)
         self.blocked[key] = time.time()
         print(f"  [NetBlock] nsenter DROP {ip}:{port}")
         self._persist()
@@ -104,8 +138,8 @@ class _NsenterNetBlocker:
 
     def unblock(self, ip, port):
         key = f"{ip}:{port}"
-        os.system(f"{self._IPT} -D FORWARD -d {ip} -p tcp --dport {port} "
-                  f"-j DROP 2>/dev/null")
+        if self._drop_exists(ip, port) and not self._delete_drop(ip, port):
+            return False  # 删除失败: 保留快照以便重试 (v0.6.4 H2)
         self.blocked.pop(key, None)
         self._persist()
         return True
@@ -145,10 +179,11 @@ class _NsenterNetBlocker:
                 port = int(port)
                 if port <= 0:
                     continue
-                os.system(f"{self._IPT} -C FORWARD -d {ip} -p tcp "
-                          f"--dport {port} -j DROP 2>/dev/null || "
-                          f"{self._IPT} -I FORWARD 1 -d {ip} -p tcp "
-                          f"--dport {port} -j DROP")
+                if not self._drop_exists(ip, port) and \
+                        not self._insert_drop(ip, port):
+                    print(f"  [!] NetBlock 重放失败 ({key}): "
+                          f"iptables 插入失败", file=sys.stderr)
+                    continue
                 ok += 1
                 print(f"  [NetBlock] ⏪ 重放 DROP {ip}:{port} "
                       f"(快照 {time.strftime('%m-%d %H:%M', time.localtime(ts))})")

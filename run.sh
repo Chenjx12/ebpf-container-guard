@@ -41,13 +41,30 @@ start_ui() {
 
 stop_all() {
     echo "🛑 停止所有服务..."
+    # 1) 优先: 锁文件 PID (run.sh 启动的 guard) — 优雅退出 + 最多等 5s
     if [ -f "$GUARD_PID_FILE" ]; then
-        sudo kill $(cat "$GUARD_PID_FILE") 2>/dev/null || true
+        local pid
+        pid=$(cat "$GUARD_PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            sudo kill "$pid" 2>/dev/null || true
+            for _ in 1 2 3 4 5; do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 1
+            done
+        fi
         rm -f "$GUARD_PID_FILE"
     fi
-    sudo pkill -f "python3 main.py" 2>/dev/null || true
-    kill $(lsof -ti:8000) 2>/dev/null || true
-    kill $(lsof -ti:8501) 2>/dev/null || true   # 旧 streamlit 面板兼容
+    # 2) 兜底 (v0.6.4 M4b): 仅当仍有 guard 实例存活时清理 —
+    #    收敛 pkill 误杀面 (systemd 实例 / 手动 sudo 实例等非 run.sh 启动者)
+    if pgrep -f "python3 main.py" > /dev/null 2>&1; then
+        echo "⚠️  检测到非锁文件的 guard 实例, 兜底清理..."
+        sudo pkill -f "python3 main.py" 2>/dev/null || true
+        sleep 1
+    fi
+    # 3) UI 面板: 按端口精确定位 (仅杀占用者)
+    local ui_pid
+    ui_pid=$(lsof -ti:8000 2>/dev/null || true)
+    [ -n "$ui_pid" ] && kill $ui_pid 2>/dev/null || true
     echo "✅ 已停止"
 }
 

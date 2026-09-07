@@ -6,23 +6,29 @@
 #
 # 字段说明 / Fields:
 #   role: admin | operator | analyst
-#   hash: 密码哈希（自 v0.5.6 起为 Argon2id；
-#         $argon2id$v=19$m=19456,t=2,p=1$<salt>$<digest>，参数与 auth.py 一致）
+#   hash: Argon2id 哈希 (v0.5.6 起)。格式:
+#         $argon2id$v=19$m=19456,t=2,p=1$<salt>$<digest> (参数与 server/auth.py 一致)
 #   created: 创建时间
 #   initial: true=初始密码（登录后强制改密）
 #
-# 注: 首次面板启动会自动创建 admin 并打印初始密码，通常无需手编此文件；
-#     示例中的 hash 为占位值，请勿直接使用。
+# 注: 首次面板启动会自动创建 admin 并打印初始密码，通常无需手编此文件。
 
 # ⚠️ 首次启动面板会自动创建 admin 用户，密码打印在面板终端。
 #    你通常不需要手动编辑此文件。
 # ⚠️ On first dashboard launch, an admin user is automatically created
 #    with password printed to the terminal. Manual editing is NOT needed.
+#
+# v0.6.4 (审查修复 H4): 模板不再含任何固定 salt/hash 占位 —
+#   旧模板带固定 SHA256 形态 hash 与独立 salt, 复制即产生可疑凭据,
+#   且与 Argon2id 自含盐设计矛盾。现默认留空, 由
+#   AuthManager.ensure_initial_admin() 首次启动自动生成并回填。
 
-users:
-  admin:
-    role: admin
-    salt: "562e32947b92dc698ee5128d880a58b0"
-    hash: "8f0ed732d740610d87c11775640acae5214a92cfa509da09d11cee256b79f3f3"
-    created: "2026-08-11T17:12:50"
-    initial: true
+users: {}
+# ⚠️ 留空即"首次启动自动创建 admin"。
+# 如需预置用户, 请按上方字段说明填入 Argon2id hash:
+#   users:
+#     admin:
+#       role: admin
+#       hash: "$argon2id$v=19$m=19456,t=2,p=1$<真实生成值, 勿用示例>"
+#       created: "2026-01-01T00:00:00"
+#       initial: false

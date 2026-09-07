@@ -1,10 +1,15 @@
-# eBPF Container Guard — DaemonSet (v0.5.3)
+# eBPF Container Guard — DaemonSet (v0.5.3; 镜像 tag 注释 v0.6.4 修正)
 #
 # 集群部署形态 (与 deploy/systemd/ 单机形态互斥, 见 ADR-039 单实例锁)。
 # 部署:
-#   sudo k3s ctr images import <(docker save ebpf-guard:v0.5.3)
+#   # 本地 k3s e2e: 先构建并导入镜像 (tag 与下方 image 一致)
+#   docker build --network host -f deploy/Dockerfile.guard -t ebpf-guard:v0.5.6-fix .
+#   docker save ebpf-guard:v0.5.6-fix | sudo k3s ctr images import -
 #   kubectl apply -f deploy/k8s/
-#
+#   # 生产/多节点: 从 registry 拉取 — 改 image 为
+#   #   ghcr.io/chenjx12/ebpf-container-guard:<git-tag> (tag 对齐 git tag,
+#   #   见 docs/镜像发布策略.md), 并同步改 imagePullPolicy: IfNotPresent。
+#   #   私有 GHCR 需 registry 认证 (k3s /etc/rancher/k3s/registries.yaml)。
 # 关键挂载:
 #   /sys   — 宿主全 sysfs (BTF + cgroup + tracefs 一次覆盖)
 #   /var/lib/ebpf-guard — 日志持久化 (events/decisions/behaviors)
@@ -38,6 +43,10 @@ spec:
           image: ebpf-guard:v0.5.6-fix
           imagePullPolicy: Never
           securityContext:
+            # privileged/CAP_SYS_ADMIN 是 CO-RE 加载硬前提 (2026-09 沙箱实测:
+            # 无 CAP_SYS_ADMIN 的容器内 libbpf 自检即被拒, main.py 止于
+            # [1/8] bpf_object__load errno=1/EPERM; 镜像已内置 vendored libbpf1.8,
+            # host 直跑替代装法见 deploy/Dockerfile.guard 装载备忘)
             privileged: true
             capabilities:
               add:

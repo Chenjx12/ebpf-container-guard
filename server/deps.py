@@ -10,7 +10,7 @@ import time
 
 from fastapi import HTTPException, Request
 
-from dashboard.auth import ROLE_RANK
+from server.auth import ROLE_RANK
 from server import common
 
 SESSION_TTL = 8 * 3600

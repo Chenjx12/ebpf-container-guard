@@ -50,13 +50,21 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir --upgrade setuptools==84.0.0 jaraco.context==6.1.0
 
 # libbpf.so.1 (1.8.0, 版本化符号 ctypes 自动解析)
+# 装载方式备忘 (2026-09 沙箱实测): 镜像内走上方 vendored 方案, 依赖上面 COPY 的
+#   libelf (ldd 缺 libelf.so.1 会 ImportError/加载失败)。host 裸机直跑 main.py 时
+#   无需 vendored: apt-get install libbpf1 (Debian trixie 1.5.0-3, 自动带入
+#   libelf1t64) 一次装齐, 亦不需 LD_LIBRARY_PATH。库就绪后启动可推进到
+#   [1/8] CO-RE 加载; 无特权容器/缺 CAP_SYS_ADMIN 时止于
+#   bpf_object__load errno=1 (EPERM) — 运行需 privileged 或补 CAP_SYS_ADMIN
+#   (+CAP_NET_ADMIN 供 netblock), 见 daemonset.yaml securityContext。
 COPY deploy/libbpf/libbpf.so.1.8.0 /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0
 RUN ln -sf /usr/lib/x86_64-linux-gnu/libbpf.so.1.8.0 \
     /usr/lib/x86_64-linux-gnu/libbpf.so.1
 
 WORKDIR /app
 
-# 代码（server 依赖 src 的 rule_schema/kube_utils, deps 依赖 dashboard.auth）
+# 代码（server 依赖 src 的 rule_schema/kube_utils 与 server/auth.py;
+# v0.6.4 起认证权威源已上移, dashboard/ 仅为回滚兼容保留）
 COPY main.py ./
 COPY deploy/entrypoint.sh ./entrypoint.sh
 COPY src/ src/

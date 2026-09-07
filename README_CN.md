@@ -315,7 +315,7 @@ AI 正确识别了这条误报——规则引擎匹配了模式，但 AI 理解�
 │  │  PID → container_id  后台 5s 刷新        │   │
 │  └────────────────────────────────────────┘   │
 │  ┌────────────────────────────────────────┐   │
-│  │  Ring Buffer (4096 条目)                 │   │
+│  │  Ring Buffer (1MB, v0.4.1 起)            │   │
 │  │  events.ringbuf_output() → 用户态消费    │   │
 │  └────────────────────────────────────────┘   │
 └──────────────────────────────────────────────┘
@@ -601,7 +601,7 @@ docker rm -f test_esc
 - **需要 root 权限** — eBPF 程序加载和 Docker socket 访问均需要 root 权限
 - **生产部署** — 部署前请充分测试，根据实际环境调整规则和阈值
 - **误报处理** — 规则内用 `not` 条件树白名单排除正常基础设施进程（dockerd, containerd, runc 等），支持 glob 通配
-- **性能开销** — 五个 eBPF 探针（mount + ptrace + execve + connect + openat）CPU 开销 < 2%，Ring Buffer 4096 条目约 1MB 内存
+- **性能开销** — 五个 eBPF 探针（mount + ptrace + execve + connect + openat）CPU 开销 < 2%，Ring Buffer 1MB（`1<<20` 字节，v0.4.1 起）
 - **冷却机制** — 同一容器 10 分钟内不重复响应，避免响应风暴
 
 ---

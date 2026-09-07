@@ -28,14 +28,23 @@ if docker image inspect "$TAG" > /dev/null 2>&1; then
 fi
 
 # 构建（使用 host 网络共享宿主机 DNS/代理能力）
+# 代理地址可覆盖: PROXY=http://1.2.3.4:7890 bash build_image.sh <tag>; 无代理置 PROXY=
+PROXY="${PROXY:-http://192.168.65.1:7890}"
+PROXY_ARGS=()
+if [ -n "$PROXY" ]; then
+    PROXY_ARGS=(--build-arg "HTTP_PROXY=$PROXY" --build-arg "HTTPS_PROXY=$PROXY")
+fi
 if docker build --network host -t "$TAG" \
-    --build-arg HTTP_PROXY=http://192.168.65.1:7890 \
-    --build-arg HTTPS_PROXY=http://192.168.65.1:7890 \
+    "${PROXY_ARGS[@]}" \
     -f "$DOCKERFILE" "$PROJECT_ROOT" > /tmp/build_${IMAGE_NAME}.log 2>&1; then
     echo "  ✅ 构建成功"
 else
     echo "  ❌ 构建失败（可能是代理/网络问题）"
-    echo "     检查: clash 代理是否开启 (192.168.65.1:7890)"
+    if [ -n "$PROXY" ]; then
+        echo "     检查: 代理是否可达 ($PROXY); 无代理环境请 PROXY= 重试"
+    else
+        echo "     检查: 网络/DNS (未使用代理)"
+    fi
     echo "     日志: /tmp/build_${IMAGE_NAME}.log"
     sudo cat /tmp/build_${IMAGE_NAME}.log | tail -5
     exit 1

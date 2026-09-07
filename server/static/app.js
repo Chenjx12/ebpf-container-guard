@@ -227,9 +227,15 @@ const AlertsPage = {
       q.container = ''; q.rule = ''; q.severity = '';
       load();
     }
-    onMounted(() => { readHash(); state.timer = setInterval(load, 3000); });
-    onUnmounted(() => clearInterval(state.timer));
-    window.addEventListener('hashchange', readHash);
+    onMounted(() => {
+      readHash();
+      window.addEventListener('hashchange', readHash);  // v0.6.4 M1: 随组件卸载配对移除
+      state.timer = setInterval(load, 3000);
+    });
+    onUnmounted(() => {
+      window.removeEventListener('hashchange', readHash);
+      clearInterval(state.timer);
+    });
     return { events, curFilter, filterLabel, clearFilter, resetFilter, q, ruleOptions,
              openEventDetail, fmtTime, sevTag };
   },

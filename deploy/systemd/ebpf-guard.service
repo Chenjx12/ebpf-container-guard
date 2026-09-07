@@ -23,7 +23,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/chenjx12/ebpf/ebpf-container-guard
+# ⚠️ 部署前改为项目实际绝对路径 (v0.6.4 M4a: 移除开发者个人硬编码路径)
+WorkingDirectory=/opt/ebpf-container-guard
 ExecStart=/usr/bin/python3 main.py
 Restart=on-failure
 RestartSec=5

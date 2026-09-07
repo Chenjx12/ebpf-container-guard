@@ -10,7 +10,9 @@
 #   iptables:   FORWARD 链出现 DROP 规则（出站阻断）
 #   XDP map:    block_port_map 有条目（入站阻断，mixed 后端）
 #
-# 注意: 目标 IP:port 用 192.168.65.1:7890（宿主机 clash 代理），
+# 注意: 目标默认 192.168.65.1:7890（宿主机 clash 代理，作者开发环境），
+#       可用环境变量覆盖为任意可达的外部非标端口:
+#         sudo TARGET_HOST=1.2.3.4 TARGET_PORT=5555 bash test_reverse_shell.sh
 #       首次阻断后同一目标后续事件 netblocked=false（已阻断，设计）。
 #
 # 用法: sudo bash test_reverse_shell.sh
@@ -22,8 +24,8 @@ source lib.sh
 IMAGE="ebpf-test:net"
 CONTAINER="test_reverse_shell"
 TEST_CONTAINERS="$CONTAINER"
-TARGET_HOST="192.168.65.1"
-TARGET_PORT="7890"
+TARGET_HOST="${TARGET_HOST:-192.168.65.1}"  # v0.6.4 M4b: 环境变量可覆盖
+TARGET_PORT="${TARGET_PORT:-7890}"
 
 print_result "反弹 shell / C2 出站 (reverse_shell)"
 

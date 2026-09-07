@@ -1,6 +1,9 @@
 # eBPF Container Guard — 测试指南
 
-> **版本**: v0.4.2
+> **版本**: v0.4.2 — 历史验证快照 (2026-08-11 记录)
+> ⚠️ 项目已演进 (当前 v0.6.x: 8 个场景、12 条规则)。本文件保留作
+>    v0.4.2 时代的测试记录; 现行场景清单见 `tests/integration/scenarios/`
+>    与 `tests/k8s/scenarios/`, 单元测试基线见 `tests/unit/`。
 > **内核**: 6.8.0-136-generic (Ubuntu 22.04 LTS)
 > **更新**: 2026-08-11
 
@@ -530,7 +533,7 @@ TEST 3: 检测到 nsenter_escape...                            ✅ PASS
 | 响应引擎动作正确（pause/isolate/queue block_image） | ✅ |
 | iptables 网络阻断生效（FORWARD DROP） | ✅ |
 | 容器身份识别正确（全部事件正确关联容器 ID） | ✅ |
-| Ring Buffer 4096 无溢出 | ✅ |
+| Ring Buffer 1MB (v0.4.1+) 无溢出 | ✅ |
 | 异步 AI 分析器结构正常 | ✅ |
 | 规则热加载正常工作 | ✅ |
 

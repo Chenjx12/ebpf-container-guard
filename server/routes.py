@@ -856,7 +856,7 @@ def issue_token(body: dict, user: dict = admin_only):
     for_user = (body.get("for_user") or "").strip()
     # v0.5.7: 授权对象校验 — 只能授权给比自己权限低的角色
     if for_user:
-        from dashboard.auth import ROLE_RANK
+        from server.auth import ROLE_RANK
         grantor_role = common.AUTH.get_role(user['username'])
         for_role = common.AUTH.get_role(for_user)
         if not for_role:

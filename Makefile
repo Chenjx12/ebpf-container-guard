@@ -1,4 +1,5 @@
-.PHONY: help build test run clean deploy logs panel
+.PHONY: help build test test-unit run run-quiet clean deploy logs panel \
+	install-deps lint format sync-configmap check-configmap
 
 panel: ## Start security panel (FastAPI + Vue3, v0.5.6)
 	@echo "🖥️  Starting security panel (FastAPI + Vue3)..."
@@ -38,9 +39,21 @@ build: .build/escape-detect.bpf.o .build/xdp-block.bpf.o ## Build eBPF programs 
 	@readelf -S .build/escape-detect.bpf.o | grep -q "\.BTF" && \
 		echo "✅ .BTF 段确认: CO-RE 对象完整"
 
-test: ## Run integration tests
+test: ## Run integration tests (Docker 场景; 需 docker + root)
 	@echo "🧪 Running integration tests..."
 	bash tests/integration/test_escape_scenarios.sh
+
+test-unit: ## Run Python unit tests (无需 root/docker)
+	@echo "🧪 Running unit tests..."
+	python3 -m pytest tests/unit -q
+
+sync-configmap: ## 同步 config/rules.yaml → deploy/k8s/configmap.yaml (H3 防漂移)
+	@echo "🔄 Syncing rules.yaml into configmap.yaml..."
+	python3 scripts/sync_configmap.py
+
+check-configmap: ## 漂移检测: configmap rules 段与权威源不一致则退出 1
+	@echo "🔍 Checking configmap rules drift..."
+	python3 scripts/sync_configmap.py --check
 
 run: ## Start eBPF Container Guard (requires sudo)
 	@echo "🛡️  Starting eBPF Container Guard..."

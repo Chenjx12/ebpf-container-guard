@@ -9,6 +9,42 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.3.1] - 2026-09-07 (code-review hardening batch H1-H4/M1-M6)
+
+Hotfix-renamed tag (precedent: v0.6.2.1 blank-screen fix): the local commit was
+originally numbered v0.6.4, colliding with the upstream bp_v06x roadmap where
+**v0.6.4 = frontend asset-confirmation loop**. Renamed to v0.6.3.1 to free
+v0.6.4 — local-only commit (never pushed), so the amend carries no history
+burden. This CHANGELOG entry was missing for the batch and is written now.
+
+### Fixed (code-review H1-H4 / M1-M6)
+- **H1 Auth moved server-side**: new `server/auth.py` (AuthManager /
+  TokenManager); `dashboard/auth.py` reduced to a compatibility shim; 3
+  server-side import switches. Hash upgraded **pbkdf2_hmac → argon2** — the
+  decision #22 gap (pbkdf2→argon2 switch was never recorded) is closed here
+  with the version noted
+- **H2 Command reliability — root-cause kill of the v0.5.5 self-noise
+  (decision #44)**: `isolation_backend` and `main.py` `_NsenterNetBlocker`
+  switched from `os.system` to `subprocess.run(argv)` list-args. The
+  intermediate `/bin/sh -c` layer no longer exists, so the guard's own iptables
+  invocation can never self-trigger the exec probe. Real exit codes now surface
+  failures as stderr alerts; new `tests/unit/test_isolation_backend.py` covers
+  idempotency / failure paths
+- **H3 Config drift**: new `scripts/sync_configmap.py` (rules-section sync +
+  `--check`) wired into Makefile + CI; configmap embedded rules synced to the
+  current 12
+- **H4 Credential template**: `config/users.yaml.example` — fixed hash/salt
+  removed, placeholders + first-boot auto-provision note
+- **M1-M6**: app.js `onUnmounted` pairing; capset assert_frozen; ci.yml httpx2
+  comment; systemd WorkingDirectory placeholder; test proxy/target env vars +
+  run.sh pid-lock graceful stop; README/docs Ring Buffer 4096→1MB + Makefile
+  .PHONY completion
+- deploy: Dockerfile.guard / daemonset.yaml — libbpf mount & CAP_SYS_ADMIN
+  boundary comments (sandbox-verified EPERM without it)
+
+### Tests
+- Full regression: **178 passed** (v0.6.3 baseline 163)
+
 ## [0.6.3] - 2026-09-02 (light changelog, bp_v06x — 资产推断 + 状态落盘)
 
 ### Added

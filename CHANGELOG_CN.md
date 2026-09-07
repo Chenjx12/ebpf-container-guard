@@ -10,6 +10,37 @@
 
 ---
 
+## [0.6.3.1] - 2026-09-07（code-review 加固批次 H1-H4/M1-M6）
+
+热修改名 tag（先例：v0.6.2.1 白屏修复）：本地提交原编号 v0.6.4，与上游
+bp_v06x 路线撞号（**v0.6.4 = 前端资产确认闭环**）。按 v0.6.2.1 先例改名
+**v0.6.3.1** 释放 v0.6.4 —— 本地提交从未 push，amend 无历史包袱。
+该批次的 CHANGELOG 条目当时遗漏，现补写。
+
+### 修复（code-review H1-H4 / M1-M6）
+- **H1 认证上移 server 侧**：新建 `server/auth.py`（AuthManager /
+  TokenManager）；`dashboard/auth.py` 降为兼容垫片；server 侧 3 处导入切换。
+  哈希 **pbkdf2_hmac → argon2** —— 补记决策 #22 空洞（pbkdf2→argon2 切换
+  此前无版本记录，本版起留痕）
+- **H2 命令可靠性 —— v0.5.5 自噪声根因治理（决策 #44）**：
+  `isolation_backend` 与 `main.py` `_NsenterNetBlocker` 由 `os.system` 改为
+  `subprocess.run(argv)` 列表参数。中间层 `/bin/sh -c` 不再存在，guard 自身
+  的 iptables 调用**不可能再自命中 exec 探针**；真实返回码使失败以 stderr
+  告警浮出；新增 `tests/unit/test_isolation_backend.py` 覆盖幂等/失败路径
+- **H3 配置漂移**：新增 `scripts/sync_configmap.py`（rules 段同步 +
+  `--check`），接入 Makefile 与 CI；configmap 内嵌 rules 同步至当前 12 条
+- **H4 凭据模板**：`config/users.yaml.example` 移除固定 hash/salt，改为
+  占位符 + 首次启动自动建号说明
+- **M1-M6**：app.js `onUnmounted` 配对；capset 断言改 assert_frozen；ci.yml
+  httpx2 注释；systemd WorkingDirectory 占位化；测试脚本代理/目标地址环境
+  变量化 + run.sh pid 锁优雅停服；README/docs Ring Buffer 4096→1MB 修正 +
+  Makefile .PHONY 补全
+- deploy：Dockerfile.guard / daemonset.yaml 补 libbpf 装载与 CAP_SYS_ADMIN
+  边界注释（沙箱实测：无该权限时 EPERM）
+
+### 测试
+- 全量回归：**178 passed**（v0.6.3 基线 163）
+
 ## [0.6.3] - 2026-09-02（轻 changelog，bp_v06x — 资产推断 + 状态落盘）
 
 ### 新增
