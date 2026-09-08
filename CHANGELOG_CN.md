@@ -10,6 +10,27 @@
 
 ---
 
+## [0.6.5] - 2026-09-08（规则管理 + 白名单，tag 内修复）
+
+### 新增
+- **规则管理闭环（API）**：`PUT /api/rules/{name}` 修改已有规则 + `DELETE /api/rules/{name}`
+  按名删除；全量重写 rules.yaml 保持条目顺序，热重载 3s 生效，每次变更审计
+  rules_audit.log（谁在何时改了什么）
+- **规则页白名单子区**：临时抑制告警 — `POST /api/whitelist` / `DELETE /api/whitelist/{id}`，
+  `kind=comm|container` + `valid_until` 到期自动失效恢复告警；同 match **幂等**
+  不重复入库；检测命中有效条目即抑制（guard 检出层调用 `whitelist_active_until`）
+- **白名单留痕**：与规则增删共用 rules_audit.log 审计链；语义区分 dismissed(误报) /
+  ignored(已知风险豁免)，供 AI 基线学习分辨「该容器此行为正常」vs「已知攻击豁免」
+- **前端规则管理 UI**：规则页「编辑规则 / 删除规则」+ 白名单增删条目（含暂存+应用，
+  与 v0.6.4 筛选交互一致），有效期展示
+
+### 修复
+- **`append_rule_to_yaml` 向非空 rules.yaml 追加破坏 YAML**（e2e 发现）：原实现行尾写
+  `  - name:`（缩进），对已在 update_rule/remove_rule 全量重写为列0风格的文件被解析为
+  上一规则的**嵌套块** → 整文件不可读，检测规则全部失效。改为 read-modify-dump **全量
+  重写**（与 update/remove 同构），server 与 dashboard 共用同一 rules.yaml，两处同修。
+  新增回归测试覆盖「向非空文件追加」场景（此前仅测空文件，故漏网）
+
 ## [0.6.4] - 2026-09-07（轻 CHANGELOG，bp_v06x — 资产确认闭环）
 
 ### 新增

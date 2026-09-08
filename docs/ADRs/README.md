@@ -31,6 +31,7 @@
 | [049](049-supply-chain-evidence-chain.md) | 供应链证据链：依赖层扫描 + 镜像 tag 对齐策略 | Accepted | v0.6.2 |
 | [050](050-asset-inference-state.md) | 资产推断 + 状态落盘（PENDING_REVIEW 状态机 + 三段留痕 + 重启恢复） | Accepted | v0.6.3 |
 | [051](051-asset-confirmation-loop.md) | 资产确认闭环（统一资产清单 + 撤销 + 渲染级门禁固化） | Accepted | v0.6.4 |
+| [052](052-rule-management-whitelist.md) | 规则管理闭环 + 临时白名单（rules.yaml 单一权威源统一重写） | Accepted | v0.6.5 |
 
 ## 格式
 

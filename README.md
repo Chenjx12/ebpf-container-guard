@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.4-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.5-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -528,7 +528,8 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |      | ↳ v0.6.2.1 — hotfix: dashboard blank screen (app.js syntax corruption; render-level check discipline) | ✅ Released |
 |      | ↳ v0.6.3 — asset inference + state persistence: AssetClassifier/AssetStore state machine (PENDING_REVIEW→CONFIRMED/OVERRIDDEN), 3-segment audit trail, /api/assets docker list + confirm/override/audit; ride-alongs: netblock snapshot+idempotent replay, Dockerfile iptables fix, netpol orphan sweep, host events log-only, entrypoint -u fix (ADR-050) | ✅ Released |
 |      | ↳ v0.6.4 — frontend asset-confirmation loop: unified asset list (k8s pod + docker container, ADR-051), revert (admin, anti-misoperation), audit grouped by event_id, multi-select filters + apply button, asset grade renamed to business criticality (核心/重要/一般/边缘), render-level check gate `make panel-check` | ✅ Released |
-|      | ↳ v0.6.5 ~ v0.6.8 — backend incremental log load / log view UX / six-layer audit (bp_v06x: weekly releases) | 📋 In progress |
+|      | ↳ v0.6.5 — rule management + whitelist: edit/delete rules via API (PUT/DELETE /api/rules/{name}), whitelist sub-section in rules page (temporary suppression, kind=comm|container, valid_until auto-expiry, idempotent, unified rules_audit.log), AI-baseline-learnable dismissed/ignored semantics; in-tag fix: append_rule_to_yaml full rewrite (server + dashboard share rules.yaml) | ✅ Released |
+|      | ↳ v0.6.6 ~ v0.6.8 — backend incremental log load / log view UX / six-layer audit (bp_v06x: weekly releases) | 📋 In progress |
 | v0.7 | Next batch: Guard Agent (ex-blueprint v0.8 scope, thesis core dev period) | 📋 Planned |
 | v1.0 | First stable release (post-preview) | 📋 Planned |
 
