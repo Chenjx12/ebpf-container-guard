@@ -173,12 +173,22 @@ def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion") -> bool:
         rule = norm
 
         import yaml
-        block = yaml.safe_dump(rule, allow_unicode=True,
-                               sort_keys=False, default_flow_style=False)
-        # 缩进为 rules 列表项格式: "  - name: ..." 子字段 4 空格
-        indented = "  - " + block.replace("\n", "\n    ").strip()
-        with open(RULES_PATH, 'a') as f:
-            f.write("\n" + indented + "\n")
+        # v0.6.5: 与 server/common.py 一致 — 全量 read-modify-dump 重写,
+        # 避免行尾 append "  -" 在已重写为列0风格的文件里被解析成
+        # 上一规则的嵌套块 → YAML 断裂 (两张面板共用同一 rules.yaml)。
+        import os as _os
+        import tempfile as _tmp
+        data = yaml.safe_load(open(RULES_PATH).read()) or {}
+        rules = data.get('rules') or []
+        rules.append(rule)
+        data['rules'] = rules
+        out = yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
+                             default_flow_style=False)
+        d = RULES_PATH.parent
+        fd, tmp = _tmp.mkstemp(dir=str(d), suffix='.yaml')
+        with _os.fdopen(fd, 'w') as f:
+            f.write(out)
+        _os.replace(tmp, RULES_PATH)
         log_rule_audit("add_rule", rule.get('name', 'unnamed'),
                        source, rule)
         return True

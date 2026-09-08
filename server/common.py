@@ -489,11 +489,22 @@ def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion",
         rule = norm
 
         import yaml
-        block = yaml.safe_dump(rule, allow_unicode=True,
-                               sort_keys=False, default_flow_style=False)
-        indented = "  - " + block.replace("\n", "\n    ").strip()
-        with open(RULES_PATH, 'a') as f:
-            f.write("\n" + indented + "\n")
+        import os as _os
+        import tempfile as _tmp
+        # 与 update_rule/remove_rule 一致: 全量 read-modify-dump 重写,
+        # 保证条目风格恒定 (避免行尾 append 在已重写为列0风格的文件里
+        # 被解析成上一规则的嵌套块 → YAML 断裂)。
+        data = yaml.safe_load(open(RULES_PATH).read()) or {}
+        rules = data.get('rules') or []
+        rules.append(rule)
+        data['rules'] = rules
+        out = yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
+                             default_flow_style=False)
+        d = RULES_PATH.parent
+        fd, tmp = _tmp.mkstemp(dir=str(d), suffix='.yaml')
+        with _os.fdopen(fd, 'w') as f:
+            f.write(out)
+        _os.replace(tmp, RULES_PATH)
         log_rule_audit("add_rule", rule.get('name', 'unnamed'), source,
                        rule, user)
         # v0.5.6: k8s 部署时同步 configmap — 容器 guard 读 configmap,

@@ -84,3 +84,53 @@ class TestAppendRuleToYaml:
         data = yaml.safe_load(rules_file.read_text())
         assert data["rules"] == []
         assert not audit_file.exists()
+
+    def test_append_after_existing_rules_keeps_yaml_valid(self, monkeypatch, tmp_path):
+        """v0.6.5 回归: 向**非空** rules.yaml 追加 (真实场景) 不再破坏 YAML。
+
+        原实现行尾写 `  - name:` (缩进), 对已在 update_rule/remove_rule
+        全量重写为列0风格的文件, 被解析为上一规则的嵌套块 → 整文件不可读,
+        检测规则全部失效。修复后 read-modify-dump 全量重写, 新旧规则共存。
+        """
+        from dashboard import common
+        from detector.rule_schema import validate_rules
+
+        rules_file = tmp_path / "rules.yaml"
+        audit_file = tmp_path / "audit.log"
+        # 与真实 config/rules.yaml 一致: 已有一批规则 (缩进列表风格)
+        rules_file.write_text(
+            "rules:\n"
+            "  - name: existing_one\n"
+            "    severity: CRITICAL\n"
+            "    event_type: mount\n"
+            "    condition:\n"
+            "      any:\n"
+            "      - target_path: [/proc]\n"
+            "    action: alert_and_log\n"
+            "  - name: existing_two\n"
+            "    severity: HIGH\n"
+            "    event_type: execve\n"
+            "    condition:\n"
+            "      all:\n"
+            "      - comm: [dockerd]\n"
+            "    action: alert_and_log\n"
+        )
+        monkeypatch.setattr(common, "RULES_PATH", rules_file)
+        monkeypatch.setattr(common, "RULES_AUDIT_LOG", audit_file)
+
+        ok = common.append_rule_to_yaml({
+            "name": "new_rule",
+            "severity": "LOW",
+            "condition": {"event_type": "execve", "comm": "curl"},
+            "action": "alert_and_log",
+        }, source="manual")
+        assert ok
+        # 整文件必须可解析, 新旧规则共存
+        data = yaml.safe_load(rules_file.read_text())
+        assert validate_rules(data["rules"]) == []
+        names = [r["name"] for r in data["rules"]]
+        assert names == ["existing_one", "existing_two", "new_rule"]
+        # 原规则字段不被破坏
+        assert data["rules"][0]["severity"] == "CRITICAL"
+        assert audit_file.exists()
+
