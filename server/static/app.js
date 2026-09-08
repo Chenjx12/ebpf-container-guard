@@ -287,12 +287,22 @@ const AlertsPage = {
 const ReviewPage = {
   template: `
   <div>
-    <div class="page-title">人工确认队列 <span class="sub">按容器分组 · 点击展开详情 · 判决联动 main.py</span></div>
+    <!-- v0.6.4 批量工具栏 -->
+    <div class="panel" style="display:flex;align-items:center;gap:12px;padding:10px 18px;margin-bottom:14px">
+      <el-checkbox :model-value="allSelected" @change="toggleSelectAll">全选</el-checkbox>
+      <span style="font-size:13px;color:var(--muted)">已选 <b style="color:var(--accent)">{{ selectedIds.length }}</b> 组</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <el-button type="danger" size="small" :disabled="!selectedIds.length" @click="batchDecide('confirmed')">批量确认攻击</el-button>
+        <el-button type="warning" size="small" :disabled="!selectedIds.length" @click="openBatchIgnore">批量忽略</el-button>
+      </div>
+    </div>
+
     <div v-if="groups.length === 0" class="panel" style="color:var(--muted)">暂无待判决事件 🎉</div>
     <el-collapse v-model="openNames" style="margin-bottom:18px" @change="onExpand">
       <el-collapse-item v-for="g in groups" :key="g.container_id" :name="g.container_id">
         <template #title>
           <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
+            <el-checkbox :model-value="isSelected(g.container_id)" @click.stop="toggleSelect(g, $event)" />
             <span class="mono" style="font-weight:600">{{ g.container_id }}</span>
             <el-tag size="small" :type="g.event_count > 10 ? 'danger' : 'warning'">{{ g.event_count }} 事件</el-tag>
             <el-tag v-if="g.profile" size="small" type="info" style="max-width:300px;overflow:hidden;text-overflow:ellipsis">
@@ -302,8 +312,8 @@ const ReviewPage = {
             <span style="font-size:12px;color:var(--muted)">点击展开明细</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px;margin-right:12px">
-            <el-button type="danger" size="small" @click.stop="decide(g, 'confirmed')">确认攻击</el-button>
-            <el-button type="success" size="small" @click.stop="decide(g, 'dismissed')">驳回</el-button>
+            <el-button type="danger" size="small" @click.stop="openConfirm(g)">确认攻击</el-button>
+            <el-button type="warning" size="small" @click.stop="openIgnore(g)">忽略</el-button>
           </div>
         </template>
         <div style="padding:0 4px">
@@ -337,10 +347,86 @@ const ReviewPage = {
         </div>
       </el-collapse-item>
     </el-collapse>
+
+    <!-- 确认攻击二次弹窗 -->
+    <el-dialog v-model="confirmDlg.show" :title="confirmDlg.title" width="520px">
+      <div v-if="confirmDlg.g" style="line-height:1.9">
+        <p style="margin-bottom:10px">该容器命中 <b>{{ confirmDlg.g.event_count }}</b> 条攻击事件，确认后将</p>
+        <p style="margin-bottom:8px">
+          <el-tag type="danger" size="small" style="margin-right:6px" v-for="(r,c) in confirmDlg.rules" :key="c">{{ r }}</el-tag>
+        </p>
+        <p style="color:var(--muted);font-size:13px">确认攻击 → 触发响应（冻结/网络阻断）。此操作不可逆（可后续驳回解除）。</p>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="confirmDlg.show=false">取消</el-button>
+        <el-button type="danger" size="small" @click="doConfirm">确认攻击并触发响应</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 忽略弹窗 -->
+    <el-dialog v-model="ignoreDlg.show" :title="ignoreDlg.title" width="600px">
+      <div v-if="ignoreDlg.ids.length">
+        <p style="margin-bottom:12px;color:var(--muted)">已选 <b style="color:var(--accent)">{{ ignoreDlg.ids.length }}</b> 组（{{ ignoreDlg.events }} 条事件）</p>
+
+        <!-- 原因类别 -->
+        <el-form label-width="120px" label-position="right">
+          <el-form-item label="原因类别">
+            <el-radio-group v-model="ignoreDlg.decision">
+              <el-radio label="dismissed">误报 / 驳回</el-radio>
+              <el-radio label="ignored">放行 / 其他原因（测试、业务需要）</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item :label="ignoreDlg.decision === 'dismissed' ? '为什么是误报' : '放行理由'">
+            <el-input v-model="ignoreDlg.reason" type="textarea" :rows="2"
+                      placeholder="必填 — 留痕供 AI 基线学习与审计" />
+          </el-form-item>
+          <el-form-item label="加入白名单">
+            <el-switch v-model="ignoreDlg.whitelist" />
+            <span style="font-size:12px;color:var(--muted);margin-left:8px">
+              {{ ignoreDlg.whitelist ? '有效期内抑制同类告警（可管理/续期）' : '关闭：仅本次放行' }}</span>
+          </el-form-item>
+          <template v-if="ignoreDlg.whitelist">
+            <el-form-item label="白名单粒度">
+              <el-radio-group v-model="ignoreDlg.wlKind">
+                <el-radio label="comm">按进程 comm</el-radio>
+                <el-radio label="container">按容器</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="匹配值">
+              <el-input v-model="ignoreDlg.wlMatch" placeholder="如 coredns / 容器 ID" style="width:260px" />
+            </el-form-item>
+            <el-form-item label="有效时限">
+              <el-radio-group v-model="ignoreDlg.wlDuration">
+                <el-radio label="1h">1 小时</el-radio>
+                <el-radio label="24h">24 小时</el-radio>
+                <el-radio label="7d">7 天</el-radio>
+                <el-radio label="永久">永久</el-radio>
+                <el-radio label="custom">自定义</el-radio>
+              </el-radio-group>
+              <el-date-picker v-if="ignoreDlg.wlDuration === 'custom'" v-model="ignoreDlg.wlUntil"
+                type="datetime" placeholder="选择过期时间" value-format="YYYY-MM-DDTHH:mm:ss"
+                style="margin-top:8px" />
+            </el-form-item>
+          </template>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="ignoreDlg.show=false">取消</el-button>
+        <el-button type="warning" size="small" :disabled="!ignoreDlg.reason" @click="doIgnore">确认忽略</el-button>
+      </template>
+    </el-dialog>
   </div>`,
   setup() {
     const groups = ref([]);
     const openNames = ref([]);  // 默认全部收起, 点击展开
+    const selectedIds = ref([]);  // v0.6.4 批量多选
+    const confirmDlg = reactive({ show: false, g: null, title: '', rules: [] });
+    const ignoreDlg = reactive({
+      show: false, ids: [], events: 0, decision: 'dismissed',
+      reason: '', whitelist: false, wlKind: 'comm', wlMatch: '',
+      wlDuration: '24h', wlUntil: '',
+    });
+
     async function load() {
       try {
         const raw = (await get('/api/review/queue')).groups || [];
@@ -362,15 +448,133 @@ const ReviewPage = {
         }
       }
     }
-    async function decide(g, decision) {
+
+    // ---- 批量多选 ----
+    function isSelected(cid) { return selectedIds.value.includes(cid); }
+    function toggleSelect(g, ev) {
+      ev && ev.stopPropagation && ev.stopPropagation();
+      const i = selectedIds.value.indexOf(g.container_id);
+      if (i >= 0) selectedIds.value.splice(i, 1);
+      else selectedIds.value.push(g.container_id);
+    }
+    const allSelected = computed(() =>
+      groups.value.length > 0 &&
+      selectedIds.value.length === groups.value.length);
+    function toggleSelectAll(v) {
+      selectedIds.value = v ? groups.value.map(g => g.container_id) : [];
+    }
+
+    // ---- 确认攻击二次弹窗 ----
+    function openConfirm(g) {
+      const ruleCount = {};
+      for (const ev of g.events || []) ruleCount[ev.rule] = (ruleCount[ev.rule] || 0) + 1;
+      confirmDlg.rules = Object.entries(ruleCount).slice(0, 4)
+        .map(([k, v]) => `${k} ×${v}`);
+      confirmDlg.g = g;
+      confirmDlg.title = `确认攻击 · ${g.container_id}`;
+      confirmDlg.show = true;
+    }
+    async function doConfirm() {
+      const g = confirmDlg.g;
       try {
-        await post('/api/review/decision', { container_id: g.container_id, decision, event_count: g.event_count });
-        ElMessage.success(decision === 'confirmed' ? '已确认攻击 → 冻结执行中' : '已驳回 → 解冻执行中');
+        await post('/api/review/decision', { container_id: g.container_id, decision: 'confirmed', event_count: g.event_count });
+        ElMessage.success('已确认攻击 → 冻结执行中');
+        dropSelected(g.container_id);
+        confirmDlg.show = false;
         load();
       } catch (e) { ElMessage.error(e.message); }
     }
+
+    // ---- 忽略弹窗 ----
+    function openIgnore(g) {
+      ignoreDlg.ids = [g.container_id];
+      ignoreDlg.events = g.event_count;
+      ignoreDlg.decision = 'dismissed';
+      ignoreDlg.reason = '';
+      ignoreDlg.whitelist = false;
+      ignoreDlg.wlKind = 'comm';
+      ignoreDlg.wlMatch = (g.events || [])[0]?.event?.comm || '';
+      ignoreDlg.wlDuration = '24h';
+      ignoreDlg.wlUntil = '';
+      ignoreDlg.title = `忽略 · ${g.container_id}`;
+      ignoreDlg.show = true;
+    }
+    function openBatchIgnore() {
+      const sel = groups.value.filter(g => selectedIds.value.includes(g.container_id));
+      ignoreDlg.ids = sel.map(g => g.container_id);
+      ignoreDlg.events = sel.reduce((n, g) => n + g.event_count, 0);
+      ignoreDlg.decision = 'dismissed';
+      ignoreDlg.reason = '';
+      ignoreDlg.whitelist = false;
+      ignoreDlg.wlKind = 'comm';
+      ignoreDlg.wlMatch = '';
+      ignoreDlg.wlDuration = '24h';
+      ignoreDlg.wlUntil = '';
+      ignoreDlg.title = `忽略 · 批量 ${sel.length} 组`;
+      ignoreDlg.show = true;
+    }
+    function _calcUntil(dur, custom) {
+      if (dur === '永久') return null;              // 不设时效 → 一直有效
+      if (dur === 'custom') return custom || null;
+      const mins = { '1h': 60, '24h': 1440, '7d': 10080 }[dur];
+      const d = new Date(Date.now() + mins * 60000);
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    }
+    async function doIgnore() {
+      const reason = ignoreDlg.reason.trim();
+      if (!reason) return;
+      const decision = ignoreDlg.decision;
+      try {
+        for (const cid of ignoreDlg.ids) {
+          await post('/api/review/decision', {
+            container_id: cid, decision, event_count: 1,
+            note: reason, mode: ignoreDlg.whitelist ? 'whitelist' : 'manual',
+          });
+        }
+        // 白名单写入（可含时限）
+        if (ignoreDlg.whitelist && ignoreDlg.wlMatch) {
+          const until = _calcUntil(ignoreDlg.wlDuration, ignoreDlg.wlUntil);
+          await post('/api/whitelist', {
+            kind: ignoreDlg.wlKind, match: ignoreDlg.wlMatch,
+            valid_until: until || '', note: reason,
+          });
+          ElMessage.success(until ? `已加入白名单（至 ${until}）` : '已加入永久白名单');
+        }
+        const msg = decision === 'dismissed' ? '已驳回（误报）' : '已放行（ignored）';
+        ElMessage.success(msg + (ignoreDlg.whitelist ? ' · 已加白名单' : ''));
+        dropSelected(ignoreDlg.ids);
+        ignoreDlg.show = false;
+        load();
+      } catch (e) { ElMessage.error(e.message); }
+    }
+    function dropSelected(ids) {
+      const arr = Array.isArray(ids) ? ids : [ids];
+      selectedIds.value = selectedIds.value.filter(i => !arr.includes(i));
+    }
+
+    // ---- 批量统一判决 ----
+    async function batchDecide(decision) {
+      for (const cid of [...selectedIds.value]) {
+        const g = groups.value.find(g => g.container_id === cid);
+        if (!g) continue;
+        try {
+          await post('/api/review/decision', { container_id: cid, decision, event_count: g.event_count });
+        } catch (e) {}
+      }
+      const label = decision === 'confirmed' ? '已批量确认攻击' : '已批量处理';
+      ElMessage.success(label + `（${selectedIds.value.length} 组）`);
+      selectedIds.value = [];
+      load();
+    }
+
     usePolling(load, 3000);
-    return { groups, decide, fmtTime, openNames, onExpand };
+    return {
+      groups, decide: doConfirm, fmtTime, openNames, onExpand,
+      selectedIds, allSelected, toggleSelect, toggleSelectAll, isSelected,
+      confirmDlg, openConfirm, doConfirm,
+      ignoreDlg, openIgnore, openBatchIgnore, doIgnore, batchDecide,
+    };
   },
 };
 
@@ -504,6 +708,7 @@ const AssetsPage = {
          列设计: 类型列区分来源; k8s 专属列 (Pod IP/服务/Labels) 在 docker 行留空,
          避免为两种运行时各维护一份模板。 -->
     <div class="panel">
+
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <h3 style="margin:0">📦 资产清单</h3>
         <el-tag size="small" type="info">{{ unifiedAssets.length }} 项</el-tag>
@@ -1500,8 +1705,8 @@ const AttackChainPage = {
         </h3>
         <div ref="chainRef" style="width:100%;height:300px"></div>
         <div style="margin-top:10px;font-size:12px;color:var(--muted)">
-          <el-tag v-for="(c, i) in phaseColors" :key="i" size="small" style="margin-right:8px"
-                  :color="c.color" effect="plain">{{ c.name }}</el-tag>
+          <el-tag v-for="(c, i) in phaseColors" :key="i" size="small" style="margin-right:8px;color:#fff"
+                  :color="c.color" effect="dark">{{ c.name }}</el-tag>
         </div>
       </div>
       <div class="panel">
@@ -1640,10 +1845,10 @@ const AttackChainPage = {
 const RulesPage = {
   template: `
   <div>
-    <div class="page-title">检测规则 <span class="sub">rules.yaml · guard 3s 热加载</span></div>
+    <div class="page-title">检测规则 <span class="sub">rules.yaml · guard 3s 热加载 · 可增改删</span></div>
     <div class="panel" style="display:flex;justify-content:space-between;align-items:center">
       <span style="color:var(--muted)">共 {{ rules.length }} 条规则</span>
-      <el-button type="primary" size="small" @click="showAdd = true">添加规则</el-button>
+      <el-button type="primary" size="small" @click="openAddRule">添加规则</el-button>
     </div>
     <div class="panel">
       <el-table :data="rules" size="small" stripe>
@@ -1665,72 +1870,240 @@ const RulesPage = {
           <span class="mono">{{ row.added_by }}</span></template></el-table-column>
         <el-table-column label="入库时间" width="160"><template #default="{row}">
           <span style="color:var(--muted)">{{ row.added_at }}</span></template></el-table-column>
-        <el-table-column label="动作" width="110"><template #default="{row}">
-          <span class="mono">{{ row.action }}</span></template></el-table-column>
+        <!-- v0.6.4: 规则编辑/删除 -->
+        <el-table-column label="操作" width="150" fixed="right"><template #default="{row}">
+          <el-button size="small" link type="primary" @click="openEditRule(row)">编辑</el-button>
+          <el-button size="small" link type="danger" @click="removeRule(row)">删除</el-button>
+        </template></el-table-column>
       </el-table>
     </div>
 
-    <el-dialog v-model="showAdd" title="添加规则 (条件表单)" width="640px">
+    <!-- 规则 编辑/添加 弹窗 -->
+    <el-dialog v-model="ruleDlg.show" :title="ruleDlg.title" width="640px">
       <el-form label-width="90px" size="small">
-        <el-form-item label="名称"><el-input v-model="newRule.name" placeholder="suspicious_xxx" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="ruleDlg.name" placeholder="suspicious_xxx" /></el-form-item>
         <el-form-item label="严重度">
-          <el-select v-model="newRule.severity" style="width:160px">
+          <el-select v-model="ruleDlg.severity" style="width:160px">
             <el-option v-for="s in ['CRITICAL','HIGH','MEDIUM','LOW']" :key="s" :label="s" :value="s" /></el-select>
         </el-form-item>
         <el-form-item label="事件类型">
-          <el-select v-model="newRule.event_type" style="width:160px">
+          <el-select v-model="ruleDlg.event_type" style="width:160px">
             <el-option v-for="t in ['execve','openat','connect','mount','ptrace','capset']" :key="t" :label="t" :value="t" /></el-select>
         </el-form-item>
-        <el-form-item label="攻击向量"><el-input v-model="newRule.attack_vector" placeholder="custom_vector" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="newRule.description" /></el-form-item>
+        <el-form-item label="攻击向量"><el-input v-model="ruleDlg.attack_vector" placeholder="custom_vector" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="ruleDlg.description" /></el-form-item>
         <el-form-item label="条件 (AND)">
-          <div v-for="(row, i) in condRows" :key="i" style="display:flex;gap:8px;margin-bottom:8px;width:100%">
+          <div v-for="(row, ci) in ruleDlg.condRows" :key="ci" style="display:flex;gap:8px;margin-bottom:8px;width:100%">
             <el-input v-model="row.field" placeholder="字段 (comm/target_path/uid...)" style="width:200px" />
             <el-select v-model="row.op" style="width:110px">
               <el-option v-for="op in ['==','neq','startswith','endswith','contains','glob']" :key="op" :label="op" :value="op" /></el-select>
             <el-input v-model="row.value" placeholder="值 (逗号=OR)" style="flex:1" />
-            <el-button circle size="small" @click="condRows.splice(i,1)">✕</el-button>
+            <el-button circle size="small" @click="ruleDlg.condRows.splice(ci,1)">✕</el-button>
           </div>
-          <el-button size="small" @click="condRows.push({field:'',op:'==',value:''})">+ 条件行</el-button>
+          <el-button size="small" @click="ruleDlg.condRows.push({field:'',op:'==',value:''})">+ 条件行</el-button>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button size="small" @click="showAdd = false">取消</el-button>
-        <el-button type="primary" size="small" :loading="saving" @click="submitRule">提交 (热加载 3s 生效)</el-button>
+        <el-button size="small" @click="ruleDlg.show=false">取消</el-button>
+        <el-button type="primary" size="small" :loading="saving" @click="submitRule">保存 (热加载 3s 生效)</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- v0.6.4: 临时放行白名单 (whitelist.yaml 独立管理, 带 valid_until 时效) -->
+    <div style="margin-top:18px">
+      <div class="page-title" style="margin-bottom:6px">🕊️ 临时放行白名单 <span class="sub">有效期内抑制告警 · 到期自动失效 · 与规则同审计</span></div>
+      <div class="panel" style="display:flex;justify-content:space-between;align-items:center">
+        <span style="color:var(--muted)">共 {{ wl.length }} 条（含已到期）</span>
+        <el-button type="warning" size="small" @click="openAddWhitelist">+ 新增放行</el-button>
+      </div>
+      <div class="panel">
+        <el-table :data="wl" size="small" stripe>
+          <el-table-column label="粒度" width="90"><template #default="{row}">
+            <el-tag size="small" :type="row.kind === 'comm' ? 'primary' : 'success'">{{ row.kind === 'comm' ? 'comm' : '容器' }}</el-tag></template></el-table-column>
+          <el-table-column label="匹配值" min-width="140"><template #default="{row}"><span class="mono">{{ row.match }}</span></template></el-table-column>
+          <el-table-column label="有效至" min-width="160"><template #default="{row}">
+            <span v-if="row.valid_until">{{ row.valid_until }}</span>
+            <el-tag v-else size="small" type="warning">永久</el-tag></template></el-table-column>
+          <el-table-column label="状态" width="90"><template #default="{row}">
+            <el-tag v-if="row.active" size="small" type="success">生效中</el-tag>
+            <el-tag v-else size="small" type="info">已到期</el-tag></template></el-table-column>
+          <el-table-column label="理由" min-width="200"><template #default="{row}">
+            <span style="font-size:12px;color:var(--muted)">{{ row.note }}</span></template></el-table-column>
+          <el-table-column label="操作" width="140"><template #default="{row}">
+            <el-button size="small" link type="warning" @click="extendWhitelist(row)">续期</el-button>
+            <el-button size="small" link type="danger" @click="removeWhitelist(row)">删除</el-button>
+          </template></el-table-column>
+        </el-table>
+      </div>
+    </div>
+
+    <!-- 白名单 新增/续期 弹窗 -->
+    <el-dialog v-model="wlDlg.show" :title="wlDlg.title" width="560px">
+      <el-form label-width="100px" size="small">
+        <el-form-item label="粒度">
+          <el-radio-group v-model="wlDlg.kind">
+            <el-radio label="comm">按进程 comm</el-radio>
+            <el-radio label="container">按容器</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="匹配值"><el-input v-model="wlDlg.match" placeholder="如 coredns / 容器 ID" /></el-form-item>
+        <el-form-item label="有效时限">
+          <el-radio-group v-model="wlDlg.duration">
+            <el-radio label="1h">1 小时</el-radio>
+            <el-radio label="24h">24 小时</el-radio>
+            <el-radio label="7d">7 天</el-radio>
+            <el-radio label="permanent">永久</el-radio>
+            <el-radio label="custom">自定义</el-radio>
+          </el-radio-group>
+          <el-date-picker v-if="wlDlg.duration === 'custom'" v-model="wlDlg.until"
+            type="datetime" placeholder="选择过期时间" value-format="YYYY-MM-DDTHH:mm:ss"
+            style="margin-top:8px" />
+        </el-form-item>
+        <el-form-item label="理由"><el-input v-model="wlDlg.note" type="textarea" :rows="2" placeholder="必填 — 审计/基线学习" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="wlDlg.show=false">取消</el-button>
+        <el-button type="warning" size="small" :disabled="!wlDlg.note" @click="submitWhitelist">保存</el-button>
       </template>
     </el-dialog>
   </div>`,
   setup() {
     const rules = ref([]);
-    const showAdd = ref(false);
+    const wl = ref([]);  // v0.6.4 白名单
     const saving = ref(false);
-    const newRule = reactive({ name: '', severity: 'HIGH', event_type: 'execve', attack_vector: '', description: '' });
-    const condRows = ref([{ field: '', op: '==', value: '' }]);
-    async function load() {
+    const ruleDlg = reactive({ show: false, title: '', mode: 'add', origName: '', name: '',
+      severity: 'HIGH', event_type: 'execve', attack_vector: '', description: '',
+      condRows: [{ field: '', op: '==', value: '' }] });
+    const wlDlg = reactive({ show: false, title: '', editId: null, kind: 'comm', match: '',
+      duration: '24h', until: '', note: '' });
+
+    async function loadRules() {
       try { rules.value = (await get('/api/rules')).rules; } catch (e) {}
     }
+    async function loadWhitelist() {
+      try { wl.value = (await get('/api/whitelist')).whitelist || []; } catch (e) {}
+    }
+    function load() { loadRules(); loadWhitelist(); }
+
+    // ---- 规则编辑/添加 ----
+    function openAddRule() {
+      ruleDlg.mode = 'add'; ruleDlg.origName = ''; ruleDlg.title = '添加规则 (条件表单)';
+      ruleDlg.name = ''; ruleDlg.severity = 'HIGH'; ruleDlg.event_type = 'execve';
+      ruleDlg.attack_vector = ''; ruleDlg.description = '';
+      ruleDlg.condRows = [{ field: '', op: '==', value: '' }];
+      ruleDlg.show = true;
+    }
+    function openEditRule(r) {
+      ruleDlg.mode = 'edit'; ruleDlg.origName = r.name; ruleDlg.title = '编辑规则 · ' + r.name;
+      ruleDlg.name = r.name; ruleDlg.severity = r.severity || 'HIGH';
+      ruleDlg.event_type = r.event_type || 'execve';
+      ruleDlg.attack_vector = r.attack_vector || '';
+      ruleDlg.description = r.description || '';
+      // 简单条件 → 条件行 (仅展平第一层 AND)
+      const cond = r.condition || {};
+      let rows = [];
+      if (Array.isArray(cond.all)) {
+        rows = cond.all.map(n => {
+          if (n && typeof n === 'object') {
+            const [k, v] = Object.entries(n)[0] || [];
+            if (v && typeof v === 'object') { const [op, vv] = Object.entries(v)[0] || []; return { field: k, op: op || '==', value: Array.isArray(vv) ? vv.join(',') : String(vv) }; }
+            return { field: k, op: '==', value: Array.isArray(v) ? v.join(',') : String(v || '') };
+          }
+          return { field: '', op: '==', value: '' };
+        }).filter(x => x.field);
+      }
+      ruleDlg.condRows = rows.length ? rows : [{ field: '', op: '==', value: '' }];
+      ruleDlg.show = true;
+    }
     async function submitRule() {
-      if (!newRule.name || !newRule.event_type) { ElMessage.warning('名称和事件类型必填'); return; }
+      if (!ruleDlg.name || !ruleDlg.event_type) { ElMessage.warning('名称和事件类型必填'); return; }
       const condition = { all: [] };
-      condRows.value.forEach(r => {
+      ruleDlg.condRows.forEach(r => {
         if (!r.field || !r.value) return;
         const v = r.value.includes(',') ? r.value.split(',').map(s => s.trim()) : r.value.trim();
         condition.all.push(r.op === '==' ? { [r.field]: v } : { [r.field]: { [r.op]: v } });
       });
       if (condition.all.length === 0) { ElMessage.warning('至少一个条件行'); return; }
+      const payload = { rule: { name: ruleDlg.name, severity: ruleDlg.severity,
+        event_type: ruleDlg.event_type, attack_vector: ruleDlg.attack_vector,
+        description: ruleDlg.description, condition }, source: 'manual' };
       saving.value = true;
       try {
-        await post('/api/rules', { rule: { ...newRule, condition }, source: 'manual' });
-        ElMessage.success('规则已添加 (3s 内热加载)');
-        showAdd.value = false;
-        newRule.name = ''; newRule.attack_vector = ''; newRule.description = '';
-        condRows.value = [{ field: '', op: '==', value: '' }];
-        load();
-      } catch (e) { ElMessage.error(e.message); }
+        if (ruleDlg.mode === 'edit') {
+          await fetch('/api/rules/' + encodeURIComponent(ruleDlg.origName),
+            { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload), credentials: 'same-origin' })
+            .then(r => { if (!r.ok) throw new Error('规则更新失败'); });
+          ElMessage.success('规则已更新 (3s 内热加载)');
+        } else {
+          await post('/api/rules', payload);
+          ElMessage.success('规则已添加 (3s 内热加载)');
+        }
+        ruleDlg.show = false; loadRules();
+      } catch (e) { ElMessage.error(e.message || '操作失败'); }
       saving.value = false;
     }
+    async function removeRule(r) {
+      try {
+        await ElMessageBox.confirm(`确认删除规则「${r.name}」？`, '删除规则', { type: 'warning' });
+      } catch (e) { return; }
+      try {
+        await fetch('/api/rules/' + encodeURIComponent(r.name),
+          { method: 'DELETE', credentials: 'same-origin' })
+          .then(rr => { if (!rr.ok) throw new Error('规则删除失败'); });
+        ElMessage.success('规则已删除 (3s 内热加载)');
+        loadRules();
+      } catch (e) { ElMessage.error(e.message || '删除失败'); }
+    }
+
+    // ---- 白名单 ----
+    function openAddWhitelist() {
+      wlDlg.editId = null; wlDlg.title = '新增临时放行';
+      wlDlg.kind = 'comm'; wlDlg.match = ''; wlDlg.duration = '24h';
+      wlDlg.until = ''; wlDlg.note = '';
+      wlDlg.show = true;
+    }
+    function extendWhitelist(r) {
+      wlDlg.editId = r.id; wlDlg.title = '续期白名单 · ' + r.match;
+      wlDlg.kind = r.kind; wlDlg.match = r.match; wlDlg.duration = '24h';
+      wlDlg.until = ''; wlDlg.note = (r.note || '') + '（续期）';
+      wlDlg.show = true;
+    }
+    function _calcUntil(dur, custom) {
+      if (dur === 'permanent') return '';
+      if (dur === 'custom') return custom || '';
+      const mins = { '1h': 60, '24h': 1440, '7d': 10080 }[dur] || 1440;
+      const d = new Date(Date.now() + mins * 60000);
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    }
+    async function submitWhitelist() {
+      if (!wlDlg.match || !wlDlg.note) { ElMessage.warning('匹配值和理由必填'); return; }
+      const valid_until = _calcUntil(wlDlg.duration, wlDlg.until);
+      try {
+        if (wlDlg.editId) {
+          // 续期 = 删除旧 + 新建 (保持审计清晰)
+          await fetch('/api/whitelist/' + wlDlg.editId, { method: 'DELETE', credentials: 'same-origin' });
+        }
+        await post('/api/whitelist', { kind: wlDlg.kind, match: wlDlg.match,
+          valid_until, note: wlDlg.note });
+        ElMessage.success(valid_until ? `已加入白名单（至 ${valid_until}）` : '已加入永久白名单');
+        wlDlg.show = false; loadWhitelist();
+      } catch (e) { ElMessage.error(e.message || '白名单写入失败'); }
+    }
+    async function removeWhitelist(r) {
+      try { await ElMessageBox.confirm(`删除白名单「${r.kind} = ${r.match}」？将立即恢复告警。`, '删除白名单', { type: 'warning' }); }
+      catch (e) { return; }
+      try {
+        await fetch('/api/whitelist/' + r.id, { method: 'DELETE', credentials: 'same-origin' });
+        ElMessage.success('白名单已删除，恢复告警'); loadWhitelist();
+      } catch (e) { ElMessage.error(e.message || '删除失败'); }
+    }
+
     usePolling(load, 3000);
-    return { rules, showAdd, saving, newRule, condRows, submitRule, sevTag };
+    return { rules, wl, saving, ruleDlg, wlDlg, sevTag,
+      openAddRule, openEditRule, submitRule, removeRule,
+      openAddWhitelist, extendWhitelist, submitWhitelist, removeWhitelist };
   },
 };
 

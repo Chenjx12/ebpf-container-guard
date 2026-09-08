@@ -91,6 +91,21 @@ def overview_stats(user: dict = read_any):
     total = len(events)
     pending = int((events.get('state') == 'pending_review').sum()) \
         if total and 'state' in events.columns else 0
+    # v0.6.4: 白名单命中的 pending 不计入 (与队列口径一致)
+    wl = common.whitelist_list(active_only=True)
+    if wl and pending > 0 and 'event' in events.columns:
+        pend_rows = events[events['state'] == 'pending_review'].to_dict('records')
+        wl_hit = 0
+        for r in pend_rows:
+            ev = r.get('event') or {}
+            comm = ev.get('comm') if isinstance(ev, dict) else None
+            cid_v = str(r.get('container_id', ''))
+            for it in wl:
+                if it.get('kind') == 'comm' and comm == it.get('match'):
+                    wl_hit += 1; break
+                if it.get('kind') == 'container' and cid_v == it.get('match'):
+                    wl_hit += 1; break
+        pending = max(0, pending - wl_hit)
     frozen = int(events.get('state').eq('frozen').sum()) \
         if total and 'state' in events.columns else 0
     netblocked = int(events.get('netblocked').fillna(False).astype(bool).sum()) \
@@ -258,6 +273,23 @@ def review_queue(user: dict = read_any):
         decided_cids = set(decisions['container_id'].dropna().astype(str))
     if decided_cids:
         pend = pend[~pend['container_id'].astype(str).isin(decided_cids)]
+    # v0.6.4: 白名单过滤 — 命中有效白名单 (comm/容器) 的事件不进队列
+    # (告警已按用户意图放行; 面板层过滤立即生效, guard 检出层抑制留后续迭代)
+    wl = common.whitelist_list(active_only=True)
+    if wl and not pend.empty:
+        def _wl_hit(ev, cid_v):
+            if not isinstance(ev, dict):
+                return False
+            comm = ev.get('comm')
+            for it in wl:
+                if it.get('kind') == 'comm' and comm == it.get('match'):
+                    return True
+                if it.get('kind') == 'container' and cid_v == it.get('match'):
+                    return True
+            return False
+        pend_records = pend.to_dict('records')
+        pend = pend[[not _wl_hit((r.get('event') or {}), str(r.get('container_id', '')))
+                    for r in pend_records]] if pend_records else pend
     groups = []
     for cid, grp in pend.groupby('container_id'):
         items = []
@@ -287,14 +319,69 @@ def review_profile(container_id: str, user: dict = read_any):
 
 @router.post("/review/decision")
 def review_decision(body: dict, user: dict = write_op):
+    """人工判决 (v0.6.4): 三态 confirmed/dismissed/ignored + note 理由留痕。
+
+    - confirmed: 认可真实攻击 → 触发响应 (DecisionExecutor 消费)
+    - dismissed: 误报/非攻击 → 供 AI 基线学习(该行为正常)
+    - ignored:   确认是攻击但业务放行 → 供 AI 基线学习(已知风险豁免)
+    note 必填理由; mode 由前端标注 manual|whitelist。
+    """
     cid = body.get("container_id") or ""
     decision = body.get("decision") or ""
-    if decision not in ('confirmed', 'dismissed'):
-        raise HTTPException(status_code=400, detail="decision 必须是 confirmed/dismissed")
-    ok, err = common.record_decision(cid, decision,
-                                     int(body.get("event_count", 1)))
+    if decision not in ('confirmed', 'dismissed', 'ignored'):
+        raise HTTPException(status_code=400,
+                            detail="decision 必须是 confirmed/dismissed/ignored")
+    if decision in ('dismissed', 'ignored') and not (body.get("note") or "").strip():
+        raise HTTPException(status_code=400, detail="忽略/驳回必须填写理由")
+    ok, err = common.record_decision(
+        cid, decision, int(body.get("event_count", 1)),
+        note=(body.get("note") or "").strip(),
+        mode=(body.get("mode") or "manual"))
     if not ok:
         raise HTTPException(status_code=500, detail=err)
+    return {"ok": True}
+
+
+# ================================================================
+# Whitelist — v0.6.4 临时放行白名单 (检测规则页子区, 带 valid_until 时效)
+# ================================================================
+
+@router.get("/whitelist")
+def whitelist_list(user: dict = read_any):
+    """列出白名单条目 (含已到期, 供规则页清理/续期)。@ active 当前状态。"""
+    return {"whitelist": common.whitelist_list(active_only=False)}
+
+
+@router.post("/whitelist")
+def whitelist_add(body: dict, user: dict = write_op):
+    """新增临时放行白名单条目。
+
+    body: {kind: 'comm'|'container', match, valid_until (ISO 到期),
+           note (理由)}. 到期后 guard 检出层自动恢复告警。
+    """
+    kind = (body.get("kind") or "").strip()
+    match = (body.get("match") or "").strip()
+    valid_until = (body.get("valid_until") or "").strip()
+    note = (body.get("note") or "").strip()
+    if kind not in ('comm', 'container'):
+        raise HTTPException(status_code=400, detail="kind 必须为 comm/container")
+    if not match:
+        raise HTTPException(status_code=400, detail="match 不能为空")
+    if not note:
+        raise HTTPException(status_code=400, detail="请填写白名单理由")
+    ok, err = common.whitelist_add(kind, match, valid_until, note,
+                                   user.get("username", ""))
+    if not ok:
+        raise HTTPException(status_code=500, detail=err)
+    return {"ok": True, "id": err if isinstance(err, str) else None}
+
+
+@router.delete("/whitelist/{wid}")
+def whitelist_remove(wid: str, user: dict = write_op):
+    """删除一条白名单 (立即恢复对该 matcher 的告警)。"""
+    ok, err = common.whitelist_remove(wid, user.get("username", ""))
+    if not ok:
+        raise HTTPException(status_code=404, detail=err or "白名单条目不存在")
     return {"ok": True}
 
 
@@ -724,6 +811,31 @@ def add_rule(body: dict, user: dict = write_op):
     ok, err = common.append_rule_to_yaml(rule, source, user['username'])
     if not ok:
         raise HTTPException(status_code=400, detail=err)
+    return {"ok": True}
+
+
+@router.put("/rules/{rule_name}")
+def update_rule(rule_name: str, body: dict, user: dict = write_op):
+    """v0.6.4: 修改已有规则 (按名)。body: {rule: new_rule, source}。
+    重写 rules.yaml (保序), 热重载 3s 生效, 审计 rules_audit.log。
+    """
+    new_rule = body.get("rule")
+    if not new_rule:
+        raise HTTPException(status_code=400, detail="缺少 rule")
+    ok, err = common.update_rule(rule_name, new_rule,
+                                 body.get("source", "manual"),
+                                 user['username'])
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+    return {"ok": True}
+
+
+@router.delete("/rules/{rule_name}")
+def delete_rule(rule_name: str, user: dict = write_op):
+    """v0.6.4: 删除已有规则 (按名)。重写 rules.yaml, 热重载, 审计。"""
+    ok, err = common.remove_rule(rule_name, user['username'])
+    if not ok:
+        raise HTTPException(status_code=404, detail=err or "规则不存在")
     return {"ok": True}
 
 

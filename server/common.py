@@ -131,6 +131,87 @@ def load_rules() -> list:
         return []
 
 
+def update_rule(rule_name: str, new_rule: dict, source: str = "manual",
+                user: str = "") -> tuple:
+    """Replace an existing rule by name (v0.6.4). Rewrites rules.yaml.
+
+    Returns (ok, err_or_None). Audits to rules_audit.log; hot-reload within 3s.
+    Keeps rule list order; reuses append_rule_to_yaml's schema validation.
+    """
+    try:
+        import sys as _sys
+        src_dir = str(SCRIPT_DIR / "src")
+        if src_dir not in _sys.path:
+            _sys.path.insert(0, src_dir)
+        from detector.rule_schema import normalize_ai_rule, validate_rule
+        if source == "ai_suggestion" and 'condition' in new_rule:
+            new_rule['condition'] = _map_falco_fields(new_rule['condition'])
+        norm, err = normalize_ai_rule(new_rule)
+        if err is not None:
+            return False, f"规则 schema 非法: {err}"
+        try:
+            validate_rule(norm)
+        except ValueError as e:
+            return False, f"规则校验失败: {e}"
+        new_rule = norm
+        new_rule['name'] = rule_name  # 保持原名, 避免改名错乱
+
+        import yaml
+        import json as _json
+        import tempfile as _tmp
+        data = yaml.safe_load(open(RULES_PATH).read()) or {}
+        rules = data.get('rules') or []
+        idx = next((i for i, r in enumerate(rules)
+                    if r.get('name') == rule_name), None)
+        if idx is None:
+            return False, f"规则 {rule_name} 不存在"
+        rules[idx] = new_rule
+        data['rules'] = rules
+        out = yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
+                             default_flow_style=False)
+        d = RULES_PATH.parent
+        fd, tmp = _tmp.mkstemp(dir=str(d), suffix='.yaml')
+        import os as _os
+        with _os.fdopen(fd, 'w') as f:
+            f.write(out)
+        _os.replace(tmp, RULES_PATH)
+        log_rule_audit("update_rule", rule_name, source, new_rule, user)
+        _sync_rules_to_configmap()
+        return True, None
+    except Exception as e:
+        return False, f"规则更新失败: {e}"
+
+
+def remove_rule(rule_name: str, user: str = "") -> tuple:
+    """Remove a rule by name (v0.6.4). Rewrites rules.yaml.
+
+    Returns (ok, err_or_None). Audits to rules_audit.log; hot-reload within 3s.
+    """
+    try:
+        import yaml
+        import os as _os
+        import tempfile as _tmp
+        import json as _json
+        data = yaml.safe_load(open(RULES_PATH).read()) or {}
+        rules = data.get('rules') or []
+        removed = [r for r in rules if r.get('name') == rule_name]
+        if not removed:
+            return False, f"规则 {rule_name} 不存在"
+        data['rules'] = [r for r in rules if r.get('name') != rule_name]
+        out = yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
+                             default_flow_style=False)
+        d = RULES_PATH.parent
+        fd, tmp = _tmp.mkstemp(dir=str(d), suffix='.yaml')
+        with _os.fdopen(fd, 'w') as f:
+            f.write(out)
+        _os.replace(tmp, RULES_PATH)
+        log_rule_audit("remove_rule", rule_name, "manual", removed[0], user)
+        _sync_rules_to_configmap()
+        return True, None
+    except Exception as e:
+        return False, f"规则删除失败: {e}"
+
+
 def load_rule_audit() -> pd.DataFrame:
     """Load rules_audit.log (rule change history)."""
     return _read_jsonl(RULES_AUDIT_LOG)
@@ -498,11 +579,13 @@ def save_ai_config(cfg: dict) -> tuple:
 
 
 def record_decision(container_id: str, decision: str, event_count: int = 1,
-                    scope: str = "container"):
+                    scope: str = "container", note: str = "", mode: str = "manual"):
     """Append a verdict to decisions.log (DecisionExecutor polls it every 2s).
 
     v0.5.6: 写失败返回 (ok=False, err) — 面板进程可能无权写 k8s 日志目录
     (root 拥有), 捕获避免 500; 由调用方提示用户。
+    v0.6.4: 新增 note (忽略/放行理由) + mode (manual/whitelist) — 三类判决
+    (confirmed/dismissed/ignored) 供 AI 基线学习区分的留痕字段。
     """
     entry = {
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
@@ -510,6 +593,8 @@ def record_decision(container_id: str, decision: str, event_count: int = 1,
         'decision': decision,
         'scope': scope,
         'event_count': event_count,
+        'mode': mode,
+        'note': note,
     }
     try:
         DECISIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -646,4 +731,122 @@ def ensure_initial_users() -> dict:
     pwd_test = secrets.token_urlsafe(12)
     AUTH.create_user('admin', pwd_admin, 'admin', is_initial=True)
     AUTH.create_user('test', pwd_test, 'analyst', is_initial=True)
+
+
+# ================================================================
+# v0.6.4 (CSAI 基线学习): 临时白名单 — 有效期内抑制告警
+# 白名单是"检测规则页"的可管理子区 (带 valid_until 时效), 审计统一
+# 写 rules_audit.log; 到期由 guard 的 TTL 清理线程自动失效恢复告警。
+# 语义区分 (供 AI/事实面板学习):
+#   dismissed(误报) 与 ignored(放行/已知攻击) 两类白名单分开记录,
+#   各带 note 理由 — 基线学习可区分"该容器此行为正常" vs "已知风险豁免"。
+# ================================================================
+WHITELIST_PATH = LOGS_DIR / "whitelist.yaml"
+
+
+def _wl_load():
+    """whitelist.yaml → list[dict]: {id, kind, match, valid_until, note, created}"""
+    try:
+        if not WHITELIST_PATH.exists():
+            return []
+        import yaml as _y
+        data = _y.safe_load(WHITELIST_PATH.read_text(encoding='utf-8'))
+        items = data.get('whitelist', []) if isinstance(data, dict) else []
+        return [i for i in items if isinstance(i, dict)]
+    except Exception:
+        return []
+
+
+def _wl_save(items):
+    import time as _t
+    import yaml as _y
+    WHITELIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "updated_at": _t.strftime('%Y-%m-%dT%H:%M:%S'),
+        "whitelist": items,
+    }
+    tmp = WHITELIST_PATH.with_suffix('.yaml.tmp')
+    tmp.write_text(_y.safe_dump(payload, allow_unicode=True, sort_keys=False),
+                   encoding='utf-8')
+    tmp.replace(WHITELIST_PATH)
+
+
+def whitelist_add(kind: str, match: str, valid_until: str, note: str,
+                  user: str = "") -> tuple:
+    """Add a temporary white-list entry (suppress alerts for match until valid_until).
+
+    kind: 'comm' | 'container'. valid_until: ISO datetime (到期自动失效).
+    Audits to rules_audit.log (same trail as rule add/remove).
+    Returns (ok, err_or_id).
+    """
+    try:
+        import time as _t
+        import uuid as _u
+        if kind not in ('comm', 'container'):
+            return False, "kind 必须是 comm/container"
+        if not match:
+            return False, "match 不能为空"
+        items = _wl_load()
+        # 同 match 已有有效条目则不重复 (幂等)
+        for it in items:
+            if it.get('kind') == kind and it.get('match') == match:
+                return True, it.get('id')
+        item = {
+            'id': _u.uuid4().hex[:12],
+            'kind': kind,
+            'match': match,
+            'valid_until': valid_until,
+            'note': note,
+            'user': user,
+            'created_at': _t.strftime('%Y-%m-%dT%H:%M:%S'),
+        }
+        items.append(item)
+        _wl_save(items)
+        log_rule_audit("add_whitelist", f"{kind}={match}", "whitelist",
+                       item, user)
+        return True, item['id']
+    except Exception as e:
+        return False, f"白名单写入失败: {e}"
+
+
+def whitelist_list(active_only: bool = True) -> list:
+    """List white-list entries; active_only drops expired ones."""
+    import time as _t
+    now = _t.time()
+    items = _wl_load()
+    out = []
+    for it in items:
+        vu = it.get('valid_until', '')
+        try:
+            exp = _t.mktime(_t.strptime(vu, '%Y-%m-%dT%H:%M:%S'))
+        except Exception:
+            exp = None
+        if (not active_only or exp is None or exp > now):
+            out.append({**it, 'active': (exp is None or exp > now)})
+    return out
+
+
+def whitelist_remove(wid: str, user: str = "") -> tuple:
+    """Remove a white-list entry by id. Audits to rules_audit.log."""
+    items = _wl_load()
+    target = next((i for i in items if i.get('id') == wid), None)
+    if target is None:
+        return False, "白名单条目不存在"
+    items = [i for i in items if i.get('id') != wid]
+    _wl_save(items)
+    log_rule_audit("remove_whitelist",
+                   f"{target.get('kind')}={target.get('match')}",
+                   "whitelist", target, user)
+    return True, None
+
+
+def whitelist_active_until(kind: str, match: str) -> str:
+    """查询某 matcher 当前是否在有效白名单内 → 返回 valid_until 或 ''.
+    guard 检出层调用: 命中有效条目则该事件抑制告警。"""
+    now = __import__('time').time()
+    for it in whitelist_list(active_only=True):
+        if it.get('kind') == kind and it.get('match') == match:
+            return it.get('valid_until', '')
+    return ''
     return {'admin': pwd_admin, 'test': pwd_test}
