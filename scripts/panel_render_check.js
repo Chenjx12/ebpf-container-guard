@@ -251,11 +251,20 @@ if (!jsdom) {
     audit: [], items: [], rows: [], steps: [], profiles: [], members: [],
     tokens: [], services: [], containers: [], nodes: [], groups: [],
   };
+  // v0.6.5.2: 运行时共存 — k8s pod 与 docker 容器**同时**返回 (此前二选一,
+  //   同机同时存在两种运行时时只能看到其中一种)。供共存 + 运行时筛选断言。
+  const FAKE_BOTH = {
+    runtime: 'k8s+docker', runtimes: ['k8s', 'docker'], total: 5, error: '',
+    nodes: FAKE_K8S.nodes, services: [], containers: FAKE_ASSETS.containers,
+  };
   window.fetch = (url) => {
     const u = String(url);
     let body = EMPTY;
     // window.__useK8s 为真时返回 k8s 数据 (供 k8s 侧归一化断言使用)
-    if (u.includes('/api/assets')) body = window.__useK8s ? FAKE_K8S : FAKE_ASSETS;
+    if (u.includes('/api/assets')) {
+      body = window.__useBoth ? FAKE_BOTH
+           : (window.__useK8s ? FAKE_K8S : FAKE_ASSETS);
+    }
     else if (u.includes('/api/auth/me')) {
       body = { username: 'admin', role: 'admin', must_change_password: false };
     }
@@ -526,6 +535,61 @@ if (!jsdom) {
                     : '未找到含 pod 的帧 (实际: '
                       + (window.__topoLog || []).map(d => d.map(n => n && n.name).join('/')).join(' | ') + ')');
             window.__useK8s = false;
+          });
+        })
+        .then(() => {
+          // ---- v0.6.5.2: 运行时共存 + 运行时筛选 ----
+          // 此前 /api/assets 二选一 (k8s 可读就看不到容器)。现在两路合并,
+          // 用假数据同时喂 pod 与容器, 断言同表展示 + 按运行时显隐。
+          const host3 = window.document.createElement('div');
+          window.document.body.appendChild(host3);
+          window.__useBoth = true;
+          try {
+            window.Vue.createApp(probe.panels.pages.assets.comp)
+              .use(window.ElementPlus).mount(host3);
+          } catch (e) { /* 下方断言会报失败 */ }
+          return new Promise((r) => setTimeout(r, 900)).then(() => {
+            const h3 = host3.innerHTML;
+            record('运行时共存: k8s pod 与 docker 容器同表展示',
+              /web-7d9f/.test(h3) && /g-redis/.test(h3));
+            record('运行时计数标注同机共存',
+              /k8s 2/.test(h3) && /Docker 3/.test(h3) && /同机共存/.test(h3));
+            const rsel = [...host3.querySelectorAll('.el-select')]
+              .find(s => {
+                const p = s.querySelector('.el-select__placeholder span');
+                return p && p.textContent === '运行时';
+              });
+            record('运行时筛选下拉存在', !!rsel);
+            if (!rsel) { window.__useBoth = false; return; }
+            // 真实交互: 选「Docker 容器」→ 点应用 → 断言 k8s pod 从清单消失
+            rsel.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+            return new Promise((r) => setTimeout(r, 400)).then(() => {
+              // 注意: 前面几次 mount 也各有一个「运行时」下拉 (teleport 到 body),
+              //   同文案选项会重复 → 必须取**最后一个** (host3 的) 才是当前实例
+              const opts = [...window.document.querySelectorAll('.el-select-dropdown__item')]
+                .filter(x => x.textContent.trim() === 'Docker 容器');
+              const opt = opts[opts.length - 1];
+              record('运行时筛选含 Docker 选项', !!opt);
+              if (opt) {
+                opt.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+              }
+              return new Promise((r) => setTimeout(r, 300)).then(() => {
+                const btn = [...host3.querySelectorAll('button')]
+                  .find(b => /应用筛选/.test(b.textContent));
+                if (btn) {
+                  btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+                }
+                return new Promise((r) => setTimeout(r, 700)).then(() => {
+                  const h3b = host3.innerHTML;
+                  record('运行时筛选生效: 仅 Docker 时隐藏 k8s pod',
+                    /g-redis/.test(h3b) && !/web-7d9f/.test(h3b)
+                    && !/db-0/.test(h3b),
+                    '运行时选中: ' + ((rsel.querySelector('.el-select__selected-item')
+                       || {}).textContent || '无'));
+                  window.__useBoth = false;
+                });
+              });
+            });
           });
         })
         .then(() => { window.close(); summarize(); });

@@ -75,3 +75,6 @@ auth_audit.log
 behaviors.log
 tests/parity/.bcc_v040.c
 # deploy/libbpf/: vendored 运行时 .so（ctypes 加载 + 镜像 COPY）— 随库提交，CI 独立构建必需
+
+# 本地凭据备份 (含密码哈希) — 不入库
+config/users.yaml.bak*

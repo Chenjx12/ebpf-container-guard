@@ -671,6 +671,13 @@ const AssetsPage = {
       </el-select>
       <!-- v0.6.4: 待确认资产聚焦 (docker 容器无 ns/node 维度, 唯一可用筛选) -->
       <el-checkbox v-model="draftFilter.pendingOnly" size="small">仅显示待确认</el-checkbox>
+      <!-- v0.6.5.2: 运行时筛选 — k8s 与 docker 可同机共存, 默认都显示;
+           勾选后只显示对应运行时 (同时作用于拓扑与下方清单) -->
+      <el-select v-model="draftFilter.runtimes" placeholder="运行时" multiple collapse-tags
+                 collapse-tags-tooltip clearable size="small" style="width:170px">
+        <el-option label="k8s Pod" value="k8s" />
+        <el-option label="Docker 容器" value="docker" />
+      </el-select>
       <!-- v0.6.4: 通用维度筛选 — 分级/镜像对 k8s pod 与 docker 容器同时生效。
            资产状态不在此筛选: 待确认已有顶部横幅 + 详情入口直达, 而"已覆盖"
            本就是"已确认 + 人工改级别"的一种, 三者不是并列的筛选维度 -->
@@ -713,9 +720,8 @@ const AssetsPage = {
         <h3 style="margin:0">📦 资产清单</h3>
         <el-tag size="small" type="info">{{ unifiedAssets.length }} 项</el-tag>
         <span class="sub" style="font-size:12px;color:var(--muted)">
-          <template v-if="data.runtime === 'k8s'">k8s 运行时 · Pod</template>
-          <template v-else-if="data.runtime === 'docker'">docker 运行时 · 本地容器</template>
-          <template v-else>Pod + 本地容器</template>
+          k8s {{ assetCounts.k8s }} · Docker {{ assetCounts.docker }}
+          <template v-if="assetCounts.both">（同机共存，可按运行时筛选）</template>
         </span>
       </div>
       <el-table :data="unifiedAssets" size="small" stripe @row-click="openAsset">
@@ -1044,7 +1050,10 @@ const AssetsPage = {
     const topoFilter = reactive({ nss: [], nodes: [], showInfra: false, showPrivate: false,
                                   svc: '', pendingOnly: false,
                                   // v0.6.4: docker 容器可用维度 (无 ns/node, 靠分级/镜像筛)
-                                  levels: [], images: [] });
+                                  levels: [], images: [],
+                                  // v0.6.5.2: 运行时显隐 — k8s 与 docker 可同机共存,
+                                  //   默认空数组 = 全显示; 可只勾其中一个
+                                  runtimes: [] });
     // 筛选草稿: 下拉里改的是它, 点「应用筛选」才提交到 topoFilter。
     //   多选并列下即时重绘会让拓扑反复跳动, 且每勾一项都触发一次
     //   ECharts 重排 — 攒够条件再一次性应用, 交互与性能都更合理。
@@ -1083,8 +1092,9 @@ const AssetsPage = {
       // 'docker'), 不再用 guess。docker 容器只能来自被监控的这台机器,
       // 不存在"其他机器的 docker", 故归类到 'docker' 伪命名空间即可,
       // 不必单独给显隐开关。
-      const matchFilter = (it, nsKey, nodeName) =>
-        inSet(topoFilter.nss, nsKey)
+      const matchFilter = (it, nsKey, nodeName, runtime) =>
+        inSet(topoFilter.runtimes, runtime)
+        && inSet(topoFilter.nss, nsKey)
         && (!nodeName || inSet(topoFilter.nodes, nodeName))
         && (!topoFilter.pendingOnly || it.asset_state === 'PENDING_REVIEW')
         && inSet(topoFilter.levels, it.level)
@@ -1092,7 +1102,7 @@ const AssetsPage = {
       const filteredNodes = data.nodes
         .filter(nd => inSet(topoFilter.nodes, nd.name))
         .map(nd => {
-          const pods = nd.pods.filter(p => matchFilter(p, p.namespace, nd.name));
+          const pods = nd.pods.filter(p => matchFilter(p, p.namespace, nd.name, 'k8s'));
           if (pods.length) nodeGroups.push(nd.name);
           return { name: nd.name, pods };
         })
@@ -1120,7 +1130,7 @@ const AssetsPage = {
       //   v0.6.4: 显隐由 showDocker 总开关 + 通用维度 (分级/状态/镜像) 共同控制 —
       //   此前 ns/node 一选就整组消失, 容器侧没有任何可用筛选
       const containers = (data.containers || [])
-        .filter(c => c.id && matchFilter(c, DOCKER_NS));
+        .filter(c => c.id && matchFilter(c, DOCKER_NS, null, 'docker'));
       if (containers.length) {
         const gname = DOCKER_GROUP;
         if (!nodeGroups.includes(gname)) nodeGroups.push(gname);
@@ -1471,7 +1481,8 @@ const AssetsPage = {
     function matchAsset(it) {
       const img = it.image || (it.images && it.images[0]) || '';
       const nsKey = it.nsKey || it.namespace || DOCKER_NS;
-      return inSet(topoFilter.nss, nsKey)
+      return inSet(topoFilter.runtimes, it.kind)
+        && inSet(topoFilter.nss, nsKey)
         && (!it.node || inSet(topoFilter.nodes, it.node))
         && (!topoFilter.pendingOnly || it.asset_state === 'PENDING_REVIEW')
         && inSet(topoFilter.levels, it.level)
@@ -1545,6 +1556,15 @@ const AssetsPage = {
         if (matchAsset(row)) out.push(row);
       });
       return out;
+    });
+
+    // v0.6.5.2: 运行时计数 (按原始数据, 不随筛选变) — 顶部展示同机
+    //   共存时各有几项; both=true 表示两种运行时都采集到了。
+    const assetCounts = computed(() => {
+      const k8s = (data.nodes || [])
+        .reduce((n, nd) => n + ((nd.pods || []).length), 0);
+      const docker = (data.containers || []).length;
+      return { k8s, docker, both: (data.runtimes || []).length > 1 };
     });
 
     // v0.6.4: 留痕按「决策事件」聚合。
@@ -1659,7 +1679,7 @@ const AssetsPage = {
              confirmDialog, openConfirm, doConfirm, doOverride,
              queueDialog, batchTrust, onQueueSelect,
              auditDialog, auditGroups, openAudit, auditTypeOf, auditLabel, auditText,
-             unifiedAssets,
+             unifiedAssets, assetCounts,
              ASSET_STATES, ASSET_STATE_TYPES, LEVEL_TYPES, LEVEL_LABELS,
              ASSET_LEVEL_OPTIONS, fmtTime, assetAge };
   },

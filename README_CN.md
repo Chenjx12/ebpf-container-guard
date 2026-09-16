@@ -561,6 +561,7 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |      | ↳ v0.6.4 — 前端资产确认闭环：统一资产清单（k8s pod + docker 容器，ADR-051）、撤销（admin，防误操作）、留痕按 event_id 聚合、筛选多选并列 + 应用按钮、资产分级改业务重要性（核心/重要/一般/边缘）、渲染级门禁 `make panel-check` | ✅ 已发布 |
 |      | ↳ v0.6.5 — 规则管理 + 白名单：规则页可编辑/删除规则 API（PUT/DELETE /api/rules/{name}），白名单子区（临时抑制，kind=comm|container，valid_until 到期自动失效，同 match 幂等，统一 rules_audit.log），dismissed/ignored 语义供 AI 基线学习；tag 内修复：append_rule_to_yaml 全量重写（server 与 dashboard 共用 rules.yaml） | ✅ 已发布 |
 |      | ↳ v0.6.5.1 — 热修：白名单过期后续期（原 id，仅有效条目幂等）+ 非法 valid_until fail-closed（API 400 / 存量坏值按过期）；新增单测 7 条 + HTTP e2e `tests/integration/rules_whitelist_e2e.py` | 🚧 待发布 |
+|      | ↳ v0.6.5.2 — 运行时共存 + 筛选：`/api/assets` 同时返回 k8s pod 与 docker 容器（新增 `runtimes`，两路独立采集、单路失败不阻断），资产页新增「运行时」多选筛选（默认全显，同时作用于拓扑与清单）（ADR-053） | 🚧 待发布 |
 |      | ↳ v0.6.6 ~ v0.6.8 — 后端日志增量 / 日志视图体验 / 六层审计（bp_v06x 逐周推进） | 📋 推进中 |
 | v0.7 | 下一批：Guard Agent（原 blueprint v0.8 内容，毕设核心开发期） | 📋 规划中 |
 | v1.0 | 首个稳定版（preview 结束后） | 📋 规划中 |

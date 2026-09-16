@@ -32,6 +32,7 @@
 | [050](050-asset-inference-state.md) | 资产推断 + 状态落盘（PENDING_REVIEW 状态机 + 三段留痕 + 重启恢复） | Accepted | v0.6.3 |
 | [051](051-asset-confirmation-loop.md) | 资产确认闭环（统一资产清单 + 撤销 + 渲染级门禁固化） | Accepted | v0.6.4 |
 | [052](052-rule-management-whitelist.md) | 规则管理闭环 + 临时白名单（rules.yaml 单一权威源统一重写） | Accepted | v0.6.5 |
+| [053](053-runtime-coexistence.md) | 资产清单运行时共存 + 运行时筛选（k8s pod 与 docker 容器同时返回） | Accepted | v0.6.5.2 |
 
 ## 格式
 

@@ -10,6 +10,33 @@
 
 ---
 
+## [0.6.5.2] - 2026-09-17（运行时共存 + 运行时筛选）
+
+### 新增
+- **k8s 与 docker 运行时共存**：`GET /api/assets` 由「二选一」改为**两路独立
+  采集、合并返回** —— 返回 `runtimes: ['k8s','docker']`，同时携带 k8s 的
+  `nodes`/`services` 与 docker 的 `containers`。此前 k8s 可读即只返回 pod，
+  同机同时存在 k3s 与 rootless docker 时容器完全不可见。任一路失败只记入
+  `error`，不影响另一路。
+- **运行时筛选**：资产页筛选栏新增「运行时」多选（`k8s Pod` / `Docker 容器`），
+  **默认两者都显示**；勾选后**同时作用于拓扑图与下方资产清单**（共用一套
+  筛选谓词）。顶部显示 `k8s N · Docker M（同机共存，可按运行时筛选）`。
+- docker 条目补齐 `asset_id` 字段（与 k8s 条目对齐）。
+
+### 验证
+- 面板渲染级门禁新增 4 条断言（同机共存同表展示 / 计数标注 / 运行时下拉存在 /
+  真实点选「仅 Docker」后 k8s pod 从清单消失）→ **71/71**
+- 单测 **186 passed**；rules/whitelist HTTP e2e **27 通过 / 0 探针**
+- 真机联调：guard（sudo + BPF）与面板同时运行，`/api/assets` 实测返回
+  k8s 9 pod + docker 4 容器；触发真实攻击 → `sensitive_file_access` /
+  `host_directory_access` HIGH + 自动 `isolate_network` + 升级进人工判决队列
+
+### 背景
+- 本版是 v0.6.5 资产清单的边界完善（**无破坏性变更**：仅新增字段，不删旧字段），
+  故用补丁号 v0.6.5.2。决策见 ADR-053。
+
+---
+
 ## [0.6.5.1] - 2026-09-17（白名单边界修复）
 
 ### 修复

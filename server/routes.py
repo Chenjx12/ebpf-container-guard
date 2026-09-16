@@ -407,25 +407,93 @@ def _k8s_client_v1():
 
 @router.get("/assets")
 def assets(user: dict = read_any):
-    """资产管理 (v0.6.3, ADR-050): 资产分级 + PENDING_REVIEW 状态机。
+    """资产管理 (v0.6.3 ADR-050; v0.6.5.2 运行时共存)。
 
-    - k8s: pod 按 node 分组 + 服务关联 (v0.5.7 保持) — 每 pod 附带
+    - k8s: pod 按 node 分组 + 服务关联 (v0.5.7) — 每 pod 附带
       level (auto/override) / state (PENDING_REVIEW → CONFIRMED/
       OVERRIDDEN) / rule / audit_count; 首次列出自动推断入库存 + 留痕
-    - docker (v0.6.3 新增): 容器清单 + 同样分级字段 (此前仅报 k8s API
-      错误)。分类规则: config/assets.yaml (namespace/labels/image)
+    - docker (v0.6.3 新增): 容器清单 + 同样分级字段
+    - v0.6.5.2: 两路**同时**采集并合并返回 —— 此前 k8s 可读即只返回 pod,
+      同机同时存在 k8s 与 docker 时容器完全不可见。现在任一路失败只记入
+      error, 不影响另一路; 前端按 runtime 字段筛选显隐 (默认全显示)。
     """
+    result = {"runtimes": [], "total": 0, "runtime": "",
+              "nodes": [], "services": [], "containers": []}
+    errors = []
+
+    # ---------------- k8s 路 ----------------
     v1 = _k8s_client_v1()
-    if v1 is None:
-        # docker 模式 (或 kubeconfig 不可用): 容器清单 + 分级
+    if v1 is not None:
         try:
-            import docker as _docker
-            dclient = _docker.from_env()
-            containers = dclient.containers.list()
+            pods = v1.list_pod_for_all_namespaces().items
+            svcs = v1.list_service_for_all_namespaces().items
+            svc_list = []
+            for s in svcs:
+                sel = dict(s.spec.selector or {})
+                svc_list.append({
+                    'name': s.metadata.name,
+                    'namespace': s.metadata.namespace,
+                    'cluster_ip': s.spec.cluster_ip or '',
+                    'type': s.spec.type,
+                    'ports': [f"{p.port}/{p.protocol}" for p in (s.spec.ports or [])],
+                    'selector': sel,
+                })
+            node_map = {}
+            for p in pods:
+                if p.spec.node_name is None:
+                    continue
+                containers = [c.image for c in (p.spec.containers or [])]
+                labels = dict(p.metadata.labels or {})
+                pod_services = []
+                for s in svc_list:
+                    sel = s['selector']
+                    if sel and all(labels.get(k) == v for k, v in sel.items()):
+                        pod_services.append(s['name'])
+                # v0.6.3: 自动分级 + 状态机 (首次列出即 PENDING_REVIEW + 留痕)
+                rec = _ASSET_STORE.ensure_asset({
+                    'id': str(p.metadata.uid)[:12],
+                    'name': p.metadata.name,
+                    'namespace': p.metadata.namespace,
+                    'image': containers[0] if containers else '',
+                    'labels': labels,
+                })
+                entry = {
+                    'name': p.metadata.name,
+                    'namespace': p.metadata.namespace,
+                    'node': p.spec.node_name,
+                    'pod_ip': p.status.pod_ip or '',
+                    'status': p.status.phase,
+                    'images': containers,
+                    'privileged': bool(
+                        (p.spec.containers[0].security_context.privileged
+                         if p.spec.containers and p.spec.containers[0].security_context
+                         else False)),
+                    'labels': labels,
+                    'created': str(p.metadata.creation_timestamp or '')[:19],
+                    'services': pod_services,
+                    # v0.6.3 (ADR-050): 分级 + 状态 + 留痕计数
+                    'asset_id': rec.get('id'),
+                    'level': rec.get('level'),
+                    'level_source': rec.get('level_source'),
+                    'asset_state': rec.get('state'),
+                    'asset_rule': rec.get('rule'),
+                    'audit_count': rec.get('audit_count'),
+                }
+                node_map.setdefault(p.spec.node_name, []).append(entry)
+            result["nodes"] = [
+                {"name": n, "pods": sorted(ps, key=lambda x: x['namespace'])}
+                for n, ps in sorted(node_map.items())]
+            result["services"] = svc_list
+            result["runtimes"].append("k8s")
+            result["total"] += len(pods)
         except Exception as e:
-            return {"runtime": "docker", "total": 0, "containers": [],
-                    "nodes": [], "services": [],
-                    "error": f"docker API 不可用: {e}"}
+            errors.append(f"k8s API 调用失败: {e}")
+
+    # ---------------- docker 路 ----------------
+    try:
+        import docker as _docker
+        dclient = _docker.from_env()
+        containers = dclient.containers.list()
         items = []
         for c in containers:
             image = c.image.tags[0] if c.image.tags else \
@@ -462,80 +530,23 @@ def assets(user: dict = read_any):
                 'status': c.status, 'privileged': privileged,
                 'created': created, 'ip': ip,
                 'labels': dict(c.labels or {}),
+                'asset_id': rec.get('id'),
                 'level': rec.get('level'),
                 'level_source': rec.get('level_source'),
                 'asset_state': rec.get('state'),
                 'asset_rule': rec.get('rule'),
                 'audit_count': rec.get('audit_count'),
             })
-        return {"runtime": "docker", "total": len(items),
-                "containers": items, "nodes": [], "services": []}
-    try:
-        pods = v1.list_pod_for_all_namespaces().items
-        svcs = v1.list_service_for_all_namespaces().items
+        result["containers"] = items
+        result["runtimes"].append("docker")
+        result["total"] += len(items)
     except Exception as e:
-        return {"runtime": "k8s", "total": 0, "nodes": [], "services": [],
-                "error": f"k8s API 调用失败: {e}"}
+        errors.append(f"docker API 不可用: {e}")
 
-    svc_list = []
-    for s in svcs:
-        sel = dict(s.spec.selector or {})
-        svc_list.append({
-            'name': s.metadata.name,
-            'namespace': s.metadata.namespace,
-            'cluster_ip': s.spec.cluster_ip or '',
-            'type': s.spec.type,
-            'ports': [f"{p.port}/{p.protocol}" for p in (s.spec.ports or [])],
-            'selector': sel,
-        })
-
-    node_map = {}
-    for p in pods:
-        if p.spec.node_name is None:
-            continue
-        containers = [c.image for c in (p.spec.containers or [])]
-        labels = dict(p.metadata.labels or {})
-        pod_services = []
-        for s in svc_list:
-            sel = s['selector']
-            if sel and all(labels.get(k) == v for k, v in sel.items()):
-                pod_services.append(s['name'])
-        # v0.6.3: 自动分级 + 状态机 (首次列出即 PENDING_REVIEW + 留痕)
-        rec = _ASSET_STORE.ensure_asset({
-            'id': str(p.metadata.uid)[:12],
-            'name': p.metadata.name,
-            'namespace': p.metadata.namespace,
-            'image': containers[0] if containers else '',
-            'labels': labels,
-        })
-        entry = {
-            'name': p.metadata.name,
-            'namespace': p.metadata.namespace,
-            'node': p.spec.node_name,
-            'pod_ip': p.status.pod_ip or '',
-            'status': p.status.phase,
-            'images': containers,
-            'privileged': bool(
-                (p.spec.containers[0].security_context.privileged
-                 if p.spec.containers and p.spec.containers[0].security_context
-                 else False)),
-            'labels': labels,
-            'created': str(p.metadata.creation_timestamp or '')[:19],
-            'services': pod_services,
-            # v0.6.3 (ADR-050): 分级 + 状态 + 留痕计数
-            'asset_id': rec.get('id'),
-            'level': rec.get('level'),
-            'level_source': rec.get('level_source'),
-            'asset_state': rec.get('state'),
-            'asset_rule': rec.get('rule'),
-            'audit_count': rec.get('audit_count'),
-        }
-        node_map.setdefault(p.spec.node_name, []).append(entry)
-
-    nodes = [{"name": n, "pods": sorted(ps, key=lambda x: x['namespace'])}
-             for n, ps in sorted(node_map.items())]
-    return {"runtime": "k8s", "total": len(pods),
-            "nodes": nodes, "services": svc_list}
+    result["runtime"] = "+".join(result["runtimes"]) if result["runtimes"] else "none"
+    if errors:
+        result["error"] = "; ".join(errors)
+    return result
 
 
 # ================================================================

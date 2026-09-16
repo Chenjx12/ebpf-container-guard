@@ -9,6 +9,36 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.5.2] - 2026-09-17 (runtime coexistence + runtime filter)
+
+### Added
+- **k8s and docker runtimes coexist**: `GET /api/assets` no longer picks one —
+  it collects both independently and merges them, returning
+  `runtimes: ['k8s','docker']` together with the k8s `nodes`/`services` **and**
+  the docker `containers`. Previously a readable k8s cluster meant docker
+  containers were invisible, so a machine running both k3s and rootless docker
+  could only ever see pods. A failure on one path is recorded in `error`
+  without affecting the other.
+- **Runtime filter**: the assets page gains a multi-select "runtime" filter
+  (`k8s Pod` / `Docker 容器`), **both shown by default**; selecting one applies
+  to **both the topology graph and the asset list** (single shared predicate).
+  The header shows `k8s N · Docker M` and a coexistence note.
+- docker entries now carry an `asset_id` field (aligned with k8s entries).
+
+### Verified
+- Panel render-level gate: 4 new assertions (coexistence in one table / count
+  annotation / runtime dropdown present / real click "Docker only" hides k8s
+  pods) → **71/71**
+- Unit tests **186 passed**; rules/whitelist HTTP e2e **27 passed / 0 probes**
+- Live run: guard (sudo + BPF) and panel together; `/api/assets` returned
+  9 k8s pods + 4 docker containers; a real attack triggered
+  `sensitive_file_access` / `host_directory_access` HIGH with automatic
+  `isolate_network` and an escalation into the manual review queue
+
+### Context
+- Edge-case completion of the v0.6.5 asset list (**non-breaking**: fields added,
+  none removed), hence the patch number v0.6.5.2. See ADR-053.
+
 ## [0.6.5.1] - 2026-09-17 (whitelist edge-case fixes)
 
 ### Fixed
