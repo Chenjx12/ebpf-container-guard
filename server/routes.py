@@ -369,6 +369,11 @@ def whitelist_add(body: dict, user: dict = write_op):
         raise HTTPException(status_code=400, detail="match 不能为空")
     if not note:
         raise HTTPException(status_code=400, detail="请填写白名单理由")
+    ok_fmt, _ = common.whitelist_parse_until(valid_until)
+    if not ok_fmt:
+        raise HTTPException(
+            status_code=400,
+            detail="valid_until 格式非法（需 YYYY-MM-DDTHH:MM:SS，或留空表示永久）")
     ok, err = common.whitelist_add(kind, match, valid_until, note,
                                    user.get("username", ""))
     if not ok:

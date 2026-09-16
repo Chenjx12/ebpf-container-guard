@@ -10,6 +10,33 @@
 
 ---
 
+## [0.6.5.1] - 2026-09-17（白名单边界修复）
+
+### 修复
+- **白名单过期后无法续期**：`whitelist_add` 的幂等分支只比对 `kind+match`，
+  不看 `valid_until` 是否已过期 —— 过期条目会永久挡住同 match 重新加白
+  （前端只能靠「删除再新增」绕过）。改为**仅对仍有效的条目幂等**，已过期则
+  用原 id 续期（覆盖 `valid_until` / `note` / `user`），审计记 `renew_whitelist`。
+- **非法 `valid_until` fail-open**：`whitelist_list` 解析失败时 `exp=None`
+  被判为「永不过期」—— 一个写坏的时间戳就让白名单永久抑制告警。改为
+  **fail-closed**：新增 `whitelist_parse_until` 统一解析，非法格式按「已过期」
+  处理；`POST /api/whitelist` 在 API 层校验并返回 400；空串仍表示永久条目。
+
+### 测试
+- 新增 `tests/unit/test_whitelist.py` 7 条回归（续期 / 非法格式 / 永久条目 /
+  存量坏值 / 删除）；单测 179 → **186 passed**
+- 新增 HTTP 端到端 `tests/integration/rules_whitelist_e2e.py`（隔离副本 + 真实
+  uvicorn + 会话 Cookie）：覆盖规则 POST/PUT/DELETE、审计留痕、白名单幂等 /
+  到期 / RBAC、以及 v0.6.5 的非空 rules.yaml 全量重写修复点 —— 本版
+  **27 通过 / 0 失败 / 0 探针**（修复前 25 通过 / 2 探针）
+- 面板渲染级门禁（jsdom 无头挂载）**66/66**
+
+### 背景
+- 两个缺陷由上述 e2e 首次跑通时探到（探针 P1/P2），本版修复并转成回归断言。
+- 规则管理 / 白名单主体功能见 [0.6.5]；本版仅边界修复，无 API 契约变更。
+
+---
+
 ## [0.6.5] - 2026-09-08（规则管理 + 白名单，tag 内修复）
 
 ### 新增

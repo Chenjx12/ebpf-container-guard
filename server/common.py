@@ -755,6 +755,24 @@ def ensure_initial_users() -> dict:
 WHITELIST_PATH = LOGS_DIR / "whitelist.yaml"
 
 
+def whitelist_parse_until(valid_until: str) -> tuple:
+    """解析 valid_until → (ok, epoch_or_None)。
+
+    - 空字符串 = **永久** → (True, None)
+    - 合法 `YYYY-MM-DDTHH:MM:SS` → (True, epoch)
+    - 非法格式 → (False, None) —— 调用方按「已过期」处理 (fail-closed,
+      不能因一个写坏的时间戳让白名单永久抑制告警, v0.6.5.1 修复 P2)
+    """
+    import time as _t
+    s = (valid_until or '').strip()
+    if not s:
+        return True, None
+    try:
+        return True, _t.mktime(_t.strptime(s, '%Y-%m-%dT%H:%M:%S'))
+    except Exception:
+        return False, None
+
+
 def _wl_load():
     """whitelist.yaml → list[dict]: {id, kind, match, valid_until, note, created}"""
     try:
@@ -798,10 +816,26 @@ def whitelist_add(kind: str, match: str, valid_until: str, note: str,
             return False, "kind 必须是 comm/container"
         if not match:
             return False, "match 不能为空"
+        ok_fmt, _ = whitelist_parse_until(valid_until)
+        if not ok_fmt:
+            return False, ("valid_until 格式非法"
+                           "（需 YYYY-MM-DDTHH:MM:SS，或留空表示永久）")
         items = _wl_load()
-        # 同 match 已有有效条目则不重复 (幂等)
+        now = _t.time()
+        # 同 match 仅在**仍有效**时幂等；已过期则续期（覆盖时效/理由）。
+        # 否则过期条目会永久挡住重新加白（v0.6.5.1 修复 P1）。
         for it in items:
             if it.get('kind') == kind and it.get('match') == match:
+                ok_e, exp = whitelist_parse_until(it.get('valid_until', ''))
+                if ok_e and (exp is None or exp > now):
+                    return True, it.get('id')
+                it['valid_until'] = valid_until
+                it['note'] = note
+                it['user'] = user
+                it['created_at'] = _t.strftime('%Y-%m-%dT%H:%M:%S')
+                _wl_save(items)
+                log_rule_audit("renew_whitelist", f"{kind}={match}",
+                               "whitelist", it, user)
                 return True, it.get('id')
         item = {
             'id': _u.uuid4().hex[:12],
@@ -822,19 +856,19 @@ def whitelist_add(kind: str, match: str, valid_until: str, note: str,
 
 
 def whitelist_list(active_only: bool = True) -> list:
-    """List white-list entries; active_only drops expired ones."""
+    """List white-list entries; active_only drops expired ones.
+
+    非法 valid_until 视为**已过期**（fail-closed, v0.6.5.1 修复 P2）。
+    """
     import time as _t
     now = _t.time()
     items = _wl_load()
     out = []
     for it in items:
-        vu = it.get('valid_until', '')
-        try:
-            exp = _t.mktime(_t.strptime(vu, '%Y-%m-%dT%H:%M:%S'))
-        except Exception:
-            exp = None
-        if (not active_only or exp is None or exp > now):
-            out.append({**it, 'active': (exp is None or exp > now)})
+        ok_e, exp = whitelist_parse_until(it.get('valid_until', ''))
+        active = ok_e and (exp is None or exp > now)
+        if not active_only or active:
+            out.append({**it, 'active': active})
     return out
 
 

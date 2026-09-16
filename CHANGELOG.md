@@ -9,6 +9,39 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.5.1] - 2026-09-17 (whitelist edge-case fixes)
+
+### Fixed
+- **Expired whitelist entries could never be renewed**: `whitelist_add`'s
+  idempotency check compared only `kind+match`, ignoring whether `valid_until`
+  had passed — an expired entry permanently blocked re-adding the same match
+  (the UI worked around it by delete-then-add). Now only **still-active**
+  entries are idempotent; an expired entry is renewed in place under the same
+  id (overwriting `valid_until` / `note` / `user`) and audited as
+  `renew_whitelist`.
+- **Malformed `valid_until` failed open**: when parsing failed,
+  `whitelist_list` treated `exp=None` as "never expires", so one malformed
+  timestamp silently suppressed alerts forever. Now **fail-closed**: a new
+  `whitelist_parse_until` helper parses consistently, malformed values are
+  treated as expired, and `POST /api/whitelist` validates at the API layer
+  (HTTP 400); an empty string still means a permanent entry.
+
+### Tests
+- New `tests/unit/test_whitelist.py`, 7 regressions (renewal / malformed /
+  permanent / pre-existing bad value / removal); unit tests 179 → **186 passed**
+- New HTTP end-to-end `tests/integration/rules_whitelist_e2e.py` (isolated copy
+  + real uvicorn + session cookies): rules POST/PUT/DELETE, audit trail,
+  whitelist idempotency / expiry / RBAC, plus the v0.6.5 non-empty-rules.yaml
+  full-rewrite fix — this release **27 passed / 0 failed / 0 probes**
+  (before the fix: 25 passed / 2 probes)
+- Panel render-level gate (jsdom headless mount) **66/66**
+
+### Context
+- Both defects were found by the above e2e on its first run (probes P1/P2);
+  this release fixes them and turns them into regression assertions.
+- Core rule-management / whitelist behaviour is in [0.6.5]; this release is
+  edge-case fixes only, with no API contract change.
+
 ## [0.6.5] - 2026-09-08 (rule management + whitelist, in-tag fix)
 
 ### Added
