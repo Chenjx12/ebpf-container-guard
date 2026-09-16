@@ -29,6 +29,10 @@ RUN ln -sf /usr/lib/x86_64-linux-gnu/libelf.so.1.0.0 \
 # 注: base python:3.10-slim 是 Debian trixie, sources 为 deb822 格式
 #   (/etc/apt/sources.list.d/debian.sources), URIs 行无尾斜杠 —
 #   用行尾锚定的行替换精确切换主源与安全源。
+# v0.6.5: apt-get upgrade — 基础镜像 python:3.10-slim 的**预装**包
+#   (perl-base / gzip / libpcre2 / libsqlite3) 会随 Debian 点版本出新 CVE。
+#   只 install 不 upgrade 时这些包停在基础镜像的旧版本 → trivy 门禁
+#   (CRITICAL/HIGH + ignore-unfixed) 拦发布 (v0.6.5 首次 Release 即因此失败)。
 RUN if [ "$APT_MIRROR" != "http://deb.debian.org/debian" ]; then \
         sed -i "s|^URIs: http://deb\.debian\.org/debian$|URIs: ${APT_MIRROR}|; \
                 s|^URIs: http://deb\.debian\.org/debian-security$|URIs: ${APT_MIRROR_SECURITY}|" \
@@ -37,6 +41,7 @@ RUN if [ "$APT_MIRROR" != "http://deb.debian.org/debian" ]; then \
     && apt-get update -qq && apt-get install -y -qq --no-install-recommends \
         tzdata \
         iptables \
+    && apt-get upgrade -y -qq \
     && rm -rf /var/lib/apt/lists/*
 
 # 运行时依赖（v0.6.1 起锁定版本；面板与 guard 同镜像，见 requirements.txt）

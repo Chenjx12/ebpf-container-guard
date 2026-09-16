@@ -29,6 +29,10 @@ points, releases may include **breaking / incompatible changes** until v1.0.
   上一规则的**嵌套块** → 整文件不可读, 检测规则全部失效。改为 read-modify-dump **全量
   重写** (与 update/remove 同构), server 与 dashboard 共用同一 rules.yaml, 两处同修。
   新增回归测试覆盖「向非空文件追加」场景 (此前仅测空文件, 故漏网)
+- **镜像供应链门禁: 基础镜像预装包未升级** (Release workflow 发现): `deploy/Dockerfile`
+  只 `apt-get install` 不 `upgrade`, `python:3.10-slim` 的预装包 (perl-base / gzip /
+  libpcre2 / libsqlite3) 停在旧版本 → trivy 门禁 (CRITICAL/HIGH + ignore-unfixed)
+  以 3 CRITICAL / 9 HIGH 拦下发布。补 `apt-get upgrade -y` 收敛到 Debian 安全点版本
 
 ## [0.6.4] - 2026-09-07 (light changelog, bp_v06x — 资产确认闭环)
 
