@@ -37,6 +37,7 @@ RUN if [ "$APT_MIRROR" != "http://deb.debian.org/debian" ]; then \
     && apt-get update -qq && apt-get install -y -qq --no-install-recommends \
         tzdata \
         iptables \
+    && apt-get upgrade -y -qq \
     && rm -rf /var/lib/apt/lists/*
 
 # 运行时依赖（v0.6.1 起锁定版本；面板与 guard 同镜像，见 requirements.txt）
