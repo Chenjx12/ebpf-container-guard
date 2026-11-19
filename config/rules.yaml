@@ -69,17 +69,26 @@ rules:
   # execve 探针 — 程序执行攻击
   # ============================================================
 
+  # v0.6.6 实测修正：原条件为 comm=nsenter AND target_path=/usr/bin/nsenter，
+  # 但这两个字段从不在同一条记录里共现 —— execve("/usr/bin/nsenter") 发生时
+  # comm 仍是父进程（bash/timeout），等 comm 变成 nsenter 时已在 exec 下一个命令。
+  # 实测 8 类逃逸场景中 nsenter 因此漏报（2026-11-19，7/8）。改为只按二进制路径
+  # 匹配（列表 = OR 精确），覆盖主流安装位置，且不会命中 PATH 探测产生的
+  # /usr/local/{s,}bin/nsenter 伪 execve。
+  #
+  #   22:20:52.021  comm=timeout   path=/usr/bin/nsenter    ← 实际命中点
+  #   22:20:52.022  comm=nsenter   path=/usr/bin/true       ← 旧条件等的形态
   - name: "nsenter_escape"
     description: "检测容器内执行 nsenter 尝试逃逸到宿主机命名空间"
     attack_vector: "nsenter_escape"
     severity: "CRITICAL"
     event_type: "execve"
     condition:
-      all:
-        - comm:
-            - "nsenter"
-        - target_path:
-            - "/usr/bin/nsenter"
+      target_path:
+        - "/usr/bin/nsenter"
+        - "/usr/sbin/nsenter"
+        - "/bin/nsenter"
+        - "/sbin/nsenter"
     cve_refs:
       - "CVE-2019-5736"
       - "CVE-2022-0492"
