@@ -23,7 +23,22 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BEHAVIORS_LOG = ROOT / "behaviors.log"
+
+
+def _resolve_behaviors_log():
+    """v0.4.4 起 behavior logger 写入 logs/ 并对历史文件按天轮转.
+
+    兼容新旧两种布局, 优先新路径 (logs/behaviors.log),
+    旧路径 (ROOT/behaviors.log) 仅作 v0.4.4 之前的回退.
+    """
+    candidates = [ROOT / "logs" / "behaviors.log", ROOT / "behaviors.log"]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
+
+
+BEHAVIORS_LOG = _resolve_behaviors_log()
 LADDER = [1000, 3000, 5000, 8000, 10000]
 RESULTS_PATH = Path("/tmp/bench_ladder.json")
 
