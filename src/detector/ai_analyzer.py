@@ -13,6 +13,7 @@ Receives rule engine + attack matrix results and provides:
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
@@ -228,7 +229,7 @@ class AIAnalyzer:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.3,
-            "max_tokens": 500,
+            "max_tokens": 2000,
         }).encode("utf-8")
 
         req = urllib.request.Request(
@@ -243,7 +244,47 @@ class AIAnalyzer:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read())
             content = data["choices"][0]["message"]["content"]
-            return json.loads(content)
+            try:
+                return self._extract_json(content)
+            except ValueError:
+                # 模型偶发输出坏 JSON（未转义换行 / 结构截断）：
+                # 用 JSON mode 重试一次，仍失败则交给上层回落
+                retry = json.dumps({
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0,
+                    "max_tokens": 2000,
+                    "response_format": {"type": "json_object"},
+                }).encode("utf-8")
+                retry_req = urllib.request.Request(
+                    f"{self.base_url}{self.CHAT_PATH}", data=retry,
+                    headers={"Content-Type": "application/json",
+                             "Authorization": f"Bearer {self.api_key}"})
+                with urllib.request.urlopen(retry_req, timeout=15) as r2:
+                    d2 = json.loads(r2.read())
+                return self._extract_json(d2["choices"][0]["message"]["content"])
+
+    @staticmethod
+    def _extract_json(text: str) -> dict:
+        """从模型输出中取出 JSON 对象。
+
+        模型常见两种不合规输出：
+          1. 包在 ```json 代码块里 —— 直接 json.loads 会失败
+          2. 前后夹带说明文字 —— 需要抠出最外层 { ... }
+        """
+        if not text or not text.strip():
+            raise ValueError("empty model content")
+        t = text.strip()
+        if t.startswith("```"):
+            t = re.sub(r"^```[A-Za-z]*\s*", "", t)
+            t = re.sub(r"\s*```$", "", t)
+        i, j = t.find("{"), t.rfind("}")
+        if i < 0 or j <= i:
+            raise ValueError(f"no JSON object in response: {t[:120]!r}")
+        return json.loads(t[i:j + 1])
 
     def _parse_response(self, response: dict, alert: dict,
                         base_conf: int) -> AIResult:
