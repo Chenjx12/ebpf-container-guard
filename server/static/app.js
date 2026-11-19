@@ -330,7 +330,10 @@ const ReviewPage = {
             <el-descriptions-item label="PID">{{ g.profile.pid }}</el-descriptions-item>
           </el-descriptions>
           <p v-else style="font-size:12px;color:var(--muted);margin-bottom:10px">画像加载中…</p>
-          <el-table :data="g.events" size="small">
+          <!-- v0.6.7: 行点击打开事件详情 —— 队列里只有 时间/规则/进程，
+               看不到"为什么触发"（target_path / fstype / request / T2 置信度）。
+               详情弹窗读 events.log 尾部，不依赖慢速的画像接口。 -->
+          <el-table :data="g.events" size="small" @row-click="openEventDetail">
             <el-table-column label="时间" width="160"><template #default="{row}">{{ fmtTime(row.timestamp) }}</template></el-table-column>
             <el-table-column label="规则" min-width="170"><template #default="{row}"><span class="ev-rule">{{ row.rule }}</span></template></el-table-column>
             <el-table-column label="进程" width="140"><template #default="{row}">
@@ -613,7 +616,7 @@ const ReviewPage = {
     usePolling(load, 3000);
     return {
       groups, decide: doConfirm, fmtTime, openNames, onExpand,
-      aiBusy, requestAI,
+      aiBusy, requestAI, openEventDetail,
       selectedIds, allSelected, toggleSelect, toggleSelectAll, isSelected,
       confirmDlg, openConfirm, doConfirm,
       ignoreDlg, openIgnore, openBatchIgnore, doIgnore, batchDecide,
