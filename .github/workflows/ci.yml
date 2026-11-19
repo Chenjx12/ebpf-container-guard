@@ -7,7 +7,7 @@ on:
 
 jobs:
   unit-tests:
-    name: Unit tests (BPF-free, 146 baseline)
+    name: Unit tests (BPF-free)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,9 +19,11 @@ jobs:
         # (fastapi TestClient 用它; 若改回 httpx 会触发 starlette 弃用警告)
         run: |
           pip install -r requirements.txt httpx2==2.10.0 streamlit==1.61.1 pytest
+      # v0.6.6: 三步统一走 Makefile target，与本地 `make ci` 共用同一套命令，
+      # 避免"本地绿了云上红"。改 CI 步骤时先改 Makefile。
       - name: Run unit tests
-        run: pytest tests/unit -q
+        run: make test-unit
       - name: Syntax check (guard + panel)
-        run: python -m compileall -q main.py src server dashboard
+        run: make syntax
       - name: Check configmap rules drift (H3)
-        run: python scripts/sync_configmap.py --check
+        run: make check-configmap

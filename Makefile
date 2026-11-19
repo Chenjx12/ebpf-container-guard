@@ -1,5 +1,6 @@
 .PHONY: help build test test-unit run run-quiet clean deploy logs panel \
-	install-deps lint format sync-configmap check-configmap panel-check
+	install-deps lint format sync-configmap check-configmap panel-check \
+	ci syntax
 
 panel: ## Start security panel (FastAPI + Vue3, v0.5.6)
 	@echo "🖥️  Starting security panel (FastAPI + Vue3)..."
@@ -58,6 +59,16 @@ sync-configmap: ## 同步 config/rules.yaml → deploy/k8s/configmap.yaml (H3 �
 check-configmap: ## 漂移检测: configmap rules 段与权威源不一致则退出 1
 	@echo "🔍 Checking configmap rules drift..."
 	python3 scripts/sync_configmap.py --check
+
+syntax: ## 语法检查 (guard + panel 全部模块可编译)
+	@echo "🧹 Syntax check (compileall)..."
+	python3 -m compileall -q main.py src server dashboard
+
+# v0.6.6: 本地一键复现 CI 三步 —— 推送前必跑，避免"本地绿了云上红"。
+# 与 .github/workflows/ci.yml 共用同一批 target，命令不重复维护。
+ci: test-unit syntax check-configmap ## 本地复现 CI 三步（推送前必跑）
+	@echo ""
+	@echo "✅ CI 三步全部通过（单测 / 语法 / configmap 漂移）"
 
 run: ## Start eBPF Container Guard (requires sudo)
 	@echo "🛡️  Starting eBPF Container Guard..."
