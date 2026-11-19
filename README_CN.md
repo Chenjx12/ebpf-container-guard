@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.5-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.6-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -562,7 +562,8 @@ pending_review_threshold: 60   # 60-85% → AI 研判分析
 |      | ↳ v0.6.5 — 规则管理 + 白名单：规则页可编辑/删除规则 API（PUT/DELETE /api/rules/{name}），白名单子区（临时抑制，kind=comm|container，valid_until 到期自动失效，同 match 幂等，统一 rules_audit.log），dismissed/ignored 语义供 AI 基线学习；tag 内修复：append_rule_to_yaml 全量重写（server 与 dashboard 共用 rules.yaml） | ✅ 已发布 |
 |      | ↳ v0.6.5.1 — 热修：白名单过期后续期（原 id，仅有效条目幂等）+ 非法 valid_until fail-closed（API 400 / 存量坏值按过期）；新增单测 7 条 + HTTP e2e `tests/integration/rules_whitelist_e2e.py` | ✅ 已发布 |
 |      | ↳ v0.6.5.2 — 运行时共存 + 筛选：`/api/assets` 同时返回 k8s pod 与 docker 容器（新增 `runtimes`，两路独立采集、单路失败不阻断），资产页新增「运行时」多选筛选（默认全显，同时作用于拓扑与清单）（ADR-053） | ✅ 已发布 |
-|      | ↳ v0.6.6 ~ v0.6.8 — 后端日志增量 / 日志视图体验 / 六层审计（bp_v06x 逐周推进） | 📋 推进中 |
+|      | ↳ v0.6.6 — 行为日志可校验化：格式 v2 哈希链（seq/prev/hash，跨文件跨重启连续）、`tools/verify_chain.py` 校验器、hash/hmac 双模式、保留期可配（7/90 天）；修复同日轮转互相覆盖与清理正则失配两个缺陷；flush 0.5s→0.1s + 手写 JSON 模板，稳定吞吐 4000→**10000 ev/s**（ADR-054） | ✅ 已完成 |
+|      | ↳ v0.6.7 ~ v0.6.8 — 日志视图体验 / 六层审计（bp_v06x 逐周推进） | 📋 推进中 |
 | v0.7 | 下一批：Guard Agent（原 blueprint v0.8 内容，毕设核心开发期） | 📋 规划中 |
 | v1.0 | 首个稳定版（preview 结束后） | 📋 规划中 |
 

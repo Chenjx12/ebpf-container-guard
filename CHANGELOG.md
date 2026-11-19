@@ -9,6 +9,91 @@ points, releases may include **breaking / incompatible changes** until v1.0.
 
 [**中文版 / Chinese Version**](CHANGELOG_CN.md)
 
+## [0.6.6] - 2026-11-14 (verifiable behavior log + forensics loop)
+
+### Added
+- **Behavior log format v2 — hash chain.** Each record gains `seq` / `prev` / `hash`
+  (`sha256(prev + body)`), continuous across files and restarts, so insertions,
+  deletions and edits are all detectable and report the offending line number.
+  The fields are top-level additions: readers (panel / `common.load_behavior_log`)
+  are unaffected and simply see three extra columns. See ADR-054.
+- **`tools/verify_chain.py`** — verifies parseability, `prev` linkage, `seq`
+  continuity and `hash` correctness per line; orders files by `(date, index)` with
+  the live file last; reports **file + line number + number of downstream records
+  invalidated**; exit code 0/1 for CI. Legacy v1 files are reported as `SKIP` and
+  re-seed expectations instead of aborting the run.
+- **Two integrity modes** — `hash` (anyone can verify) and `hmac` (keyed, prevents
+  chain recomputation), selected via `monitor.yaml`'s `behavior_log_integrity`;
+  the hmac key file must be `0600`.
+- **Configurable retention** — `behavior_log_retain_days` (7 by default) and
+  `behavior_log_retain_days_forensic` (90, auto-enabled in hmac mode). Previously
+  `DEFAULT_RETAIN_DAYS` was hard-coded and never passed from `main.py`.
+
+### Fixed
+- **Same-day size rotation overwrote evidence (severe).** `_maybe_rotate` renamed
+  to `behaviors.log.<date>`, and `os.rename` silently clobbers an existing file —
+  two size-triggered rotations in one day lost the first chunk. Now named
+  `behaviors.log.<date>.<index>` (`.001`, `.002`, …). Existing logs never reached
+  50MB, so the defect had not surfaced yet.
+- **Rotation cleanup silently did nothing.** `_cleanup_old` parsed the date with
+  `rsplit('.', 1)`; once filenames carry an index that raises `ValueError`, which
+  was swallowed, so rotated files were never deleted. Replaced with a regex that
+  also accepts legacy un-indexed names.
+- **Panel "fetch models" always failed.** The settings page only renders
+  `api_key_masked`, so `ai.api_key` was always empty and
+  `POST /api/ai/models` sent an empty bearer → provider 401. The backend now
+  **falls back to the saved plaintext key** of the active profile when the request
+  key is empty; the frontend warns when the returned list does not contain the
+  currently configured model name.
+
+### Changed
+- **`flush_interval` 0.5s → 0.1s.** Batching a 0.5s worth of records per flush
+  blocks the ringbuf consumer and queues later events — this, **not the hashing**,
+  was the source of tail-latency spikes (hashing costs +0.71µs/record). p95 at the
+  same load dropped from **378ms to 20ms**.
+- **Hand-built JSON template instead of `json.dumps`.** Per-record serialization
+  went from 7–10µs to **4–5µs**, byte-for-byte identical to
+  `json.dumps(ensure_ascii=False, separators=(',',':'))` (which the verifier still
+  uses to recompute hashes). Guarded by type checks, an escape-scan fallback and
+  fuzz tests.
+
+### Panel
+- **Asset list scrolls internally**: `max-height` is computed from the viewport and
+  the horizontal scrollbar is `scrollbar-always-on` plus 12px tall — previously a
+  6px hover-only bar that was nearly impossible to grab, with stray clicks landing
+  on rows and opening the detail dialog.
+- **Frozen edge columns**: type/name pinned left, actions pinned right, so identity
+  and actions stay visible while scrolling the ~1730px-wide table.
+- **Collapsible topology**: a "collapse" toggle in the filter bar gives the list the
+  freed height (remembered in localStorage). The topology keeps its 420px size.
+
+### Verification
+- Unit tests **200 passed** (15 new: hash chain, rotation regressions, restart
+  resumption, hmac, verifier, serialization equivalence)
+- Panel render gate **71/71**
+- Real-world cross-file + cross-restart chain: **151,995 records, intact**
+- Tamper injection: edited line → `HASH_MISMATCH` with line number; deleted line →
+  `SEQ_GAP`
+
+### Performance (k3s stopped, 4-core VM, per-event pairing)
+
+| Rate | Loss | p50 | p95 |
+|---|---|---|---|
+| 6000 ev/s | 0% | 15ms | 41ms |
+| 8000 ev/s | 0% | 14ms | 144ms |
+| **10000 ev/s** | **0%** | **12ms** | **21ms** |
+| 12000 ev/s | 4.79% | 177ms | 465ms |
+| 15000 ev/s | 17.03% | 656ms | 840ms |
+
+Stable ceiling raised from ~4000 ev/s to **10000 ev/s (2.5x)**.
+
+### Notes
+- **Breaking change** (log format v1 → v2), hence a minor version bump. Existing
+  `behaviors.log` files remain readable (the verifier reports `SKIP`) but carry no
+  chain information; archive them out of `logs/` when upgrading.
+
+---
+
 ## [0.6.5.2] - 2026-09-17 (runtime coexistence + runtime filter)
 
 ### Added

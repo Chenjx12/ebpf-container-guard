@@ -1,7 +1,7 @@
 # eBPF Container Guard
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.5-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.6-green.svg)](CHANGELOG.md)
 [![eBPF](https://img.shields.io/badge/eBPF-tracepoint-orange.svg)](https://ebpf.io/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
@@ -531,7 +531,8 @@ The analyzer is **OpenAI-compatible**: swap `base_url` to use OpenAI, or any sel
 |      | ↳ v0.6.5 — rule management + whitelist: edit/delete rules via API (PUT/DELETE /api/rules/{name}), whitelist sub-section in rules page (temporary suppression, kind=comm|container, valid_until auto-expiry, idempotent, unified rules_audit.log), AI-baseline-learnable dismissed/ignored semantics; in-tag fix: append_rule_to_yaml full rewrite (server + dashboard share rules.yaml) | ✅ Released |
 |      | ↳ v0.6.5.1 — hotfix: whitelist renewal after expiry (same id, idempotent only while active) + malformed valid_until fail-closed (API 400 / stale bad value treated as expired); +7 unit regressions + HTTP e2e `tests/integration/rules_whitelist_e2e.py` | ✅ Released |
 |      | ↳ v0.6.5.2 — runtime coexistence + filter: `/api/assets` returns k8s pods and docker containers together (new `runtimes`, two independent paths so one failure cannot block the other), assets page gains a multi-select runtime filter (both shown by default, applied to topology and list) (ADR-053) | ✅ Released |
-|      | ↳ v0.6.6 ~ v0.6.8 — backend incremental log load / log view UX / six-layer audit (bp_v06x: weekly releases) | 📋 In progress |
+|      | ↳ v0.6.6 — verifiable behavior log: format v2 hash chain (seq/prev/hash, continuous across files and restarts), `tools/verify_chain.py` verifier, hash/hmac modes, configurable retention (7/90 days); fixes same-day rotation overwrite and cleanup-regex mismatch; flush 0.5s→0.1s + hand-built JSON template lifts stable throughput 4000→**10000 ev/s** (ADR-054) | ✅ Done |
+|      | ↳ v0.6.7 ~ v0.6.8 — log view UX / six-layer audit (bp_v06x: weekly releases) | 📋 In progress |
 | v0.7 | Next batch: Guard Agent (ex-blueprint v0.8 scope, thesis core dev period) | 📋 Planned |
 | v1.0 | First stable release (post-preview) | 📋 Planned |
 
