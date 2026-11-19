@@ -23,7 +23,7 @@ def client(tmp_path, monkeypatch):
     tokens_path = tmp_path / "tokens.yaml"
     audit_path = tmp_path / "auth_audit.log"
 
-    from dashboard.auth import AuthManager, TokenManager
+    from server.auth import AuthManager, TokenManager
     auth = AuthManager(str(users_path))
     auth.create_user("analyst", "analystpass", "analyst", is_initial=False)
     auth.create_user("operator", "operatorpass", "operator", is_initial=False)

@@ -1,9 +1,10 @@
-"""表单条件解析单测 (v0.4.0 规则引擎重构 — dashboard 侧)"""
+"""表单条件解析单测 (v0.4.0 规则引擎重构 — 面板侧)"""
 import yaml
 import pytest
 
-# common.py 顶部 import streamlit/docker —— 无副作用, 可被 pytest import
-from dashboard.common import parse_condition_rows, CONDITION_OPS
+# v0.5.6 面板迁移后测试指向 server.common（无 streamlit 依赖）；
+# 旧 dashboard.common 已 deprecated，仅回滚对照用。
+from server.common import parse_condition_rows, CONDITION_OPS
 
 
 class TestParseConditionRows:
@@ -41,7 +42,7 @@ class TestParseConditionRows:
 class TestAppendRuleToYaml:
     def test_old_style_rule_normalized_and_written(self, monkeypatch, tmp_path):
         """旧式扁平 condition 经 append 归一化后合法落盘 (热加载可直接消费)"""
-        from dashboard import common
+        from server import common
         from detector.rule_schema import validate_rules
 
         rules_file = tmp_path / "rules.yaml"
@@ -50,13 +51,13 @@ class TestAppendRuleToYaml:
         monkeypatch.setattr(common, "RULES_PATH", rules_file)
         monkeypatch.setattr(common, "RULES_AUDIT_LOG", audit_file)
 
-        ok = common.append_rule_to_yaml({
+        ok, err = common.append_rule_to_yaml({
             "name": "test_append",
             "severity": "LOW",
             "condition": {"event_type": "execve", "comm": "curl"},
             "action": "alert_and_log",
         }, source="manual")
-        assert ok
+        assert ok, err
         data = yaml.safe_load(rules_file.read_text())
         assert validate_rules(data["rules"]) == []
         rule = data["rules"][0]
@@ -67,7 +68,7 @@ class TestAppendRuleToYaml:
 
     def test_invalid_rule_rejected(self, monkeypatch, tmp_path):
         """非法规则 (未知字段) 拒绝入库, 不写文件不写审计"""
-        from dashboard import common
+        from server import common
 
         rules_file = tmp_path / "rules.yaml"
         audit_file = tmp_path / "audit.log"
@@ -75,12 +76,12 @@ class TestAppendRuleToYaml:
         monkeypatch.setattr(common, "RULES_PATH", rules_file)
         monkeypatch.setattr(common, "RULES_AUDIT_LOG", audit_file)
 
-        ok = common.append_rule_to_yaml({
+        ok, err = common.append_rule_to_yaml({
             "name": "bad_rule",
             "severity": "LOW",
             "condition": {"event_type": "execve", "not_a_field": "curl"},
         }, source="manual")
-        assert not ok
+        assert not ok, err
         data = yaml.safe_load(rules_file.read_text())
         assert data["rules"] == []
         assert not audit_file.exists()
@@ -92,7 +93,7 @@ class TestAppendRuleToYaml:
         全量重写为列0风格的文件, 被解析为上一规则的嵌套块 → 整文件不可读,
         检测规则全部失效。修复后 read-modify-dump 全量重写, 新旧规则共存。
         """
-        from dashboard import common
+        from server import common
         from detector.rule_schema import validate_rules
 
         rules_file = tmp_path / "rules.yaml"
@@ -118,13 +119,13 @@ class TestAppendRuleToYaml:
         monkeypatch.setattr(common, "RULES_PATH", rules_file)
         monkeypatch.setattr(common, "RULES_AUDIT_LOG", audit_file)
 
-        ok = common.append_rule_to_yaml({
+        ok, err = common.append_rule_to_yaml({
             "name": "new_rule",
             "severity": "LOW",
             "condition": {"event_type": "execve", "comm": "curl"},
             "action": "alert_and_log",
         }, source="manual")
-        assert ok
+        assert ok, err
         # 整文件必须可解析, 新旧规则共存
         data = yaml.safe_load(rules_file.read_text())
         assert validate_rules(data["rules"]) == []
