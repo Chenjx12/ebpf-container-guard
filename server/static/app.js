@@ -341,7 +341,9 @@ const ReviewPage = {
                   {{ row.ai.ai_verdict === 'true_positive' ? '真实攻击' : '误报' }} {{ row.ai.ai_confidence }}%</el-tag>
                 <div style="font-size:12px;color:var(--muted);margin-top:4px">{{ row.ai.ai_report }}</div>
               </template>
-              <span v-else style="color:var(--muted)">—</span>
+              <el-button v-else size="small" text type="primary"
+                         :loading="aiBusy[row.timestamp]"
+                         @click.stop="requestAI(row)">🤖 请求研判</el-button>
             </template></el-table-column>
           </el-table>
         </div>
@@ -446,6 +448,46 @@ const ReviewPage = {
             g.profile = r.profile;
           } catch (e) {}
         }
+      }
+    }
+
+    // v0.6.7: 待判决项也可按需请求 AI 复核 —— 队列里的事件多为人工升级进来的
+    // （kill/block 进队列），其 T2 置信度常落在闸门之外，本来没有 AI 意见。
+    const aiBusy = ref({});
+    async function requestAI(row) {
+      const ts = row && row.timestamp;
+      if (!ts || aiBusy.value[ts]) return;
+      aiBusy.value = { ...aiBusy.value, [ts]: true };
+      try {
+        const r = await post('/api/alerts/analyze', { ts });
+        if (r && r.status === 'cached' && r.ai) {
+          ElMessage.success('该事件已有研判结果');
+          await load();
+          return;
+        }
+        ElMessage.info('已提交 AI 复核，约需 10–20 秒');
+        let tries = 0;
+        const timer = setInterval(async () => {
+          tries += 1;
+          try {
+            const d = await get('/api/alerts/detail?ts=' + encodeURIComponent(ts));
+            if (d && d.ai) {
+              clearInterval(timer);
+              aiBusy.value = { ...aiBusy.value, [ts]: false };
+              ElMessage.success('AI 复核完成');
+              await load();
+              return;
+            }
+          } catch (e) { /* 轮询抖动忽略 */ }
+          if (tries >= 15) {
+            clearInterval(timer);
+            aiBusy.value = { ...aiBusy.value, [ts]: false };
+            ElMessage.warning('AI 复核超时，稍后可刷新队列查看');
+          }
+        }, 3000);
+      } catch (e) {
+        ElMessage.error(e.message);
+        aiBusy.value = { ...aiBusy.value, [ts]: false };
       }
     }
 
@@ -571,6 +613,7 @@ const ReviewPage = {
     usePolling(load, 3000);
     return {
       groups, decide: doConfirm, fmtTime, openNames, onExpand,
+      aiBusy, requestAI,
       selectedIds, allSelected, toggleSelect, toggleSelectAll, isSelected,
       confirmDlg, openConfirm, doConfirm,
       ignoreDlg, openIgnore, openBatchIgnore, doIgnore, batchDecide,
