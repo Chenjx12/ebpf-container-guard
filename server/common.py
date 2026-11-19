@@ -279,6 +279,21 @@ def load_ai_profiles() -> dict:
     return {'active': active, 'profiles': out}
 
 
+def get_profile_api_key(name: str = "") -> str:
+    """返回指定配置（默认 active）的明文 api_key；找不到返回 ''。
+
+    面板「获取模型」时前端只持有掩码（ai.api_key 为空），
+    需要回落到已保存的配置才能调用 /models。
+    """
+    try:
+        data = _load_profiles_raw()
+        profiles = data.get('profiles', {}) or {}
+        target = name or data.get('active', '') or next(iter(profiles), '')
+        return (profiles.get(target, {}) or {}).get('api_key', '') or ''
+    except Exception:
+        return ''
+
+
 def save_ai_profile(name: str, cfg: dict) -> tuple:
     """保存命名配置 (key 留空时保留原 key)。"""
     if not name or not cfg.get('base_url'):

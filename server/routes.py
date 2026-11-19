@@ -963,8 +963,19 @@ def delete_profile(name: str, user: dict = write_op):
 
 @router.post("/ai/models")
 def fetch_ai_models(body: dict, user: dict = write_op):
-    models, err = common.fetch_models(body.get("base_url", ""),
-                                      body.get("api_key", ""))
+    """拉取模型列表。
+
+    api_key 留空时回落到当前生效配置里已保存的 key —— 面板只展示掩码
+    (sk-a****)，前端拿不到明文，不回退就必然 401。
+    """
+    key = (body.get("api_key") or "").strip()
+    if not key:
+        key = common.get_profile_api_key(body.get("profile") or "")
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="未填写 API Key，且当前配置中没有已保存的 Key")
+    models, err = common.fetch_models(body.get("base_url", ""), key)
     if err:
         raise HTTPException(status_code=400, detail=err)
     return {"models": models}

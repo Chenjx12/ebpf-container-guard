@@ -696,9 +696,11 @@ const AssetsPage = {
         <el-tag v-if="filterDirty" size="small" type="warning" effect="plain">条件已改, 未应用</el-tag>
         <el-button size="small" type="primary" @click="applyFilter">应用筛选</el-button>
         <el-button size="small" @click="resetTopoFilter">重置</el-button>
+        <el-button size="small" :type="topoOpen ? 'default' : 'success'" @click="toggleTopo">
+          {{ topoOpen ? '收起拓扑 ▲' : '展开拓扑 ▼' }}</el-button>
       </div>
       </div>
-    <div class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
+    <div v-show="topoOpen" class="panel topo-stars" style="position:relative;padding:0;overflow:hidden;border-radius:0 0 10px 10px">
       <div ref="topoRef" style="width:100%;height:420px"></div>
       <div style="position:absolute;top:12px;left:16px;font-size:13px;color:#8ea6c8;pointer-events:none">
         <span style="font-weight:600;color:#cbd5e1">资产拓扑</span>
@@ -719,16 +721,19 @@ const AssetsPage = {
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <h3 style="margin:0">📦 资产清单</h3>
         <el-tag size="small" type="info">{{ unifiedAssets.length }} 项</el-tag>
+        <el-tag size="small" effect="plain" type="info">← 左右拖动底部滚动条查看全部列 →</el-tag>
         <span class="sub" style="font-size:12px;color:var(--muted)">
           k8s {{ assetCounts.k8s }} · Docker {{ assetCounts.docker }}
           <template v-if="assetCounts.both">（同机共存，可按运行时筛选）</template>
         </span>
       </div>
-      <el-table :data="unifiedAssets" size="small" stripe @row-click="openAsset">
-        <el-table-column label="类型" width="86"><template #default="{row}">
+      <el-table :data="unifiedAssets" size="small" stripe :max-height="tableMaxH"
+                class="assets-table" scrollbar-always-on
+                @row-click="openAsset">
+        <el-table-column label="类型" width="86" fixed="left"><template #default="{row}">
           <el-tag size="small" :type="row.kind === 'k8s' ? 'primary' : 'warning'" effect="plain">
             {{ row.kind === 'k8s' ? 'Pod' : '容器' }}</el-tag></template></el-table-column>
-        <el-table-column label="名称" min-width="200"><template #default="{row}">
+        <el-table-column label="名称" min-width="200" fixed="left"><template #default="{row}">
           <span class="mono">{{ row.displayName }}</span>
           <div v-if="row.kind === 'docker' && row.id" style="font-size:11px;color:var(--muted)" class="mono">{{ row.id }}</div>
         </template></el-table-column>
@@ -1659,13 +1664,38 @@ const AssetsPage = {
       queueDialog.selected = all;
       await batchTrust();
     }
+    // v2: 资产清单内滚高度 — 表内滚动时横向滚动条始终留在视口内，
+    // 资产再多也不必先滚到页面底部才能左右拖动 (用户反馈)
+    const tableMaxH = ref(420);
+    // 清单表格高度：拓扑本身尺寸不动 (420px)，收起后把腾出的空间全给表格。
+    // 展开时上方约 440px，收起后约 230px (顶部条 + 筛选行 + 清单标题)。
+    function calcTableH() {
+      const used = topoOpen.value ? 440 : 230;
+      tableMaxH.value = Math.max(420, window.innerHeight - used);
+    }
+    // 拓扑可收起（尺寸不变，只是隐藏），收起后清单吃满剩余高度
+    const topoOpen = ref(localStorage.getItem('assets_topo_open') !== '0');
+    function toggleTopo() {
+      topoOpen.value = !topoOpen.value;
+      localStorage.setItem('assets_topo_open', topoOpen.value ? '1' : '0');
+      calcTableH();
+      if (topoOpen.value) {
+        setTimeout(() => { if (chart) chart.resize(); }, 60);
+      }
+    }
+    function onWinResize() {
+      calcTableH();
+      if (chart) chart.resize();
+    }
     onMounted(() => {
       load();
+      calcTableH();
       state.timer = setInterval(load, 5000);
-      window.addEventListener('resize', () => chart && chart.resize());
+      window.addEventListener('resize', onWinResize);
     });
     onUnmounted(() => {
       clearInterval(state.timer);
+      window.removeEventListener('resize', onWinResize);
       stopBlink();
       if (chart) { chart.dispose(); chart = null; }
     });
@@ -1673,7 +1703,7 @@ const AssetsPage = {
              imageOptions,
              privateSvcOptions, buildTopoDebounced, onPrivateToggle, resetTopoFilter,
              draftFilter, filterDirty, applyFilter,
-             openAsset, openOverride, openRevert,
+             tableMaxH, topoOpen, toggleTopo, openAsset, openOverride, openRevert,
              // v0.6.4: 资产确认闭环 (ADR-050)
              pendingList, canWrite, isAdmin, openQueue, trustAll,
              confirmDialog, openConfirm, doConfirm, doOverride,
@@ -2341,12 +2371,17 @@ const SettingsPage = {
       if (!ai.base_url) { ElMessage.warning('先填 Base URL'); return; }
       loadingModels.value = true;
       try {
-        const r = await post('/api/ai/models', { base_url: ai.base_url, api_key: ai.api_key || '' });
+        const r = await post('/api/ai/models', {
+          base_url: ai.base_url, api_key: ai.api_key || '', profile: ai.name || ''
+        });
         modelOptions.value = r.models || [];
-        if (modelOptions.value.length) {
-          ElMessage.success(`获取到 ${modelOptions.value.length} 个模型，请选择`);
-        } else {
+        if (!modelOptions.value.length) {
           ElMessage.warning('未获取到模型');
+        } else if (ai.model && !modelOptions.value.includes(ai.model)) {
+          ElMessage.warning(
+            `获取到 ${modelOptions.value.length} 个模型，但当前填写的 "${ai.model}" 不在列表里`);
+        } else {
+          ElMessage.success(`获取到 ${modelOptions.value.length} 个模型，请选择`);
         }
       } catch (e) { ElMessage.error(e.message); modelOptions.value = []; }
       loadingModels.value = false;

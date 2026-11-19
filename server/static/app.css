@@ -261,3 +261,26 @@ body {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .sidebar { width: 180px; }
 }
+
+
+/* ---------- 资产清单独有：横向滚动条常显且加粗 ----------
+   列总宽约 1730px，视口装不下；Element Plus 的滚动条默认悬停才出现，
+   且只有 6px 高，很难精准拖住（点偏一点就落到行上触发详情弹窗）。
+   这里常显 + 加粗到 12px，并给左右固定列留出视觉分隔。 */
+.assets-table .el-scrollbar__bar.is-horizontal {
+  height: 12px;
+  opacity: 1 !important;
+  background: transparent;
+}
+.assets-table .el-scrollbar__bar.is-horizontal > div {
+  height: 100%;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, .55);
+}
+.assets-table .el-scrollbar__bar.is-horizontal > div:hover {
+  background: rgba(96, 165, 250, .85);
+}
+.assets-table .el-table__fixed-right::before,
+.assets-table .el-table__fixed::before {
+  background-color: var(--border, #e5e7eb);
+}
