@@ -66,6 +66,7 @@ def verify(files, key=None, quiet=False):
     failures = []          # (文件, 行号, 类型, 说明)
     legacy = []
     frozen = False         # 首次失败后折叠后续细节
+    fail_pos = None        # 失败记录的全局序号（0 基），用于统计后续条数
 
     for path in files:
         name = os.path.basename(path)
@@ -91,6 +92,7 @@ def verify(files, key=None, quiet=False):
 
                 count += 1
                 total += 1
+                pos = total - 1
 
                 if reseed:
                     expect_seq = rec['seq']
@@ -111,14 +113,17 @@ def verify(files, key=None, quiet=False):
                 if seq != expect_seq:
                     failures.append((name, lineno, 'SEQ_GAP',
                                      f'期望 seq={expect_seq}，实际 {seq}（有记录缺失）'))
+                    fail_pos = pos
                     frozen = True
                 elif prev != expect_hash:
                     failures.append((name, lineno, 'CHAIN_BROKEN',
                                      f'prev 与上一条 hash 不一致（上一条被修改或删除）'))
+                    fail_pos = pos
                     frozen = True
                 elif calc != claimed:
                     failures.append((name, lineno, 'HASH_MISMATCH',
                                      f'内容被修改（期望 {claimed[:16]}…，实际 {calc[:16]}…）'))
+                    fail_pos = pos
                     frozen = True
                 else:
                     expect_seq = seq + 1
@@ -134,8 +139,9 @@ def verify(files, key=None, quiet=False):
         print(f"[FAIL] {name}  第 {lineno} 行")
         print(f"       类型：{kind}")
         print(f"       说明：{desc}")
-        if frozen and total > lineno:
-            print(f"       后续记录链全部失效（{total - lineno} 条，自该行之后不再逐条比对）")
+        if frozen and fail_pos is not None and total > fail_pos + 1:
+            print(f"       后续记录链全部失效（{total - fail_pos - 1:,d} 条，"
+                  f"自该行之后不再逐条比对）")
         if len(failures) > 1:
             print(f"       另有 {len(failures) - 1} 处异常已折叠")
         print("-" * 52)

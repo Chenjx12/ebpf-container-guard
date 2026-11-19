@@ -220,7 +220,8 @@ cmd_shot8() {
     echo "  已篡改第 ${line}/${n} 行"
 
     info "③ 复验（应报 HASH_MISMATCH + 文件 + 行号，画面停留 3s）"
-    python3 "$ROOT/tools/verify_chain.py" "$logdir"
+    # 篡改后的校验必然返回 1；此处是**预期失败**，不能让它触发 set -e 中断脚本
+    python3 "$ROOT/tools/verify_chain.py" "$logdir" || true
     sleep 3
     rm -rf "$logdir"
 }
