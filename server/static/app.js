@@ -2548,11 +2548,62 @@ const EventDetailDialog = {
       <p style="font-size:13px;color:var(--muted)">该事件未触发 AI 研判 (矩阵置信度不在 60-85 区间或 AI 未配置)</p>
     </div>
     <template #footer>
+      <!-- v0.6.7: 按需 AI 复核 —— 高置信度(>85)与低置信度(<60)事件不会被
+           T3 自动分析，这里补人工入口；已有结果的场景不显示该按钮。 -->
+      <el-button v-if="canRequestAI" :loading="aiBusy" @click="requestAI">
+        🤖 请求 AI 复核</el-button>
       <el-button v-if="eventDetail.event && eventDetail.event.container_id"
                  type="primary" @click="viewChain">🔗 查看完整攻击链</el-button>
     </template>
   </el-dialog>`,
   setup() {
+    const aiBusy = ref(false);
+
+    // 只在"有事件但拿不到 AI 意见"时出现：常见于 T2 置信度 >85 或 <60。
+    // 行为日志（原始 syscall）无规则语义，不提供该入口。
+    const canRequestAI = computed(() =>
+      !!eventDetail.event && !eventDetail.ai && !eventDetail.event.is_behavior);
+
+    async function requestAI() {
+      const ts = eventDetail.event && eventDetail.event.timestamp;
+      if (!ts || aiBusy.value) return;
+      aiBusy.value = true;
+      try {
+        const r = await post('/api/alerts/analyze', { ts });
+        if (r && r.status === 'cached' && r.ai) {
+          eventDetail.ai = r.ai;
+          eventDetail.aiPending = false;
+          ElMessage.success('该事件已有 AI 研判结果');
+          return;
+        }
+        eventDetail.aiPending = true;
+        ElMessage.info('已提交 AI 复核，约需 10–20 秒');
+        let tries = 0;
+        const timer = setInterval(async () => {
+          tries += 1;
+          try {
+            const d = await get('/api/alerts/detail?ts=' + encodeURIComponent(ts));
+            if (d && d.ai) {
+              eventDetail.ai = d.ai;
+              eventDetail.aiPending = false;
+              clearInterval(timer);
+              ElMessage.success('AI 复核完成');
+              return;
+            }
+          } catch (e) { /* 轮询期间的网络抖动忽略 */ }
+          if (tries >= 15) {
+            clearInterval(timer);
+            eventDetail.aiPending = false;
+            ElMessage.warning('AI 复核超时，稍后重新打开详情可看到结果');
+          }
+        }, 3000);
+      } catch (e) {
+        ElMessage.error(e.message);
+      } finally {
+        aiBusy.value = false;
+      }
+    }
+
     // v0.5.8: 跳转攻击链页面
     function viewChain() {
       const cid = eventDetail.event.container_id;
@@ -2560,7 +2611,7 @@ const EventDetailDialog = {
       // v0.5.8: 容器全周期 — 只传 container, 后端取最近告警为锚点
       location.hash = '#/chain?container=' + encodeURIComponent(cid);
     }
-    return { eventDetail, sevTag, fmtTime, viewChain };
+    return { eventDetail, sevTag, fmtTime, viewChain, aiBusy, canRequestAI, requestAI };
   },
 };
 

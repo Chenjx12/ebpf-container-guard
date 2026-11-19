@@ -20,6 +20,7 @@ v0.6.3 (ADR-050) 资产分级 + 状态机:
 """
 
 import sys
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -49,6 +50,11 @@ _ASSET_STORE = AssetStore(
 read_any = Depends(require_role("analyst"))
 write_op = Depends(require_role("operator"))
 admin_only = Depends(require_role("admin"))
+
+
+def _row_to_dict(r) -> dict:
+    """pandas Series → 纯 dict（时间戳转字符串，避免 JSON 序列化失败）。"""
+    return {k: (str(v) if hasattr(v, 'isoformat') else v) for k, v in r.to_dict().items()}
 
 
 def _norm_ts(ts) -> str:
@@ -177,6 +183,63 @@ def alerts(limit: int = 50, filter: str = "all", container: str = "",
     return {"events": records, "netblocks": []}
 
 
+def _run_manual_ai(norm_ts: str, row: dict):
+    """后台线程：对单条事件做 AI 复核，结果按 ai_results.log 的既有 schema 追加。
+
+    失败不抛出——前台靠轮询 ai_results.log 判定；写入 trigger=manual 便于区分
+    自动闸门触发与人工触发（论文里要分开统计）。
+    """
+    import json as _json
+    import time as _time
+    try:
+        from detector.ai_analyzer import AIAnalyzer  # src/ 已在模块级注入
+        evt = {
+            'container_id': row.get('container_id', ''),
+            'event_type': row.get('event_type', ''),
+            'comm': row.get('comm') or (row.get('event') or {}).get('comm'),
+            'pid': row.get('pid') or (row.get('event') or {}).get('pid'),
+            'target_path': row.get('target_path') or (row.get('event') or {}).get('target_path'),
+            'fstype': row.get('fstype'), 'target_pid': row.get('target_pid'),
+            'request': row.get('request'), 'daddr': row.get('daddr'),
+            'dport': row.get('dport'),
+        }
+        alert = {
+            'rule_name': row.get('rule') or row.get('event_type', ''),
+            'attack_vector': row.get('tier2_vector') or row.get('rule') or 'unknown',
+            'severity': row.get('severity', ''),
+            'suggested_action': row.get('action') or 'log_only',
+            'event': evt,
+        }
+        try:
+            base_conf = int(float(row.get('tier2_confidence') or 0))
+        except (TypeError, ValueError):
+            base_conf = 0
+
+        analyzer = AIAnalyzer(str(common.AI_CONFIG_PATH))
+        result = analyzer.analyze(alert, [], base_conf)
+        if result is None:
+            return
+
+        entry = {
+            'timestamp': _time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'event_ts': norm_ts,
+            'container_id': evt['container_id'],
+            'rule': alert['rule_name'],
+            'attack_vector': alert['attack_vector'],
+            'ai_verdict': 'true_positive' if result.is_attack else 'false_positive',
+            'ai_confidence': result.confidence,
+            'ai_technique': result.technique,
+            'ai_report': result.report,
+            'ai_suggested_action': result.suggested_action,
+            'suggested_rule': result.suggested_rule,
+            'trigger': 'manual',
+        }
+        with open(common.AI_RESULTS_LOG, 'a', encoding='utf-8') as f:
+            f.write(_json.dumps(entry, ensure_ascii=False) + '\n')
+    except Exception as e:  # 后台线程不能把异常抛给请求
+        print(f"[Panel] manual AI analysis failed: {e}", file=sys.stderr)
+
+
 @router.get("/alerts/detail")
 def alert_detail(ts: str = "", container_id: str = "", user: dict = read_any):
     """单事件详情 + 关联 AI 研判 (v0.5.6)。
@@ -250,6 +313,43 @@ def alert_detail(ts: str = "", container_id: str = "", user: dict = read_any):
 # Review queue
 # ================================================================
 
+
+
+@router.post("/alerts/analyze")
+def analyze_alert(body: dict, user: dict = write_op):
+    """按需请求 AI 复核（v0.6.7）。
+
+    存在的理由：T3 只对 T2 置信度落在闭区间 [60, 85] 的告警自动触发，
+    高置信度（>85，如 procfs mount 88）与低置信度（<60）的事件永远拿不到
+    AI 意见——而恰恰是高置信度事件最值得复核。本接口补上人工入口。
+
+    - 已有该 event_ts 的研判结果 → 直接返回 cached，不重复计费
+    - 否则起后台线程分析（实测约 18s），立即返回 pending，前端轮询 detail
+    """
+    ts = (body.get("ts") or "").strip()
+    if not ts:
+        raise HTTPException(status_code=400, detail="缺少 ts")
+    norm_ts = _norm_ts(ts)
+
+    ai_df = common.load_ai_results()
+    if not ai_df.empty and 'event_ts' in ai_df.columns:
+        m = ai_df[ai_df['event_ts'].map(_norm_ts) == norm_ts]
+        if len(m):
+            return {"status": "cached", "ai": _row_to_dict(m.iloc[-1])}
+
+    events = common.load_events(limit=5000)
+    if events.empty:
+        raise HTTPException(status_code=404, detail="事件不存在")
+    row = None
+    for _, r in events.iterrows():
+        if _norm_ts(r.get('timestamp')) == norm_ts:
+            row = _row_to_dict(r)
+            break
+    if row is None:
+        raise HTTPException(status_code=404, detail="事件不存在（可能已滚出最近 5000 条）")
+
+    threading.Thread(target=_run_manual_ai, args=(norm_ts, row), daemon=True).start()
+    return {"status": "pending"}
 
 @router.get("/review/queue")
 def review_queue(user: dict = read_any):
