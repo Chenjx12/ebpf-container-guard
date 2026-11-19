@@ -226,6 +226,18 @@ class TestMigrationEquivalence:
         assert len(migrated) == len(old_rules)
         for old, new in zip(old_rules, migrated):
             assert old["name"] == new["name"]
+            if old["name"] == "nsenter_escape":
+                # v0.6.6 实测修正: 原条件 comm=nsenter AND target_path=/usr/bin/nsenter
+                # 两个字段从不在同一条 execve 记录中共现（见 config/rules.yaml 注释），
+                # 导致漏报。人工去掉 comm 条件并把路径扩为主流安装位置 —— 属规则增强
+                # 非迁移产物，特判：验证「路径是超集 + comm 已移除」。
+                migrated_cond = migrate_rule(old)["condition"]
+                old_paths = migrated_cond["all"][1]["target_path"]
+                new_cond = new["condition"]
+                assert set(old_paths) <= set(new_cond["target_path"]), \
+                    f"nsenter_escape 路径应为超集: {old_paths} ⊄ {new_cond['target_path']}"
+                assert "comm" not in new_cond, "nsenter_escape 不应再依赖 comm"
+                continue
             if old["name"] == "reverse_shell":
                 # 人工增强: 排除列表扩充, 迁移逻辑本身应一致 (排除是超集)
                 migrated_cond = migrate_rule(old)["condition"]
