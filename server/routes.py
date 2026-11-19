@@ -319,11 +319,16 @@ def review_queue(user: dict = read_any):
     前端展开时调 /review/profile 按需加载。"""
     events = common.load_events(limit=2000)
     ai = common.load_ai_results()
+    # v0.6.7 修复: events 的时间戳经 pandas 后是 ...ss.uuuuuu（微秒），
+    # ai_results 里是 ...ss.uuu（毫秒）——直接当 key 查永远对不上，
+    # 表现为队列「AI 研判」列恒为 —。两侧统一走 _norm_ts。
     ai_by_ts = {}
     if not ai.empty and 'event_ts' in ai.columns:
-        ai_by_ts = {r['event_ts']: r
-                    for r in ai.to_dict(orient='records')
-                    if r.get('event_ts')}
+        # 必须走 _df_records: 直接 to_dict 会把 NaN 带进响应，
+        # JSON 序列化抛 "Out of range float values are not JSON compliant"
+        for r in _df_records(ai):
+            if r.get('event_ts'):
+                ai_by_ts[_norm_ts(r['event_ts'])] = r
 
     if events.empty or 'state' not in events.columns:
         return {"groups": []}
@@ -331,10 +336,24 @@ def review_queue(user: dict = read_any):
     # v0.6.0: 排除已判决的容器 (decisions.log 有记录的不再显示)
     decisions = common.load_decisions()
     decided_cids = set()
+    decided_events = set()
     if not decisions.empty and 'container_id' in decisions.columns:
-        decided_cids = set(decisions['container_id'].dropna().astype(str))
+        # 容器级判决 → 整组消失；事件级判决（带 event_ts）→ 只剔除那一条
+        ev_col = decisions['event_ts'] if 'event_ts' in decisions.columns else None
+        if ev_col is not None:
+            by_container = decisions[ev_col.isna()]
+            by_event = decisions[ev_col.notna()]
+        else:
+            by_container, by_event = decisions, decisions.iloc[0:0]
+        decided_cids = set(by_container['container_id'].dropna().astype(str))
+        for _, d in by_event.iterrows():
+            decided_events.add((str(d['container_id']), _norm_ts(d['event_ts'])))
     if decided_cids:
         pend = pend[~pend['container_id'].astype(str).isin(decided_cids)]
+    if decided_events and not pend.empty:
+        pend = pend[[(str(r.get('container_id')),
+                      _norm_ts(r.get('timestamp')))
+                     not in decided_events for r in pend.to_dict('records')]]
     # v0.6.4: 白名单过滤 — 命中有效白名单 (comm/容器) 的事件不进队列
     # (告警已按用户意图放行; 面板层过滤立即生效, guard 检出层抑制留后续迭代)
     wl = common.whitelist_list(active_only=True)
@@ -362,7 +381,7 @@ def review_queue(user: dict = read_any):
             items.append({
                 **evt,
                 'event_ts': ts_str,
-                'ai': ai_by_ts.get(ts_str),
+                'ai': ai_by_ts.get(_norm_ts(ts_str)),
             })
         groups.append({
             "container_id": cid,
@@ -389,6 +408,7 @@ def review_decision(body: dict, user: dict = write_op):
     note 必填理由; mode 由前端标注 manual|whitelist。
     """
     cid = body.get("container_id") or ""
+    ts = (body.get("ts") or "").strip()
     decision = body.get("decision") or ""
     if decision not in ('confirmed', 'dismissed', 'ignored'):
         raise HTTPException(status_code=400,
@@ -398,7 +418,8 @@ def review_decision(body: dict, user: dict = write_op):
     ok, err = common.record_decision(
         cid, decision, int(body.get("event_count", 1)),
         note=(body.get("note") or "").strip(),
-        mode=(body.get("mode") or "manual"))
+        mode=(body.get("mode") or "manual"),
+        event_ts=_norm_ts(ts) if ts else None)
     if not ok:
         raise HTTPException(status_code=500, detail=err)
     return {"ok": True}

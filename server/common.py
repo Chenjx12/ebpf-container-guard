@@ -605,7 +605,8 @@ def save_ai_config(cfg: dict) -> tuple:
 
 
 def record_decision(container_id: str, decision: str, event_count: int = 1,
-                    scope: str = "container", note: str = "", mode: str = "manual"):
+                    scope: str = "container", note: str = "", mode: str = "manual",
+                    event_ts: str = None):
     """Append a verdict to decisions.log (DecisionExecutor polls it every 2s).
 
     v0.5.6: 写失败返回 (ok=False, err) — 面板进程可能无权写 k8s 日志目录
@@ -617,11 +618,15 @@ def record_decision(container_id: str, decision: str, event_count: int = 1,
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
         'container_id': container_id,
         'decision': decision,
-        'scope': scope,
+        # v0.6.7: 带 event_ts 即事件级判决（只驳回/确认这一条），
+        # 不带则是容器级（整批），消费方按 scope 区分
+        'scope': 'event' if event_ts else scope,
         'event_count': event_count,
         'mode': mode,
         'note': note,
     }
+    if event_ts:
+        entry['event_ts'] = event_ts
     try:
         DECISIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(DECISIONS_LOG, 'a') as f:

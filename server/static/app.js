@@ -2594,6 +2594,9 @@ const EventDetailDialog = {
       <p style="font-size:13px;color:var(--muted)">该事件未触发 AI 研判 (矩阵置信度不在 60-85 区间或 AI 未配置)</p>
     </div>
     <template #footer>
+      <!-- v0.6.7: 事件级判决 —— 只影响这一条，不动同容器其它事件 -->
+      <el-button v-if="canJudge" type="danger" size="small" @click="judge('confirmed')">确认攻击</el-button>
+      <el-button v-if="canJudge" type="warning" size="small" @click="judge('dismissed')">判为误报</el-button>
       <!-- v0.6.7: 按需 AI 复核 —— 高置信度(>85)与低置信度(<60)事件不会被
            T3 自动分析，这里补人工入口；已有结果的场景不显示该按钮。 -->
       <el-button v-if="canRequestAI" :loading="aiBusy" @click="requestAI">
@@ -2609,6 +2612,45 @@ const EventDetailDialog = {
     // 行为日志（原始 syscall）无规则语义，不提供该入口。
     const canRequestAI = computed(() =>
       !!eventDetail.event && !eventDetail.ai && !eventDetail.event.is_behavior);
+
+    // 事件级判决入口：行为日志（原始 syscall）没有规则语义，不提供
+    const canJudge = computed(() =>
+      !!eventDetail.event && !eventDetail.event.is_behavior && !!eventDetail.event.rule);
+
+    async function judge(decision) {
+      const ev = eventDetail.event || {};
+      const ts = ev.timestamp;
+      const cid = ev.container_id;
+      if (!ts || !cid) return;
+      let note = '';
+      try {
+        if (decision === 'dismissed') {
+          const r = await ElMessageBox.prompt(
+            '请填写判为误报的理由：会写入判决留痕，并作为「该行为正常」的样本供 AI 基线学习。',
+            '判为误报',
+            { inputPlaceholder: '例如：容器内 bash 启动读取 /etc/passwd，属正常行为',
+              inputValidator: v => (!!(v || '').trim() || '理由必填'),
+              confirmButtonText: '提交', cancelButtonText: '取消' });
+          note = (r.value || '').trim();
+        } else {
+          await ElMessageBox.confirm(
+            '确认该事件为真实攻击？确认后 DecisionExecutor 会对该容器执行响应动作。',
+            '确认攻击', { type: 'warning',
+                          confirmButtonText: '确认攻击', cancelButtonText: '取消' });
+        }
+      } catch (e) {
+        return;   // 用户取消
+      }
+      try {
+        await post('/api/review/decision', {
+          container_id: cid, ts, decision, event_count: 1, note,
+        });
+        ElMessage.success(decision === 'confirmed' ? '已确认攻击' : '已判为误报');
+        eventDetail.show = false;   // 队列 3s 轮询会自动刷新
+      } catch (e) {
+        ElMessage.error(e.message);
+      }
+    }
 
     async function requestAI() {
       const ts = eventDetail.event && eventDetail.event.timestamp;
@@ -2657,7 +2699,8 @@ const EventDetailDialog = {
       // v0.5.8: 容器全周期 — 只传 container, 后端取最近告警为锚点
       location.hash = '#/chain?container=' + encodeURIComponent(cid);
     }
-    return { eventDetail, sevTag, fmtTime, viewChain, aiBusy, canRequestAI, requestAI };
+    return { eventDetail, sevTag, fmtTime, viewChain, aiBusy, canRequestAI, requestAI,
+             canJudge, judge };
   },
 };
 
