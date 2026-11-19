@@ -19,6 +19,7 @@ v0.6.3 (ADR-050) 资产分级 + 状态机:
     status_transition 留痕可查 (v0.6.4 前端接入)
 """
 
+import math
 import sys
 import threading
 from pathlib import Path
@@ -53,8 +54,24 @@ admin_only = Depends(require_role("admin"))
 
 
 def _row_to_dict(r) -> dict:
-    """pandas Series → 纯 dict（时间戳转字符串，避免 JSON 序列化失败）。"""
-    return {k: (str(v) if hasattr(v, 'isoformat') else v) for k, v in r.to_dict().items()}
+    """pandas Series → JSON 安全 dict。
+
+    三件事：时间戳转字符串、NaN/NaT 转 None（否则 json.dumps 抛
+    "Out of range float values are not JSON compliant" 直接 500）、其余原样。
+    """
+    out = {}
+    for k, v in r.to_dict().items():
+        if v is None:
+            out[k] = None
+        elif isinstance(v, float) and math.isnan(v):
+            out[k] = None
+        elif v is pd.NaT:
+            out[k] = None
+        elif hasattr(v, 'isoformat'):
+            out[k] = str(v)
+        else:
+            out[k] = v
+    return out
 
 
 def _norm_ts(ts) -> str:
@@ -256,8 +273,7 @@ def alert_detail(ts: str = "", container_id: str = "", user: dict = read_any):
     row = None
     for _, r in events.iterrows():
         if _norm_ts(r.get('timestamp')) == norm_ts:
-            row = {k: (str(v) if hasattr(v, 'isoformat') else v)
-                   for k, v in r.to_dict().items()}
+            row = _row_to_dict(r)
             break
     ai = None
     if row:
@@ -265,8 +281,7 @@ def alert_detail(ts: str = "", container_id: str = "", user: dict = read_any):
         if not ai_df.empty and 'event_ts' in ai_df.columns:
             m = ai_df[ai_df['event_ts'].map(_norm_ts) == norm_ts]
             if len(m):
-                ai = {k: (str(v) if hasattr(v, 'isoformat') else v)
-                      for k, v in m.iloc[-1].to_dict().items()}
+                ai = _row_to_dict(m.iloc[-1])
     return {"event": row, "ai": ai}
 
 
