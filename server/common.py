@@ -479,7 +479,7 @@ def _map_falco_fields(node):
 
 
 def append_rule_to_yaml(rule: dict, source: str = "ai_suggestion",
-                        user: str = "") -> bool:
+                        user: str = "") -> tuple[bool, str | None]:
     """Append a rule to rules.yaml (guard hot-reloads within 3s).
 
     Returns (ok, error_msg). Audits to rules_audit.log.
