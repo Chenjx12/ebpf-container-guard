@@ -19,3 +19,13 @@ netblock_backend: "mixed"  # xdp(入站) + iptables(出站)
 # 全量行为日志（v0.3.10）：记录所有 syscall 事件到 behaviors.log
 # behavior_log (v0.3.10): record ALL syscall events to behaviors.log
 behavior_log: true
+
+# 行为日志的完整性保护与保留期 (v2 取证改造)
+# integrity: hash = 链式哈希(任何人可校验) | hmac = 带密钥(防重算链伪造)
+#   hmac 模式需要 key 文件 (32 字节, 权限 0600)
+behavior_log_integrity: hash
+behavior_log_hmac_key: /etc/ebpf-guard/chain.key
+
+# 保留天数: 普通模式 7 天; 取证模式(hmac)自动切到 90 天
+behavior_log_retain_days: 7
+behavior_log_retain_days_forensic: 90

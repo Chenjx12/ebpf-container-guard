@@ -370,10 +370,16 @@ class ContainerEscapeMonitor:
         self._ai_cfg_watcher.start()
 
         # 13. Initialize BehaviorLogger (v0.3.12)
+        _bl_cfg = self._get_behavior_log_config()
         self.behavior_logger = BehaviorLogger(
             log_path=str(script_dir / "logs" / "behaviors.log"),
-            enabled=self._get_behavior_log_enabled())
-        print(f"  [Behavior] enabled: {self.behavior_logger.enabled}")
+            enabled=_bl_cfg['enabled'],
+            retain_days=_bl_cfg['retain_days'],
+            integrity_mode=_bl_cfg['integrity_mode'],
+            key_path=_bl_cfg['key_path'])
+        print(f"  [Behavior] enabled: {self.behavior_logger.enabled}"
+              f" | 完整性: {_bl_cfg['integrity_mode']}"
+              f" | 保留: {_bl_cfg['retain_days']} 天")
 
         print("\n========================================")
         print("  eBPF Container Guard v0.6.0")
@@ -736,14 +742,38 @@ class ContainerEscapeMonitor:
 
     def _get_behavior_log_enabled(self) -> bool:
         """Read behavior_log toggle from monitor.yaml (v0.3.12)."""
+        return self._get_behavior_log_config()['enabled']
+
+    def _get_behavior_log_config(self) -> dict:
+        """行为日志配置 (v2 取证改造): 开关 / 保留期 / 完整性模式。
+
+        monitor.yaml 键:
+            behavior_log: true
+            behavior_log_integrity: hash | hmac   (hmac 需 behavior_log_hmac_key)
+            behavior_log_hmac_key: /etc/ebpf-guard/chain.key
+            behavior_log_retain_days: 7           (普通保留)
+            behavior_log_retain_days_forensic: 90 (取证模式保留)
+
+        取证模式 = integrity=hmac 时自动启用延长保留；也可显式用
+        behavior_log_retain_days 覆盖。
+        """
         try:
             import yaml
             with open(Path(__file__).parent / "config" / "monitor.yaml",
                       'r') as f:
                 cfg = yaml.safe_load(f) or {}
-            return cfg.get('behavior_log', True)
         except Exception:
-            return True
+            cfg = {}
+        mode = (cfg.get('behavior_log_integrity') or 'hash').lower()
+        retain = cfg.get('behavior_log_retain_days', 7)
+        if mode == 'hmac':
+            retain = cfg.get('behavior_log_retain_days_forensic', retain)
+        return {
+            'enabled': cfg.get('behavior_log', True),
+            'retain_days': int(retain),
+            'integrity_mode': mode,
+            'key_path': cfg.get('behavior_log_hmac_key'),
+        }
 
     def _get_xdp_iface(self) -> str:
         """XDP attach interface — docker0 (container traffic) or eth0."""
